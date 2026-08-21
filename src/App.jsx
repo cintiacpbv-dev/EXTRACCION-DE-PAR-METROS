@@ -4,6 +4,7 @@ import ParamTable from "./components/ParamTable.jsx";
 import DocumentChips from "./components/DocumentChips.jsx";
 import MacroPanel from "./components/MacroPanel.jsx";
 import ProductLibrary from "./components/ProductLibrary.jsx";
+import PersonnelPanel from "./components/PersonnelPanel.jsx";
 import {
   IconCloud,
   IconDrive,
@@ -30,7 +31,14 @@ import {
 } from "./lib/storage.js";
 import { supabaseEnabled } from "./lib/supabaseClient.js";
 import { exportProductToExcel, tableToClipboardText } from "./lib/exportExcel.js";
-import { buildTable, listProducts, listStages, summarizeProducts, withFamilies } from "./lib/model.js";
+import {
+  aggregatePersonnel,
+  buildTable,
+  listProducts,
+  listStages,
+  summarizeProducts,
+  withFamilies,
+} from "./lib/model.js";
 import "./App.css";
 
 // La URL refleja qué se está viendo (#/  ·  #/producto/<nombre>) para poder
@@ -131,6 +139,11 @@ export default function App() {
     [docs, productoActivo, stageActiva, onlyCritical]
   );
 
+  const personnel = useMemo(
+    () => (productoActivo && stageActiva ? aggregatePersonnel(docs, productoActivo, stageActiva) : null),
+    [docs, productoActivo, stageActiva]
+  );
+
   const productDocs = useMemo(
     () => docs.filter((d) => d.familia === productoActivo),
     [docs, productoActivo]
@@ -197,6 +210,7 @@ export default function App() {
           fileName: result.fileName,
           meta: result.meta,
           params: result.params,
+          personnel: result.personnel,
           uploadedAt: new Date().toISOString(),
         };
         next = upsertDocument(next, doc);
@@ -226,10 +240,17 @@ export default function App() {
     setBusyLabel("");
 
     if (supabaseEnabled) {
+      let avisoMigracion = false;
       for (const doc of nuevos) {
         const res = await syncDocumentToSupabase(doc);
         if (!res.ok && !res.skipped) {
           pushMessage(`No se pudo guardar en Supabase (${doc.stage} lote ${doc.lote}): ${res.error}`, "error");
+        } else if (res.personnelWarning && !avisoMigracion) {
+          avisoMigracion = true;
+          pushMessage(
+            "Los parámetros se guardaron en Supabase, pero falta ejecutar supabase_migration_v3.sql para guardar también los participantes (operarios/supervisores).",
+            "info"
+          );
         }
       }
     }
@@ -386,6 +407,8 @@ export default function App() {
 
               {!blank && <DocumentChips documents={productDocs} onRemove={handleRemove} />}
             </section>
+
+            {!blank && <PersonnelPanel personnel={personnel} stage={stageActiva} />}
 
             {!blank && (
               <section className="card card--table">

@@ -182,3 +182,21 @@ export function IconClock(props) {
     </Svg>
   );
 }
+
+export function IconUser(props) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" />
+    </Svg>
+  );
+}
+
+export function IconShieldCheck(props) {
+  return (
+    <Svg {...props}>
+      <path d="M12 3.5 5 6v5.5c0 4.2 2.9 7.3 7 9 4.1-1.7 7-4.8 7-9V6z" />
+      <path d="m9 12 2 2 4-4.5" />
+    </Svg>
+  );
+}

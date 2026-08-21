@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { buildTable, listStages } from "./model.js";
+import { aggregatePersonnel, buildTable, listStages } from "./model.js";
 
 const COL_PARAM = 0;
 const COL_SETPOINT = 1;
@@ -126,15 +126,40 @@ function buildStageSheet(table) {
   return ws;
 }
 
-/** Construye el libro completo: una hoja por etapa del producto. */
+/**
+ * Hoja "Participantes": una fila por persona y etapa, con su rol (Operario,
+ * bajo "Realizado / Por", o Supervisor, bajo "VB") y cuántas veces aparece
+ * firmando en los lotes cargados.
+ */
+function buildPersonnelSheet(documents, producto, stages) {
+  const rows = [["Etapa", "Rol", "Nombre", "Intervenciones"]];
+
+  for (const stage of stages) {
+    const { operarios, supervisores } = aggregatePersonnel(documents, producto, stage);
+    for (const p of operarios) rows.push([stage, "Operario (Realizado / Por)", p.name, p.count]);
+    for (const p of supervisores) rows.push([stage, "Supervisor (VB)", p.name, p.count]);
+  }
+
+  if (rows.length === 1) return null;
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [{ wch: 18 }, { wch: 26 }, { wch: 20 }, { wch: 15 }];
+  return ws;
+}
+
+/** Construye el libro completo: una hoja por etapa del producto, más participantes. */
 export function buildWorkbook(documents, producto, options) {
   const wb = XLSX.utils.book_new();
+  const stages = listStages(documents, producto);
 
-  for (const stage of listStages(documents, producto)) {
+  for (const stage of stages) {
     const table = buildTable(documents, producto, stage, options);
     if (table.lotes.length === 0 || table.rowCount === 0) continue;
     XLSX.utils.book_append_sheet(wb, buildStageSheet(table), safeSheetName(stage));
   }
+
+  const personnelSheet = buildPersonnelSheet(documents, producto, stages);
+  if (personnelSheet) XLSX.utils.book_append_sheet(wb, personnelSheet, "Participantes");
 
   return wb;
 }

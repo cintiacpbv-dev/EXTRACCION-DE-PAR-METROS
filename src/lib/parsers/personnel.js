@@ -1,0 +1,96 @@
+// Extrae quién participó en cada paso del registro, diferenciando el
+// recuadro "Realizado / Por" (operarios que ejecutan) del recuadro "VB"
+// (supervisores que dan el visto bueno).
+//
+// El formulario dibuja ambos recuadros como dos columnas angostas, una junto
+// a la otra, a la derecha de cada paso. Cuando un nombre de usuario no cabe
+// en el ancho de la columna, el PDF lo corta a la mitad SIN espacio ni guión
+// y continúa en el renglón siguiente en la misma columna — por eso un
+// fragmento de 1 a 3 caracteres que sigue a otro nombre en la misma columna
+// se trata como la continuación de ese nombre, no como una persona aparte.
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{1,2}:\d{2}(:\d{2})?$/;
+const NAME_TOKEN_RE = /^[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ0-9]{0,17}$/;
+const SKIP_WORDS = new Set(["POR", "VB", "REALIZADO"]);
+
+// Distancia, en puntos, entre el inicio de la columna "VB" y el límite que
+// separa ambas columnas. Los nombres del recuadro "Realizado" quedan bien a
+// la izquierda de "VB - 20"; los del recuadro "VB" quedan a la derecha.
+const COLUMN_MARGIN = 20;
+
+// Cuántos renglones como máximo se revisan después de "Realizado" antes de
+// dar por cerrado el bloque, aunque no se haya encontrado el corte natural.
+const MAX_BLOCK_ROWS = 8;
+
+// Los recuadros de firma empiezan siempre a esta altura de la página
+// (Realizado/VB aparecen entre x=476 y x=535). Cuando la instrucción del
+// paso es larga, su texto normal (que arranca en x=78) sigue ocupando
+// renglones propios varias líneas después de "Realizado", en la MISMA fila
+// que a veces ya trae nombres — por eso no se corta el bloque por fila, sino
+// que se descarta segmento por segmento todo lo que quede a la izquierda de
+// este límite.
+const SIGNATURE_X_MIN = 465;
+
+function isNameToken(tok) {
+  return NAME_TOKEN_RE.test(tok) && !SKIP_WORDS.has(tok) && !DATE_RE.test(tok) && !TIME_RE.test(tok);
+}
+
+/** Une los fragmentos de una misma columna en nombres completos. */
+function mergeFragments(tokens) {
+  const names = [];
+  for (const tok of tokens) {
+    if (tok.length <= 3 && names.length > 0) {
+      names[names.length - 1] += tok;
+    } else {
+      names.push(tok);
+    }
+  }
+  return names;
+}
+
+function addAll(counter, names) {
+  for (const name of names) {
+    counter.set(name, (counter.get(name) || 0) + 1);
+  }
+}
+
+export function detectPersonnel(pages) {
+  const operarios = new Map();
+  const supervisores = new Map();
+
+  for (const page of pages) {
+    const lines = page.lines;
+
+    for (let i = 0; i < lines.length; i++) {
+      const realizadoSeg = lines[i].segments.find((s) => s.str === "Realizado");
+      if (!realizadoSeg) continue;
+
+      const vbSeg = lines[i].segments.find((s) => s.str === "VB");
+      const threshold = vbSeg ? vbSeg.x - COLUMN_MARGIN : Infinity;
+
+      const opTokens = [];
+      const supTokens = [];
+
+      for (let j = i + 1, rows = 0; j < lines.length && rows < MAX_BLOCK_ROWS; j++, rows++) {
+        const segs = lines[j].segments;
+        if (segs.some((s) => s.str === "Realizado")) break; // empieza el siguiente bloque
+
+        for (const seg of segs) {
+          if (seg.x < SIGNATURE_X_MIN) continue; // texto normal del paso, no es del recuadro
+          const tok = seg.str.trim();
+          if (!tok || !isNameToken(tok)) continue;
+          (seg.x >= threshold ? supTokens : opTokens).push(tok);
+        }
+      }
+
+      addAll(operarios, mergeFragments(opTokens));
+      if (vbSeg) addAll(supervisores, mergeFragments(supTokens));
+    }
+  }
+
+  const toList = (counter) =>
+    [...counter.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name));
+
+  return { operarios: toList(operarios), supervisores: toList(supervisores) };
+}

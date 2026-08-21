@@ -87,7 +87,38 @@ export async function syncDocumentToSupabase(doc) {
     if (error) return { ok: false, error: error.message };
   }
 
-  return { ok: true, batchId: batchRow.id };
+  // Los participantes se guardan en una tabla aparte, añadida después de la
+  // primera versión del esquema (supabase_migration_v3.sql). Si un proyecto
+  // todavía no corrió esa migración la tabla no existe: se avisa pero no se
+  // hace fallar el guardado de los parámetros, que es lo esencial.
+  let personnelWarning = null;
+  const { error: delPersonnelErr } = await supabase
+    .from("batch_personnel")
+    .delete()
+    .eq("batch_id", batchRow.id)
+    .eq("stage", doc.stage);
+
+  if (delPersonnelErr) {
+    personnelWarning = delPersonnelErr.message;
+  } else {
+    const personnelRows = [
+      ...(doc.personnel?.operarios || []).map((p) => ({ ...p, role: "operario" })),
+      ...(doc.personnel?.supervisores || []).map((p) => ({ ...p, role: "supervisor" })),
+    ].map((p) => ({
+      batch_id: batchRow.id,
+      stage: doc.stage,
+      role: p.role,
+      name: p.name,
+      count: p.count,
+    }));
+
+    if (personnelRows.length > 0) {
+      const { error } = await supabase.from("batch_personnel").insert(personnelRows);
+      if (error) personnelWarning = error.message;
+    }
+  }
+
+  return { ok: true, batchId: batchRow.id, personnelWarning };
 }
 
 export async function deleteDocumentFromSupabase(doc) {
@@ -102,8 +133,13 @@ export async function deleteDocumentFromSupabase(doc) {
     .delete()
     .eq("batch_id", batchRow.id)
     .eq("stage", doc.stage);
+  if (delErr) return { ok: false, error: delErr.message };
 
-  return delErr ? { ok: false, error: delErr.message } : { ok: true };
+  // Best-effort: si batch_personnel no existe todavía (falta correr la
+  // migración v3), no hace fallar el borrado de los parámetros.
+  await supabase.from("batch_personnel").delete().eq("batch_id", batchRow.id).eq("stage", doc.stage);
+
+  return { ok: true };
 }
 
 /** Reconstruye la colección de documentos a partir de lo guardado en Supabase. */
@@ -119,8 +155,29 @@ export async function loadDocumentsFromSupabase() {
     .order("sort_order", { ascending: true });
   if (valErr) return [];
 
+  // batch_personnel es best-effort: si el proyecto todavía no corrió la
+  // migración v3, se sigue cargando todo lo demás con normalidad.
+  const { data: personnelRows } = await supabase.from("batch_personnel").select("*");
+
   const byId = new Map(batchRows.map((b) => [b.id, b]));
   const docs = new Map();
+
+  const ensureDoc = (batch, stage, fileName) => {
+    const key = slotKey({ producto: batch.producto, lote: batch.lote, stage });
+    if (!docs.has(key)) {
+      docs.set(key, {
+        producto: batch.producto,
+        lote: batch.lote,
+        stage,
+        fileName,
+        meta: { producto: batch.producto, lote: batch.lote, stage },
+        params: [],
+        personnel: { operarios: [], supervisores: [] },
+        uploadedAt: batch.updated_at || batch.created_at || null,
+      });
+    }
+    return docs.get(key);
+  };
 
   for (const row of valueRows || []) {
     const batch = byId.get(row.batch_id);
@@ -128,20 +185,7 @@ export async function loadDocumentsFromSupabase() {
 
     // Misma casilla (primera palabra + lote + etapa) que pudo haberse llenado
     // desde más de una fila de "batches" si el nombre del producto varió.
-    const key = slotKey({ producto: batch.producto, lote: batch.lote, stage: row.stage });
-    if (!docs.has(key)) {
-      docs.set(key, {
-        producto: batch.producto,
-        lote: batch.lote,
-        stage: row.stage,
-        fileName: row.file_name,
-        meta: { producto: batch.producto, lote: batch.lote, stage: row.stage },
-        params: [],
-        uploadedAt: batch.updated_at || batch.created_at || null,
-      });
-    }
-
-    docs.get(key).params.push({
+    ensureDoc(batch, row.stage, row.file_name).params.push({
       id: row.param_id,
       section: row.section || "GENERAL",
       label: row.label || row.param_id,
@@ -152,6 +196,15 @@ export async function loadDocumentsFromSupabase() {
       valueType: row.value_number !== null ? "number" : "text",
       value: row.value_number !== null ? row.value_number : row.value_text,
     });
+  }
+
+  for (const row of personnelRows || []) {
+    const batch = byId.get(row.batch_id);
+    if (!batch) continue;
+
+    const doc = ensureDoc(batch, row.stage, null);
+    const list = row.role === "supervisor" ? doc.personnel.supervisores : doc.personnel.operarios;
+    list.push({ name: row.name, count: row.count });
   }
 
   return [...docs.values()];

@@ -151,3 +151,26 @@ export function buildTable(documents, familia, stage, { onlyCritical = true } = 
 
   return { familia, stage, lotes, sections, rowCount: rowsById.size };
 }
+
+/**
+ * Une los operarios ("Realizado / Por") y supervisores ("VB") de todos los
+ * lotes cargados de un producto en una etapa, sumando cuántas veces
+ * intervino cada uno.
+ */
+export function aggregatePersonnel(documents, familia, stage) {
+  const docsStage = documents.filter((d) => d.familia === familia && d.stage === stage);
+
+  const sum = (role) => {
+    const counter = new Map();
+    for (const doc of docsStage) {
+      for (const { name, count } of doc.personnel?.[role] || []) {
+        counter.set(name, (counter.get(name) || 0) + count);
+      }
+    }
+    return [...counter.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  };
+
+  return { operarios: sum("operarios"), supervisores: sum("supervisores") };
+}
