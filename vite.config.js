@@ -1,13 +1,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// En GitHub Pages el sitio no vive en la raíz del dominio sino en una
-// subcarpeta con el nombre del repositorio, así que los archivos compilados
-// deben apuntar ahí. En desarrollo se sirve desde la raíz de localhost.
-// VITE_BASE_PATH permite sobrescribirlo si algún día se publica en otro lado.
-const GITHUB_PAGES_BASE = "/EXTRACCION-DE-PAR-METROS/";
-
-export default defineConfig(({ command }) => ({
-  base: process.env.VITE_BASE_PATH || (command === "build" ? GITHUB_PAGES_BASE : "/"),
+// La ruta base por defecto es la raíz del dominio, que es como sirven el sitio
+// Vercel, Netlify y el servidor de desarrollo.
+//
+// GitHub Pages es la excepción: publica dentro de una subcarpeta con el nombre
+// del repositorio. Por eso su flujo de despliegue define VITE_BASE_PATH; no se
+// deduce aquí, porque hacerlo rompería cualquier otro hosting.
+export default defineConfig({
+  base: process.env.VITE_BASE_PATH || "/",
   plugins: [react()],
-}));
+});

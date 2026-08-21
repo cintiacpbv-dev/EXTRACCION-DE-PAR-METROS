@@ -37,7 +37,20 @@ Abre http://localhost:5173
 > `localhost` es siempre "esta misma computadora". Para abrir la aplicación
 > desde otro equipo hay que publicarla — ver *Publicar en internet*.
 
-## Publicar en internet (GitHub Pages)
+## Publicar en internet
+
+### Vercel / Netlify
+
+Funciona sin configurar nada: se conecta el repositorio y cada cambio en `main`
+se publica solo. Sólo hay que cargar las credenciales de Supabase como
+*Environment Variables* del proyecto (`VITE_SUPABASE_URL` y
+`VITE_SUPABASE_ANON_KEY`) y volver a desplegar para que tomen efecto.
+
+> **No definir `VITE_BASE_PATH` aquí.** Estos servicios sirven el sitio desde
+> la raíz del dominio; si se apunta a una subcarpeta, el navegador no encuentra
+> los archivos y la página queda en blanco.
+
+### GitHub Pages
 
 El repositorio incluye un flujo que compila y publica el sitio solo, cada vez
 que llega un cambio a `main` (`.github/workflows/deploy.yml`).

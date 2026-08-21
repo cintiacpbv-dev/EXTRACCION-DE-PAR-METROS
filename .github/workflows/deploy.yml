@@ -32,8 +32,13 @@ jobs:
 
       # Las credenciales de Supabase se leen de los secretos del repositorio,
       # no del código, para poder rotarlas sin tocar el historial de git.
+      #
+      # VITE_BASE_PATH sólo se define aquí: GitHub Pages sirve el sitio dentro
+      # de una subcarpeta con el nombre del repositorio, a diferencia de Vercel
+      # o Netlify, que lo sirven desde la raíz del dominio.
       - run: npm run build
         env:
+          VITE_BASE_PATH: /EXTRACCION-DE-PAR-METROS/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
