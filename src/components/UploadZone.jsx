@@ -1,7 +1,13 @@
 import { useCallback, useRef, useState } from "react";
 import { IconUpload } from "./Icons.jsx";
 
-export default function UploadZone({ onFiles, busy, busyLabel }) {
+/**
+ * `compact` la reduce a una barra delgada de una sola línea, para usar una
+ * vez que ya hay documentos cargados y no hace falta que la zona de carga
+ * domine la pantalla. Sin `compact` se muestra grande e invitante, pensada
+ * para el primer PDF de una sesión nueva.
+ */
+export default function UploadZone({ onFiles, busy, busyLabel, compact = false }) {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -15,9 +21,11 @@ export default function UploadZone({ onFiles, busy, busyLabel }) {
     [onFiles]
   );
 
+  const hint = "Cualquier producto y cualquier etapa. Los parámetros se detectan solos a partir del documento.";
+
   return (
     <div
-      className={`upload-zone ${dragOver ? "is-drag" : ""} ${busy ? "is-busy" : ""}`}
+      className={`upload-zone ${compact ? "upload-zone--compact" : ""} ${dragOver ? "is-drag" : ""} ${busy ? "is-busy" : ""}`}
       onDragOver={(e) => {
         e.preventDefault();
         setDragOver(true);
@@ -31,6 +39,7 @@ export default function UploadZone({ onFiles, busy, busyLabel }) {
       onClick={() => !busy && inputRef.current?.click()}
       role="button"
       tabIndex={0}
+      title={compact ? hint : undefined}
       onKeyDown={(e) => {
         if ((e.key === "Enter" || e.key === " ") && !busy) inputRef.current?.click();
       }}
@@ -47,14 +56,12 @@ export default function UploadZone({ onFiles, busy, busyLabel }) {
         }}
       />
       <span className="upload-zone__icon">
-        <IconUpload size={22} />
+        <IconUpload size={compact ? 15 : 22} />
       </span>
       <span className="upload-zone__title">
-        {busy ? busyLabel || "Procesando…" : "Arrastra aquí los Registros de Manufactura (PDF)"}
+        {busy ? busyLabel || "Procesando…" : compact ? "Agregar otro PDF" : "Arrastra aquí los Registros de Manufactura (PDF)"}
       </span>
-      <span className="upload-zone__hint">
-        Cualquier producto y cualquier etapa. Los parámetros se detectan solos a partir del documento.
-      </span>
+      {!compact && <span className="upload-zone__hint">{hint}</span>}
     </div>
   );
 }

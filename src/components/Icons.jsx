@@ -192,6 +192,24 @@ export function IconUser(props) {
   );
 }
 
+export function IconChevronDown(props) {
+  return (
+    <Svg {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </Svg>
+  );
+}
+
+export function IconBox(props) {
+  return (
+    <Svg {...props}>
+      <path d="M12 3 3.5 7.5v9L12 21l8.5-4.5v-9z" />
+      <path d="M3.5 7.5 12 12l8.5-4.5" />
+      <path d="M12 12v9" />
+    </Svg>
+  );
+}
+
 export function IconShieldCheck(props) {
   return (
     <Svg {...props}>

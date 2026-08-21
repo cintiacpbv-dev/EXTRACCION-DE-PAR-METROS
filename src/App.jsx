@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import UploadZone from "./components/UploadZone.jsx";
 import ParamTable from "./components/ParamTable.jsx";
-import DocumentChips from "./components/DocumentChips.jsx";
+import LoadedBatches from "./components/LoadedBatches.jsx";
 import MacroPanel from "./components/MacroPanel.jsx";
 import ProductLibrary from "./components/ProductLibrary.jsx";
 import PersonnelPanel from "./components/PersonnelPanel.jsx";
@@ -352,7 +352,12 @@ export default function App() {
             </button>
 
             <section className="card">
-              <UploadZone onFiles={handleFiles} busy={busy} busyLabel={busyLabel} />
+              <UploadZone
+                onFiles={handleFiles}
+                busy={busy}
+                busyLabel={busyLabel}
+                compact={!blank && productDocs.length > 0}
+              />
 
               {messages.length > 0 && (
                 <div className="toasts">
@@ -405,7 +410,7 @@ export default function App() {
                 </div>
               )}
 
-              {!blank && <DocumentChips documents={productDocs} onRemove={handleRemove} />}
+              {!blank && <LoadedBatches documents={productDocs} onRemove={handleRemove} />}
             </section>
 
             {!blank && <PersonnelPanel personnel={personnel} stage={stageActiva} />}
