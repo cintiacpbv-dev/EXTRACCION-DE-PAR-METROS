@@ -137,6 +137,7 @@ export async function loadDocumentsFromSupabase() {
         fileName: row.file_name,
         meta: { producto: batch.producto, lote: batch.lote, stage: row.stage },
         params: [],
+        uploadedAt: batch.updated_at || batch.created_at || null,
       });
     }
 

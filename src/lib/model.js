@@ -29,6 +29,42 @@ export function listProducts(documents) {
   return [...new Set(documents.map((d) => d.familia))].sort();
 }
 
+/**
+ * Un resumen por producto para la pantalla de inicio: lotes cargados, etapas
+ * presentes, total de parámetros detectados y cuándo se tocó por última vez.
+ * Es la base de la "biblioteca" de análisis guardados.
+ */
+export function summarizeProducts(documents) {
+  const porFamilia = new Map();
+
+  for (const doc of documents) {
+    if (!porFamilia.has(doc.familia)) {
+      porFamilia.set(doc.familia, {
+        familia: doc.familia,
+        lotes: new Set(),
+        etapas: new Set(),
+        totalParams: 0,
+        totalDocs: 0,
+        updatedAt: null,
+      });
+    }
+    const s = porFamilia.get(doc.familia);
+    s.lotes.add(doc.lote);
+    s.etapas.add(doc.stage);
+    s.totalParams += doc.params.length;
+    s.totalDocs += 1;
+    if (doc.uploadedAt && (!s.updatedAt || doc.uploadedAt > s.updatedAt)) s.updatedAt = doc.uploadedAt;
+  }
+
+  return [...porFamilia.values()]
+    .map((s) => ({
+      ...s,
+      lotes: [...s.lotes].sort(),
+      etapas: [...s.etapas].sort((a, b) => ordenEtapa(a) - ordenEtapa(b) || a.localeCompare(b)),
+    }))
+    .sort((a, b) => a.familia.localeCompare(b.familia));
+}
+
 // Orden natural del proceso, sólo para presentar las pestañas. Es una
 // preferencia, no una restricción: una etapa que no esté aquí se muestra igual,
 // ordenada alfabéticamente después de las conocidas.

@@ -3,6 +3,7 @@ import UploadZone from "./components/UploadZone.jsx";
 import ParamTable from "./components/ParamTable.jsx";
 import DocumentChips from "./components/DocumentChips.jsx";
 import MacroPanel from "./components/MacroPanel.jsx";
+import ProductLibrary from "./components/ProductLibrary.jsx";
 import {
   IconCloud,
   IconDrive,
@@ -13,6 +14,8 @@ import {
   IconFlask,
   IconLayers,
   IconAlert,
+  IconArrowLeft,
+  IconGrid,
 } from "./components/Icons.jsx";
 import { processPdfFile } from "./lib/parsers/index.js";
 import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
@@ -27,12 +30,32 @@ import {
 } from "./lib/storage.js";
 import { supabaseEnabled } from "./lib/supabaseClient.js";
 import { exportProductToExcel, tableToClipboardText } from "./lib/exportExcel.js";
-import { buildTable, listProducts, listStages, withFamilies } from "./lib/model.js";
+import { buildTable, listProducts, listStages, summarizeProducts, withFamilies } from "./lib/model.js";
 import "./App.css";
+
+// La URL refleja qué se está viendo (#/  ·  #/producto/<nombre>) para poder
+// recargar la página, mandar un enlace, o usar atrás/adelante del navegador
+// y volver exactamente al mismo producto abierto.
+function readRoute() {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  if (hash.startsWith("producto/")) {
+    return { view: "product", producto: decodeURIComponent(hash.slice("producto/".length)) };
+  }
+  return { view: "library", producto: null };
+}
+
+function writeRoute(view, producto) {
+  const next = view === "product" && producto ? `#/producto/${encodeURIComponent(producto)}` : "#/";
+  if (window.location.hash !== next) window.location.hash = next;
+}
 
 export default function App() {
   const [documents, setDocuments] = useState([]);
+  const [view, setView] = useState("library"); // "library" | "product"
   const [producto, setProducto] = useState(null);
+  // true entre "Nuevo análisis" y la primera carga exitosa: la vista de
+  // producto se muestra en blanco, sin caer sobre uno ya existente.
+  const [blank, setBlank] = useState(false);
   const [stage, setStage] = useState(null);
   const [onlyCritical, setOnlyCritical] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -54,8 +77,28 @@ export default function App() {
         docs = loadLocalDocuments();
       }
       setDocuments(docs);
+
+      const route = readRoute();
+      const familias = listProducts(withFamilies(docs));
+      if (route.view === "product" && route.producto && familias.includes(route.producto)) {
+        setView("product");
+        setProducto(route.producto);
+      }
       setLoading(false);
     })();
+  }, []);
+
+  useEffect(() => {
+    function onHashChange() {
+      const route = readRoute();
+      setView(route.view);
+      if (route.view === "product") {
+        setProducto(route.producto);
+        setBlank(!route.producto);
+      }
+    }
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
   // Las etapas de un mismo lote nombran al producto de forma distinta, así que
@@ -63,11 +106,16 @@ export default function App() {
   const docs = useMemo(() => withFamilies(documents), [documents]);
 
   const productos = useMemo(() => listProducts(docs), [docs]);
+  const resumenProductos = useMemo(() => summarizeProducts(docs), [docs]);
 
-  // La selección se resuelve durante el render: al quitar un documento o al
-  // cargar otro producto, lo elegido puede dejar de existir y basta con caer
-  // sobre la primera opción disponible, sin estados intermedios inválidos.
-  const productoActivo = producto && productos.includes(producto) ? producto : productos[0] ?? null;
+  // La selección se resuelve durante el render, salvo en una sesión nueva en
+  // blanco: ahí no debe caer sobre el primer producto existente, porque el
+  // punto de "Nuevo análisis" es precisamente no mezclarse con lo anterior.
+  const productoActivo = blank
+    ? null
+    : producto && productos.includes(producto)
+      ? producto
+      : (productos[0] ?? null);
 
   const stages = useMemo(
     () => (productoActivo ? listStages(docs, productoActivo) : []),
@@ -92,6 +140,26 @@ export default function App() {
     const id = Date.now() + Math.random();
     setMessages((m) => [...m, { id, text, type }]);
     setTimeout(() => setMessages((m) => m.filter((x) => x.id !== id)), 7000);
+  }
+
+  function openProduct(familia) {
+    setBlank(false);
+    setProducto(familia);
+    setView("product");
+    writeRoute("product", familia);
+  }
+
+  function startNew() {
+    setBlank(true);
+    setProducto(null);
+    setStage(null);
+    setView("product");
+    writeRoute("product", null);
+  }
+
+  function backToLibrary() {
+    setView("library");
+    writeRoute("library", null);
   }
 
   async function handleFiles(files) {
@@ -129,6 +197,7 @@ export default function App() {
           fileName: result.fileName,
           meta: result.meta,
           params: result.params,
+          uploadedAt: new Date().toISOString(),
         };
         next = upsertDocument(next, doc);
         nuevos.push(doc);
@@ -144,7 +213,15 @@ export default function App() {
 
     setDocuments(next);
     saveLocalDocuments(next);
-    if (nuevos.length > 0) setStage(nuevos[0].stage);
+    if (nuevos.length > 0) {
+      const familiaNueva = withFamilies(next).find((d) => docKey(d) === docKey(nuevos[0]))?.familia;
+      setBlank(false);
+      setStage(nuevos[0].stage);
+      if (familiaNueva) {
+        setProducto(familiaNueva);
+        writeRoute("product", familiaNueva);
+      }
+    }
     setBusy(false);
     setBusyLabel("");
 
@@ -163,6 +240,26 @@ export default function App() {
     setDocuments(next);
     saveLocalDocuments(next);
     if (supabaseEnabled) await deleteDocumentFromSupabase(doc);
+  }
+
+  async function handleDeleteProduct(familia) {
+    const aBorrar = docs.filter((d) => d.familia === familia);
+    if (aBorrar.length === 0) return;
+
+    const lotes = [...new Set(aBorrar.map((d) => d.lote))].length;
+    const ok = window.confirm(
+      `¿Eliminar "${familia}" por completo? Se borrarán ${lotes} ${lotes === 1 ? "lote" : "lotes"} y ${aBorrar.length} documento(s). Esta acción no se puede deshacer.`
+    );
+    if (!ok) return;
+
+    const next = documents.filter((d) => !aBorrar.some((x) => docKey(x) === docKey(d)));
+    setDocuments(next);
+    saveLocalDocuments(next);
+    if (supabaseEnabled) {
+      for (const doc of aBorrar) await deleteDocumentFromSupabase(doc);
+    }
+    pushMessage(`Se eliminó "${familia}".`, "info");
+    if (productoActivo === familia) backToLibrary();
   }
 
   function handleExport() {
@@ -202,7 +299,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
+        <button className="brand" onClick={backToLibrary} title="Ir a tus análisis">
           <span className="brand__mark">
             <IconFlask size={20} />
           </span>
@@ -210,7 +307,7 @@ export default function App() {
             <strong>Detección de Parámetros</strong>
             <small>Extracción y validación comparativa de registros de manufactura</small>
           </span>
-        </div>
+        </button>
         <span className={`badge ${supabaseEnabled ? "badge--cloud" : "badge--local"}`}>
           {supabaseEnabled ? <IconCloud size={15} /> : <IconDrive size={15} />}
           {supabaseEnabled ? "Supabase conectado" : "Guardado local"}
@@ -218,110 +315,134 @@ export default function App() {
       </header>
 
       <main className="main">
-        <section className="card">
-          <UploadZone onFiles={handleFiles} busy={busy} busyLabel={busyLabel} />
+        {loading ? (
+          <div className="empty-state">Cargando…</div>
+        ) : view === "library" ? (
+          <ProductLibrary
+            productos={resumenProductos}
+            onOpen={openProduct}
+            onNew={startNew}
+            onDelete={handleDeleteProduct}
+          />
+        ) : (
+          <>
+            <button className="link-back" onClick={backToLibrary}>
+              <IconArrowLeft size={15} /> Todos los productos
+            </button>
 
-          {messages.length > 0 && (
-            <div className="toasts">
-              {messages.map((m) => (
-                <div key={m.id} className={`toast toast--${m.type}`}>
-                  {m.type === "success" ? (
-                    <IconCheck size={15} />
-                  ) : m.type === "info" ? (
-                    <IconCopy size={15} />
-                  ) : (
-                    <IconAlert size={15} />
-                  )}
-                  <span>{m.text}</span>
-                </div>
-              ))}
-            </div>
-          )}
+            <section className="card">
+              <UploadZone onFiles={handleFiles} busy={busy} busyLabel={busyLabel} />
 
-          {productos.length > 0 && (
-            <div className="selectors">
-              <label className="field">
-                <span className="field__label">
-                  <IconFlask size={14} /> Producto
-                </span>
-                <select value={productoActivo || ""} onChange={(e) => setProducto(e.target.value)}>
-                  {productos.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
+              {messages.length > 0 && (
+                <div className="toasts">
+                  {messages.map((m) => (
+                    <div key={m.id} className={`toast toast--${m.type}`}>
+                      {m.type === "success" ? (
+                        <IconCheck size={15} />
+                      ) : m.type === "info" ? (
+                        <IconCopy size={15} />
+                      ) : (
+                        <IconAlert size={15} />
+                      )}
+                      <span>{m.text}</span>
+                    </div>
                   ))}
-                </select>
-              </label>
+                </div>
+              )}
 
-              <div className="field">
-                <span className="field__label">
-                  <IconLayers size={14} /> Etapa
-                </span>
-                <div className="tabs">
-                  {stages.map((s) => (
+              {!blank && productos.length > 0 && (
+                <div className="selectors">
+                  <label className="field">
+                    <span className="field__label">
+                      <IconFlask size={14} /> Producto
+                    </span>
+                    <select value={productoActivo || ""} onChange={(e) => openProduct(e.target.value)}>
+                      {productos.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="field">
+                    <span className="field__label">
+                      <IconLayers size={14} /> Etapa
+                    </span>
+                    <div className="tabs">
+                      {stages.map((s) => (
+                        <button
+                          key={s}
+                          className={`tab ${stageActiva === s ? "is-active" : ""}`}
+                          onClick={() => setStage(s)}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!blank && <DocumentChips documents={productDocs} onRemove={handleRemove} />}
+            </section>
+
+            {!blank && (
+              <section className="card card--table">
+                <div className="toolbar">
+                  <div className="switch" role="group" aria-label="Alcance de parámetros">
                     <button
-                      key={s}
-                      className={`tab ${stageActiva === s ? "is-active" : ""}`}
-                      onClick={() => setStage(s)}
+                      className={`switch__opt ${onlyCritical ? "is-active" : ""}`}
+                      onClick={() => setOnlyCritical(true)}
                     >
-                      {s}
+                      Parámetros de proceso
                     </button>
-                  ))}
+                    <button
+                      className={`switch__opt ${!onlyCritical ? "is-active" : ""}`}
+                      onClick={() => setOnlyCritical(false)}
+                    >
+                      Todo lo detectado
+                    </button>
+                  </div>
+
+                  {table && (
+                    <span className="counter">
+                      {table.sections.reduce((a, s) => a + s.rows.length, 0)} parámetros ·{" "}
+                      {table.lotes.length} {table.lotes.length === 1 ? "lote" : "lotes"}
+                    </span>
+                  )}
+
+                  <div className="toolbar__spacer" />
+
+                  <button className="btn btn--ghost" onClick={() => setMacroOpen(true)}>
+                    <IconCode size={16} />
+                    Macro de formato
+                  </button>
+                  <button className="btn btn--ghost" onClick={handleCopy} disabled={!table}>
+                    {copyState === "copied" ? <IconCheck size={16} /> : <IconCopy size={16} />}
+                    {copyState === "copied" ? "Copiado" : copyState === "error" ? "No se pudo copiar" : "Copiar tabla"}
+                  </button>
+                  <button className="btn btn--primary" onClick={handleExport} disabled={!productoActivo}>
+                    <IconDownload size={16} />
+                    Exportar a Excel
+                  </button>
                 </div>
-              </div>
-            </div>
-          )}
 
-          <DocumentChips documents={productDocs} onRemove={handleRemove} />
-        </section>
-
-        <section className="card card--table">
-          <div className="toolbar">
-            <div className="switch" role="group" aria-label="Alcance de parámetros">
-              <button
-                className={`switch__opt ${onlyCritical ? "is-active" : ""}`}
-                onClick={() => setOnlyCritical(true)}
-              >
-                Parámetros de proceso
-              </button>
-              <button
-                className={`switch__opt ${!onlyCritical ? "is-active" : ""}`}
-                onClick={() => setOnlyCritical(false)}
-              >
-                Todo lo detectado
-              </button>
-            </div>
-
-            {table && (
-              <span className="counter">
-                {table.sections.reduce((a, s) => a + s.rows.length, 0)} parámetros · {table.lotes.length}{" "}
-                {table.lotes.length === 1 ? "lote" : "lotes"}
-              </span>
+                <ParamTable table={table} />
+              </section>
             )}
-
-            <div className="toolbar__spacer" />
-
-            <button className="btn btn--ghost" onClick={() => setMacroOpen(true)}>
-              <IconCode size={16} />
-              Macro de formato
-            </button>
-            <button className="btn btn--ghost" onClick={handleCopy} disabled={!table}>
-              {copyState === "copied" ? <IconCheck size={16} /> : <IconCopy size={16} />}
-              {copyState === "copied" ? "Copiado" : copyState === "error" ? "No se pudo copiar" : "Copiar tabla"}
-            </button>
-            <button className="btn btn--primary" onClick={handleExport} disabled={!productoActivo}>
-              <IconDownload size={16} />
-              Exportar a Excel
-            </button>
-          </div>
-
-          {loading ? <div className="empty-state">Cargando…</div> : <ParamTable table={table} />}
-        </section>
+          </>
+        )}
       </main>
 
       <footer className="footer">
-        El detector lee la estructura del propio registro, así que admite nuevos productos, etapas y
-        parámetros sin tocar el código.
+        {view === "product" ? (
+          <button className="link-back link-back--footer" onClick={backToLibrary}>
+            <IconGrid size={13} /> Volver a tus análisis
+          </button>
+        ) : (
+          "El detector lee la estructura del propio registro, así que admite nuevos productos, etapas y parámetros sin tocar el código."
+        )}
       </footer>
 
       <MacroPanel open={macroOpen} onClose={() => setMacroOpen(false)} />

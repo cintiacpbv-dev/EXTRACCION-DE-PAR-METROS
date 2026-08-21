@@ -134,3 +134,51 @@ export function IconAlert(props) {
     </Svg>
   );
 }
+
+export function IconGrid(props) {
+  return (
+    <Svg {...props}>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+    </Svg>
+  );
+}
+
+export function IconArrowLeft(props) {
+  return (
+    <Svg {...props}>
+      <path d="M19 12H5" />
+      <path d="m11 6-6 6 6 6" />
+    </Svg>
+  );
+}
+
+export function IconPlus(props) {
+  return (
+    <Svg {...props}>
+      <path d="M12 5v14M5 12h14" />
+    </Svg>
+  );
+}
+
+export function IconTrash(props) {
+  return (
+    <Svg {...props}>
+      <path d="M4 7h16" />
+      <path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+      <path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
+      <path d="M10 11v6M14 11v6" />
+    </Svg>
+  );
+}
+
+export function IconClock(props) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </Svg>
+  );
+}
