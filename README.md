@@ -34,6 +34,38 @@ npm run dev
 
 Abre http://localhost:5173
 
+> `localhost` es siempre "esta misma computadora". Para abrir la aplicación
+> desde otro equipo hay que publicarla — ver *Publicar en internet*.
+
+## Publicar en internet (GitHub Pages)
+
+El repositorio incluye un flujo que compila y publica el sitio solo, cada vez
+que llega un cambio a `main` (`.github/workflows/deploy.yml`).
+
+Configuración inicial, una sola vez:
+
+1. **Activar Pages** — en el repositorio: *Settings → Pages → Build and
+   deployment → Source:* **GitHub Actions**.
+2. **Cargar las credenciales** — en *Settings → Secrets and variables →
+   Actions → New repository secret*, crear dos secretos con exactamente
+   estos nombres, copiando los valores de tu `.env`:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+3. **Publicar** — en la pestaña *Actions*, abrir "Publicar en GitHub Pages" y
+   pulsar *Run workflow* (o empujar cualquier cambio a `main`).
+
+La dirección queda en `https://<usuario>.github.io/EXTRACCION-DE-PAR-METROS/`
+
+Sin el paso 2 el sitio se publica igual, pero **sin conexión a Supabase**: se
+abre en modo "Guardado local" y la biblioteca aparece vacía, porque los datos
+viven en la nube y no en el navegador.
+
+> Las credenciales se inyectan al compilar y terminan dentro del JavaScript
+> que descarga el navegador — es inevitable en una aplicación sin servidor
+> propio. Mientras las políticas RLS estén abiertas, cualquiera que llegue al
+> enlace puede leer y modificar los datos. Para restringirlo hace falta
+> agregar autenticación de usuarios y cerrar las políticas.
+
 ## Supabase
 
 Las credenciales van en `.env` (ver `.env.example`):
