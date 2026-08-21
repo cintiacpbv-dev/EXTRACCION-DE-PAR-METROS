@@ -1,10 +1,11 @@
 import { supabase, supabaseEnabled } from "./supabaseClient.js";
+import { firstWord, slotKey } from "./productIdentity.js";
 
 const LOCAL_KEY = "deteccion-parametros:documentos:v2";
 
-/** Un documento queda identificado por producto + lote + etapa. */
+/** Un documento queda identificado por producto (primera palabra) + lote + etapa. */
 export function docKey(doc) {
-  return `${doc.producto}::${doc.lote}::${doc.stage}`;
+  return slotKey(doc);
 }
 
 export function loadLocalDocuments() {
@@ -29,16 +30,33 @@ export function upsertDocument(documents, doc) {
   return next;
 }
 
+/**
+ * Busca en Supabase la fila de "batches" que corresponde a este documento,
+ * comparando por primera palabra del producto y lote (no por el nombre
+ * completo: el mismo lote puede traer texto adicional según la presentación).
+ */
+async function findBatchRow(producto, lote) {
+  const { data, error } = await supabase.from("batches").select("*").eq("lote", lote);
+  if (error || !data) return { row: null, error };
+  return { row: data.find((b) => firstWord(b.producto) === firstWord(producto)) || null, error: null };
+}
+
 export async function syncDocumentToSupabase(doc) {
   if (!supabaseEnabled) return { ok: true, skipped: true };
 
-  const { data: batchRow, error: batchErr } = await supabase
-    .from("batches")
-    .upsert({ producto: doc.producto, lote: doc.lote }, { onConflict: "producto,lote" })
-    .select()
-    .single();
+  const { row: existing, error: findErr } = await findBatchRow(doc.producto, doc.lote);
+  if (findErr) return { ok: false, error: findErr.message };
 
-  if (batchErr) return { ok: false, error: batchErr.message };
+  let batchRow = existing;
+  if (!batchRow) {
+    const { data, error } = await supabase
+      .from("batches")
+      .insert({ producto: doc.producto, lote: doc.lote })
+      .select()
+      .single();
+    if (error) return { ok: false, error: error.message };
+    batchRow = data;
+  }
 
   // Se reemplazan los valores de esta etapa: al volver a procesar un PDF, los
   // parámetros detectados pueden cambiar y no deben quedar filas huérfanas.
@@ -75,22 +93,17 @@ export async function syncDocumentToSupabase(doc) {
 export async function deleteDocumentFromSupabase(doc) {
   if (!supabaseEnabled) return { ok: true, skipped: true };
 
-  const { data: batchRow } = await supabase
-    .from("batches")
-    .select("id")
-    .eq("producto", doc.producto)
-    .eq("lote", doc.lote)
-    .maybeSingle();
-
+  const { row: batchRow, error } = await findBatchRow(doc.producto, doc.lote);
+  if (error) return { ok: false, error: error.message };
   if (!batchRow) return { ok: true };
 
-  const { error } = await supabase
+  const { error: delErr } = await supabase
     .from("batch_values")
     .delete()
     .eq("batch_id", batchRow.id)
     .eq("stage", doc.stage);
 
-  return error ? { ok: false, error: error.message } : { ok: true };
+  return delErr ? { ok: false, error: delErr.message } : { ok: true };
 }
 
 /** Reconstruye la colección de documentos a partir de lo guardado en Supabase. */
@@ -113,7 +126,9 @@ export async function loadDocumentsFromSupabase() {
     const batch = byId.get(row.batch_id);
     if (!batch) continue;
 
-    const key = `${batch.producto}::${batch.lote}::${row.stage}`;
+    // Misma casilla (primera palabra + lote + etapa) que pudo haberse llenado
+    // desde más de una fila de "batches" si el nombre del producto varió.
+    const key = slotKey({ producto: batch.producto, lote: batch.lote, stage: row.stage });
     if (!docs.has(key)) {
       docs.set(key, {
         producto: batch.producto,

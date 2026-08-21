@@ -1,28 +1,28 @@
 import { computeStats } from "./stats.js";
+import { firstWord } from "./productIdentity.js";
 
 /** Categorías que se muestran en la vista "Parámetros de proceso". */
 const PROCESS_VIEW = new Set(["critico", "verificacion"]);
 
 /**
  * Un mismo lote recorre varias etapas y en cada una el registro nombra al
- * producto con un código distinto (el granel, el sachet, la caja). Para
- * comparar el lote completo se agrupa por familia: el nombre más corto de
- * los que comparten número de lote, que es siempre el del producto base.
+ * producto de forma distinta, añadiendo texto según la presentación (el
+ * granel, el sachet, la caja): "FLUIBRONCOL ORAL 600mg GRN", "...GRN SAC3g",
+ * "...GRN 3g CJA x20". Se agrupan bajo la misma familia los nombres que
+ * comparten primera palabra (ver productIdentity.js); la familia se etiqueta
+ * con el nombre más corto del grupo, que suele ser el del producto base.
  */
 export function withFamilies(documents) {
-  const porLote = new Map();
+  const porPrimeraPalabra = new Map();
   for (const doc of documents) {
-    if (!porLote.has(doc.lote)) porLote.set(doc.lote, []);
-    porLote.get(doc.lote).push(doc.producto);
+    const clave = firstWord(doc.producto);
+    const actual = porPrimeraPalabra.get(clave);
+    if (!actual || doc.producto.length < actual.length) {
+      porPrimeraPalabra.set(clave, doc.producto);
+    }
   }
 
-  const familiaPorLote = new Map();
-  for (const [lote, productos] of porLote) {
-    const familia = productos.reduce((a, b) => (b.length < a.length ? b : a), productos[0]);
-    familiaPorLote.set(lote, familia);
-  }
-
-  return documents.map((doc) => ({ ...doc, familia: familiaPorLote.get(doc.lote) || doc.producto }));
+  return documents.map((doc) => ({ ...doc, familia: porPrimeraPalabra.get(firstWord(doc.producto)) }));
 }
 
 export function listProducts(documents) {

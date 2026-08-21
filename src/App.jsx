@@ -15,6 +15,7 @@ import {
   IconAlert,
 } from "./components/Icons.jsx";
 import { processPdfFile } from "./lib/parsers/index.js";
+import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
 import {
   loadLocalDocuments,
   saveLocalDocuments,
@@ -97,11 +98,30 @@ export default function App() {
     setBusy(true);
     let next = documents;
     const nuevos = [];
+    // Huellas de contenido ya vistas en esta misma tanda de carga, para
+    // detectar dos archivos idénticos seleccionados juntos por error.
+    const hashesEnEstaTanda = [];
 
     for (const file of files) {
       setBusyLabel(`Analizando ${file.name}…`);
       try {
         const result = await processPdfFile(file);
+        const contentHash = await computeContentHash(result.params);
+
+        // Un documento ya cargado (de esta tanda o de antes) con exactamente
+        // el mismo contenido: se detecta y no se vuelve a procesar.
+        const yaVisto =
+          hashesEnEstaTanda.find((h) => h.hash === contentHash) ||
+          (await findDuplicateDocument(documents, contentHash));
+
+        if (yaVisto) {
+          pushMessage(
+            `${file.name}: contenido idéntico a "${yaVisto.fileName}" (lote ${yaVisto.lote}, ${yaVisto.stage}) — se omitió, ya estaba cargado.`,
+            "info"
+          );
+          continue;
+        }
+
         const doc = {
           producto: result.meta.producto,
           lote: result.meta.lote || "SIN LOTE",
@@ -112,6 +132,7 @@ export default function App() {
         };
         next = upsertDocument(next, doc);
         nuevos.push(doc);
+        hashesEnEstaTanda.push({ hash: contentHash, fileName: doc.fileName, lote: doc.lote, stage: doc.stage });
         pushMessage(
           `${file.name} · ${doc.stage} · lote ${doc.lote} — ${doc.params.length} parámetros detectados`,
           "success"
@@ -204,7 +225,13 @@ export default function App() {
             <div className="toasts">
               {messages.map((m) => (
                 <div key={m.id} className={`toast toast--${m.type}`}>
-                  {m.type === "success" ? <IconCheck size={15} /> : <IconAlert size={15} />}
+                  {m.type === "success" ? (
+                    <IconCheck size={15} />
+                  ) : m.type === "info" ? (
+                    <IconCopy size={15} />
+                  ) : (
+                    <IconAlert size={15} />
+                  )}
                   <span>{m.text}</span>
                 </div>
               ))}
