@@ -75,15 +75,42 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      let docs = [];
-      if (supabaseEnabled) docs = await loadDocumentsFromSupabase();
-      if (docs.length > 0) {
-        // Se guarda una copia local de lo que hay en la nube, para seguir
-        // trabajando si Supabase no responde en el próximo arranque.
+      const locales = loadLocalDocuments();
+      let docs = locales;
+
+      if (supabaseEnabled) {
+        const remotos = await loadDocumentsFromSupabase();
+
+        // Se unen las dos fuentes en vez de que una pise a la otra. Si un
+        // análisis se hizo mientras la app estaba sin conexión a Supabase
+        // (por credenciales faltantes, por ejemplo), vive sólo en este
+        // navegador: reemplazarlo por lo remoto lo perdería.
+        const porClave = new Map(locales.map((d) => [docKey(d), d]));
+        for (const doc of remotos) porClave.set(docKey(doc), doc);
+        docs = [...porClave.values()];
+
+        // Lo que sólo existía en local se sube, para que quede disponible
+        // desde cualquier otra computadora.
+        const clavesRemotas = new Set(remotos.map(docKey));
+        const soloLocales = locales.filter((d) => !clavesRemotas.has(docKey(d)));
+
+        if (soloLocales.length > 0) {
+          let subidos = 0;
+          for (const doc of soloLocales) {
+            const res = await syncDocumentToSupabase(doc);
+            if (res.ok && !res.skipped) subidos++;
+          }
+          if (subidos > 0) {
+            pushMessage(
+              `Se subieron a Supabase ${subidos} documento(s) que estaban sólo en este navegador.`,
+              "success"
+            );
+          }
+        }
+
         saveLocalDocuments(docs);
-      } else {
-        docs = loadLocalDocuments();
       }
+
       setDocuments(docs);
 
       const route = readRoute();
