@@ -6,7 +6,7 @@
 // herramienta que sólo hace esto.
 
 import http from "http";
-import { readFile } from "fs/promises";
+import { readFile, readdir, stat } from "fs/promises";
 import path from "path";
 import { exec } from "child_process";
 import {
@@ -121,10 +121,59 @@ async function ejecutarTanda(lotes) {
 
 // --- servidor ----------------------------------------------------------------
 
+// La página de Detección de Parámetros habla con este ayudante desde el
+// navegador, así que hay que autorizar su origen. No se abre a cualquiera:
+// el servidor sólo escucha en 127.0.0.1 —no es accesible desde la red— y
+// además se limita a los orígenes donde vive la aplicación.
+const ORIGENES = [/^https?:\/\/localhost(:\d+)?$/i, /^https?:\/\/127\.0\.0\.1(:\d+)?$/i, /^https:\/\/[\w-]+\.vercel\.app$/i, /^https:\/\/[\w-]+\.github\.io$/i];
+
+function permitirOrigen(req, res) {
+  const origen = req.headers.origin;
+  if (origen && ORIGENES.some((re) => re.test(origen))) {
+    res.setHeader("Access-Control-Allow-Origin", origen);
+    res.setHeader("Vary", "Origin");
+    // Chrome exige esto para que una página pública pueda llamar a un
+    // servidor de la red local (Private Network Access).
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
 function json(res, datos, codigo = 200) {
   const cuerpo = JSON.stringify(datos);
   res.writeHead(codigo, { "Content-Type": "application/json; charset=utf-8" });
   res.end(cuerpo);
+}
+
+/** Recorre descargas/ y devuelve los PDF con su producto, etapa y tipo. */
+async function listarArchivos(raiz) {
+  const salida = [];
+  const leer = async (dir) => (await readdir(dir, { withFileTypes: true }).catch(() => []));
+
+  for (const producto of await leer(raiz)) {
+    if (!producto.isDirectory()) continue;
+    for (const etapa of await leer(path.join(raiz, producto.name))) {
+      if (!etapa.isDirectory()) continue;
+      for (const tipo of await leer(path.join(raiz, producto.name, etapa.name))) {
+        if (!tipo.isDirectory()) continue;
+        const dir = path.join(raiz, producto.name, etapa.name, tipo.name);
+        for (const archivo of await leer(dir)) {
+          if (!archivo.isFile() || !archivo.name.toLowerCase().endsWith(".pdf")) continue;
+          const info = await stat(path.join(dir, archivo.name)).catch(() => null);
+          salida.push({
+            producto: producto.name,
+            etapa: etapa.name,
+            tipo: tipo.name,
+            nombre: archivo.name,
+            ruta: [producto.name, etapa.name, tipo.name, archivo.name].join("/"),
+            bytes: info?.size ?? 0,
+          });
+        }
+      }
+    }
+  }
+  return salida;
 }
 
 async function leerCuerpo(req) {
@@ -136,6 +185,41 @@ async function leerCuerpo(req) {
 const servidor = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "http://localhost");
+    permitirOrigen(req, res);
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      return res.end();
+    }
+
+    // Sirve para que la página sepa si el ayudante está abierto.
+    if (url.pathname === "/api/salud") {
+      return json(res, { ok: true, app: "sap-descargas", carpeta: estado.carpeta || "" });
+    }
+
+    if (url.pathname === "/api/archivos") {
+      const config = await leerConfig();
+      const raiz = path.resolve(AQUI, config.carpetaSalida || "descargas");
+      return json(res, { ok: true, archivos: await listarArchivos(raiz) });
+    }
+
+    if (url.pathname === "/api/archivo") {
+      const config = await leerConfig();
+      const raiz = path.resolve(AQUI, config.carpetaSalida || "descargas");
+      const pedida = url.searchParams.get("ruta") || "";
+
+      // Sin esta comprobación, una ruta con ".." dejaría leer cualquier
+      // archivo de la computadora a través del servidor.
+      const destino = path.resolve(raiz, pedida);
+      if (!destino.startsWith(raiz + path.sep) || !destino.toLowerCase().endsWith(".pdf")) {
+        return json(res, { ok: false, error: "ruta no permitida" }, 400);
+      }
+
+      const cuerpo = await readFile(destino).catch(() => null);
+      if (!cuerpo) return json(res, { ok: false, error: "no existe" }, 404);
+      res.writeHead(200, { "Content-Type": "application/pdf", "Content-Length": cuerpo.length });
+      return res.end(cuerpo);
+    }
 
     if (url.pathname === "/") {
       const html = await readFile(path.join(AQUI, "interfaz.html"), "utf8");

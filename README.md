@@ -139,19 +139,32 @@ dedicado como el de la orden.
 dos: quedan pendientes de un tercer tipo de documento, el **Certificado de
 Insumo**, todavía no incorporado.
 
-## Descargar los PDF desde SAP sin ir uno a uno
+## Traer los lotes desde SAP, sin descargar nada a mano
 
-[`herramientas/sap-descargas`](./herramientas/sap-descargas) baja de una vez
-todos los RMD y órdenes de una lista de lotes, como paso previo al análisis.
+El panel **Traer lotes desde SAP** de la propia página permite pegar una
+lista de lotes, descargarlos y analizarlos sin tocar un solo archivo.
 
-Corre en tu computadora, no en la página: SAP vive en la red interna y además
-envía `X-Frame-Options` para impedir que otro sitio lo incruste, así que la
-página web no puede alcanzarlo ni automatizarlo desde un iframe. El script no
-pide credenciales — abre un Chrome con perfil propio donde inicias sesión a
-mano una vez.
+El trabajo lo hace [`herramientas/sap-descargas`](./herramientas/sap-descargas),
+un programa que corre en tu computadora. **Tiene que ser así**: manejar un
+Chrome de verdad, alcanzar la red interna de la empresa y usar tu sesión de
+SAP son cosas fuera del alcance de cualquier sitio web. SAP además envía
+`X-Frame-Options` para impedir que otra página lo incruste en un iframe.
 
-Como cada instalación de SAP coloca sus aplicaciones en sitios distintos, el
-script aprende el camino mirándote hacer una descarga, en vez de adivinarlo.
+Lo que sí se puede es conectarlos. El programa abre un servidor pequeño en
+`localhost`, y la página le habla desde el navegador:
+
+1. Se abre `APLICACION.bat` una vez (queda en segundo plano).
+2. En la página aparece el panel ya conectado.
+3. Se pegan los lotes → **Descargar de SAP** → **Analizar lo descargado**.
+
+Los PDF quedan ordenados por producto, etapa y tipo (OP o RMD), y se avisa
+cuando un documento no está cargado en SAP, que es un dato del proceso y no
+un fallo.
+
+> El servidor sólo escucha en `127.0.0.1` —no es accesible desde la red— y
+> únicamente acepta peticiones desde `localhost` y desde los dominios donde
+> vive esta aplicación. Aun así, conviene cerrar su ventana cuando no se
+> esté usando.
 
 ## Imagen de cada producto
 
@@ -272,6 +285,7 @@ src/
     personName.js         Nombre legible a partir del código del RMD ("A. Lacho")
     imageSearch.js         Búsqueda de imágenes (Openverse y Wikimedia Commons)
     productImage.js        Normaliza la imagen a PNG y la guarda
+    sapLocal.js            Enlace con el ayudante de descargas de SAP
     dedupe.js              Huella de contenido para no procesar el mismo PDF dos veces
     productIdentity.js    Agrupa presentaciones de un mismo producto
     storage.js            Persistencia local y en Supabase
@@ -283,6 +297,7 @@ src/
     PersonnelPanel.jsx     Participantes de la etapa activa
     ProductLibrary.jsx     Pantalla de inicio con los productos guardados
     ProductImagePicker.jsx Elegir la imagen de un producto
+    SapPanel.jsx           Traer lotes desde SAP sin salir de la página
     Icons.jsx              Iconografía de trazo
   App.jsx                 Orquestación e interfaz
 ```

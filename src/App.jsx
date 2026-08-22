@@ -5,6 +5,7 @@ import LoadedBatches from "./components/LoadedBatches.jsx";
 import ProductLibrary from "./components/ProductLibrary.jsx";
 import PersonnelPanel from "./components/PersonnelPanel.jsx";
 import ProductImagePicker from "./components/ProductImagePicker.jsx";
+import SapPanel from "./components/SapPanel.jsx";
 import {
   IconCloud,
   IconDrive,
@@ -605,6 +606,8 @@ export default function App() {
                   hint="Aportan el Lote ME de cada material, el rendimiento oficial y las fechas exactas."
                 />
               </div>
+
+              <SapPanel onArchivos={(archivos) => handleFiles(archivos)} ocupado={busy} />
 
               {!blank && productos.length > 0 && (
                 <div className="selectors">
