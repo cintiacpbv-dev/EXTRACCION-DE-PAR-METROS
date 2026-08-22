@@ -95,14 +95,15 @@ VITE_SUPABASE_ANON_KEY=tu-anon-public-key
 En el **SQL Editor** del proyecto:
 
 - Instalación nueva → ejecuta [`supabase_schema.sql`](./supabase_schema.sql)
-  y después las migraciones v2 a v7.
+  y después las migraciones v2 a v8.
 - Instalación existente → ejecuta las migraciones que falten, en orden:
   [`v2`](./supabase_migration_v2.sql) (parámetros genéricos),
   [`v3`](./supabase_migration_v3.sql) (participantes),
   [`v4`](./supabase_migration_v4.sql) (órdenes de producción),
   [`v5`](./supabase_migration_v5.sql) (receta del lote),
-  [`v6`](./supabase_migration_v6.sql) (materiales de la sección INSUMOS) y
-  [`v7`](./supabase_migration_v7.sql) (imagen de cada producto).
+  [`v6`](./supabase_migration_v6.sql) (materiales de la sección INSUMOS),
+  [`v7`](./supabase_migration_v7.sql) (imagen de cada producto) y
+  [`v8`](./supabase_migration_v8.sql) (memoria de lo eliminado).
 
 Sin Supabase configurado la app funciona igual, guardando en el `localStorage`.
 

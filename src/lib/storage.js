@@ -50,7 +50,14 @@ function guardarEliminados(lista) {
   }
 }
 
-/** Anota que estos documentos deben desaparecer, aunque aún no se haya podido. */
+/**
+ * Anota que estos documentos deben desaparecer, aunque aún no se haya podido.
+ *
+ * La anotación va también a Supabase: si viviera sólo en este navegador,
+ * otra computadora que aún tuviera su copia local la vería como trabajo sin
+ * subir y la resucitaría para todos (ver deleted_documents en la migración
+ * v8).
+ */
 export function marcarEliminados(docs) {
   const previos = cargarEliminados();
   const claves = new Set(previos.map(docKey));
@@ -62,6 +69,24 @@ export function marcarEliminados(docs) {
   }
 
   guardarEliminados(previos);
+  anunciarEliminados(docs);
+}
+
+/** Deja constancia compartida, para que ninguna otra computadora los resucite. */
+async function anunciarEliminados(docs) {
+  if (!supabaseEnabled || docs.length === 0) return;
+
+  const filas = docs.map((d) => ({
+    clave: docKey(d),
+    producto: d.producto,
+    lote: d.lote,
+    stage: d.stage,
+    kind: d.kind || "registro",
+  }));
+
+  // Best-effort: sin la migración v8 la aplicación sigue funcionando, sólo
+  // que la memoria de lo borrado no se comparte entre computadoras.
+  await supabase.from("deleted_documents").upsert(filas, { onConflict: "clave" });
 }
 
 /** Quita la anotación: o ya se borró, o el usuario volvió a subir ese documento. */
@@ -71,16 +96,34 @@ export function olvidarEliminado(doc) {
 }
 
 /**
+ * Olvida la eliminación en todas partes. Se usa cuando el usuario vuelve a
+ * subir un documento: sin esto quedaría marcado como borrado para siempre y
+ * ninguna computadora lo aceptaría.
+ */
+export async function readmitirDocumento(doc) {
+  olvidarEliminado(doc);
+  if (supabaseEnabled) {
+    await supabase.from("deleted_documents").delete().eq("clave", docKey(doc));
+  }
+}
+
+/**
  * Reintenta los borrados pendientes y devuelve las claves que deben seguir
  * ocultas. Se llama al arrancar, antes de mostrar nada.
  */
 export async function purgarEliminados() {
   const pendientes = cargarEliminados();
-  if (pendientes.length === 0) return new Set();
 
-  const ocultas = new Set(pendientes.map(docKey));
-  if (!supabaseEnabled) return ocultas;
+  if (!supabaseEnabled) return new Set(pendientes.map(docKey));
 
+  // A lo anotado en este navegador se suma lo que otras computadoras hayan
+  // eliminado: sin esa parte, esta máquina volvería a subir su copia local
+  // de algo ya borrado en otra.
+  const { data: remotas } = await supabase.from("deleted_documents").select("*");
+  const ocultas = new Set([...pendientes.map(docKey), ...(remotas || []).map((r) => r.clave)]);
+
+  // Sólo se reintenta lo anotado aquí; lo de otras máquinas ya lo borró quien
+  // lo eliminó.
   const quedan = [];
   for (const doc of pendientes) {
     const res = await deleteDocumentFromSupabase(doc);

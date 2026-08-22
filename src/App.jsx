@@ -33,6 +33,7 @@ import {
   marcarEliminados,
   olvidarEliminado,
   purgarEliminados,
+  readmitirDocumento,
 } from "./lib/storage.js";
 import { supabaseEnabled } from "./lib/supabaseClient.js";
 import { documentoEsMuestraMedica } from "./lib/muestraMedica.js";
@@ -168,8 +169,12 @@ export default function App() {
 
         // Lo que sólo existía en local se sube, para que quede disponible
         // desde cualquier otra computadora.
+        //
+        // Salvo lo eliminado: "está aquí y no en la nube" es también el
+        // aspecto de un documento que se borró desde otra computadora, y sin
+        // esta salvedad esta máquina lo resucitaría para todos.
         const clavesRemotas = new Set(remotos.map(docKey));
-        const soloLocales = locales.filter((d) => !clavesRemotas.has(docKey(d)));
+        const soloLocales = locales.filter((d) => !clavesRemotas.has(docKey(d)) && vivo(d));
 
         if (soloLocales.length > 0) {
           let subidos = 0;
@@ -408,9 +413,9 @@ export default function App() {
           uploadedAt: new Date().toISOString(),
         };
         // Si este documento estaba marcado como eliminado, la marca deja de
-        // valer: volver a subirlo es la forma de recuperarlo, y sin esto
-        // quedaría oculto para siempre.
-        olvidarEliminado(doc);
+        // valer —aquí y en las demás computadoras—: volver a subirlo es la
+        // forma de recuperarlo, y sin esto quedaría oculto para siempre.
+        await readmitirDocumento(doc);
 
         next = upsertDocument(next, doc);
         nuevos.push(doc);
