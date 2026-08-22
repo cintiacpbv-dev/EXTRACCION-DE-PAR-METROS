@@ -116,9 +116,10 @@ function tablaParametros(table) {
 export function rvpToHtml(documents, familia, options) {
   const model = buildRvpModel(documents, familia, options);
   const hoy = new Date().toISOString().slice(0, 10);
+  const tituloFamilia = model.stages.length === 1 ? `${familia} — ${model.stages[0]}` : familia;
   const h = [`<div style="font-family:Arial,sans-serif;font-size:10pt">`];
 
-  h.push(`<h1 style="font-size:14pt">REPORTE DE VALIDACIÓN DE PROCESO — ${esc(familia)}</h1>`);
+  h.push(`<h1 style="font-size:14pt">REPORTE DE VALIDACIÓN DE PROCESO — ${esc(tituloFamilia)}</h1>`);
   h.push(`<p style="font-size:8pt">Generado el ${hoy} a partir de los registros de manufactura</p>`);
 
   h.push(`<h2 style="font-size:11pt">1. RECOLECCIÓN DE DATOS DEL PROCESO</h2>`);

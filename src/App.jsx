@@ -70,6 +70,9 @@ export default function App() {
   const [blank, setBlank] = useState(false);
   const [stage, setStage] = useState(null);
   const [onlyCritical, setOnlyCritical] = useState(true);
+  // "etapa": los informes en Word salen enfocados sólo a la etapa activa, sin
+  // columnas vacías de las demás. "todas": el informe combinado de siempre.
+  const [reportScope, setReportScope] = useState("etapa");
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
   const [messages, setMessages] = useState([]);
@@ -352,10 +355,15 @@ export default function App() {
     if (!ok) pushMessage("No hay datos para exportar en este producto.", "error");
   }
 
+  // Con "etapa" el informe sale enfocado sólo a la etapa activa: si de este
+  // producto sólo se cargó Acondicionado, el Word no debe mostrar columnas
+  // vacías de Fabricación o Envase.
+  const stageParaInforme = reportScope === "etapa" ? stageActiva : null;
+
   async function handleExportWord() {
     if (!productoActivo) return;
     try {
-      await exportRvpToWord(docs, productoActivo, { onlyCritical });
+      await exportRvpToWord(docs, productoActivo, { onlyCritical, stage: stageParaInforme });
       pushMessage("Informe Word generado. Revisa las columnas marcadas para completar a mano.", "success");
     } catch (err) {
       pushMessage(`No se pudo generar el informe: ${err.message}`, "error");
@@ -365,7 +373,7 @@ export default function App() {
   async function handleExportCuadros() {
     if (!productoActivo) return;
     try {
-      await exportCuadrosToWord(docs, productoActivo, { onlyCritical });
+      await exportCuadrosToWord(docs, productoActivo, { onlyCritical, stage: stageParaInforme });
       pushMessage("Cuadros generados con el formato del reporte de referencia.", "success");
     } catch (err) {
       pushMessage(`No se pudieron generar los cuadros: ${err.message}`, "error");
@@ -374,7 +382,7 @@ export default function App() {
 
   async function handleCopyRvp() {
     if (!productoActivo) return;
-    const ok = await copyRvpToClipboard(docs, productoActivo, { onlyCritical });
+    const ok = await copyRvpToClipboard(docs, productoActivo, { onlyCritical, stage: stageParaInforme });
     setRvpCopyState(ok ? "copied" : "error");
     setTimeout(() => setRvpCopyState("idle"), 2500);
   }
@@ -540,6 +548,26 @@ export default function App() {
                     {copyState === "copied" ? <IconCheck size={16} /> : <IconCopy size={16} />}
                     {copyState === "copied" ? "Copiado" : copyState === "error" ? "No se pudo copiar" : "Copiar tabla"}
                   </button>
+
+                  {stages.length > 1 && (
+                    <div className="switch" role="group" aria-label="Alcance del informe en Word">
+                      <button
+                        className={`switch__opt ${reportScope === "etapa" ? "is-active" : ""}`}
+                        onClick={() => setReportScope("etapa")}
+                        title="Copiar informe, Cuadros 1-2-3 e Informe Word salen enfocados sólo a esta etapa"
+                      >
+                        Word: solo {stageActiva}
+                      </button>
+                      <button
+                        className={`switch__opt ${reportScope === "todas" ? "is-active" : ""}`}
+                        onClick={() => setReportScope("todas")}
+                        title="Copiar informe, Cuadros 1-2-3 e Informe Word combinan todas las etapas cargadas"
+                      >
+                        Todas las etapas
+                      </button>
+                    </div>
+                  )}
+
                   <button className="btn btn--ghost" onClick={handleCopyRvp} disabled={!productoActivo}>
                     {rvpCopyState === "copied" ? <IconCheck size={16} /> : <IconFileText size={16} />}
                     {rvpCopyState === "copied"

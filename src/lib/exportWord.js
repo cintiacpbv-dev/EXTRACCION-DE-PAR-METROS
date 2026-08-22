@@ -320,10 +320,13 @@ export function buildRvpDocument(documents, familia, options) {
   const hoy = new Date().toISOString().slice(0, 10);
 
   const conOrden = model.rendimiento.length > 0;
+  // Con una sola etapa en el modelo (porque sólo se cargó esa o porque se
+  // pidió acotar el informe) el título lo deja explícito.
+  const tituloFamilia = model.stages.length === 1 ? `${familia} — ${model.stages[0]}` : familia;
 
   // Sección vertical: portada y personal.
   const vertical = [
-    texto(`REPORTE DE VALIDACIÓN DE PROCESO — ${familia}`, { bold: true, size: 28, align: AlignmentType.CENTER }),
+    texto(`REPORTE DE VALIDACIÓN DE PROCESO — ${tituloFamilia}`, { bold: true, size: 28, align: AlignmentType.CENTER }),
     texto(
       `Generado el ${hoy} a partir de los registros de manufactura${conOrden ? " y las órdenes de producción" : ""}`,
       { size: 16, align: AlignmentType.CENTER }
@@ -396,10 +399,11 @@ export async function exportRvpToWord(documents, familia, options) {
   const doc = buildRvpDocument(documents, familia, options);
   const blob = await Packer.toBlob(doc);
 
+  const sufijoEtapa = options?.stage ? `_${options.stage.replace(/[^\w.-]+/g, "_")}` : "";
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${familia.replace(/[^\w.-]+/g, "_").slice(0, 60)}_RVP.docx`;
+  a.download = `${familia.replace(/[^\w.-]+/g, "_").slice(0, 60)}${sufijoEtapa}_RVP.docx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

@@ -334,10 +334,11 @@ export async function exportCuadrosToWord(documents, familia, options) {
   const doc = buildCuadrosDocument(documents, familia, options);
   const blob = await Packer.toBlob(doc);
 
+  const sufijoEtapa = options?.stage ? `_${options.stage.replace(/[^\w.-]+/g, "_")}` : "";
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${familia.replace(/[^\w.-]+/g, "_").slice(0, 60)}_cuadros.docx`;
+  a.download = `${familia.replace(/[^\w.-]+/g, "_").slice(0, 60)}${sufijoEtapa}_cuadros.docx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

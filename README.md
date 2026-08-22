@@ -118,6 +118,16 @@ de material mandan sobre lo deducido del registro.
 **Proveedor, fabricante y fecha de vencimiento** no están en ninguno de los dos
 y deben completarse desde el sistema de almacén.
 
+## Alcance del informe: una etapa o todas
+
+**Copiar informe**, **Cuadros 1-2-3** e **Informe Word** comparten un
+selector, "Word: solo &lt;etapa&gt;" / "Todas las etapas" (visible cuando el
+producto tiene más de una etapa cargada). Por defecto sale enfocado sólo a la
+etapa activa: si de un lote únicamente se cargó Acondicionado, el Word no
+muestra columnas vacías de Fabricación o Envase sólo porque otro lote de la
+misma familia sí las tenga. "Todas las etapas" arma el informe combinado de
+siempre.
+
 ## Cuadros 1-2-3 con el formato del reporte de referencia
 
 El botón **Cuadros 1-2-3** entrega en Word, con el formato exacto del reporte

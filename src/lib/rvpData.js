@@ -204,19 +204,25 @@ export function personalPorEtapa(documents, familia) {
 /**
  * Todo lo que necesita el informe, ya resuelto: encabezados, tablas de
  * parámetros por etapa, personal, materiales y fechas.
+ *
+ * Con `stage` se restringe todo el modelo a una sola etapa: si de un
+ * producto sólo se cargó Acondicionado, el informe no debe salir con
+ * columnas vacías de Fabricación o Envase sólo porque otro lote de la
+ * misma familia sí las tiene.
  */
-export function buildRvpModel(documents, familia, { onlyCritical = true } = {}) {
-  const stages = listStages(documents, familia);
+export function buildRvpModel(documents, familia, { onlyCritical = true, stage = null } = {}) {
+  const alcance = stage ? documents.filter((d) => d.familia !== familia || d.stage === stage) : documents;
+  const stages = listStages(alcance, familia);
 
   return {
     familia,
     stages,
-    lotes: lotesConFechas(documents, familia),
-    recetas: recetaPorLote(documents, familia),
-    materiales: materialesPorLote(documents, familia),
-    rendimiento: rendimientoPorLote(documents, familia),
-    personal: personalPorEtapa(documents, familia),
-    personalPorLote: personalPorLote(documents, familia),
-    tablas: stages.map((stage) => buildTable(documents, familia, stage, { onlyCritical })),
+    lotes: lotesConFechas(alcance, familia),
+    recetas: recetaPorLote(alcance, familia),
+    materiales: materialesPorLote(alcance, familia),
+    rendimiento: rendimientoPorLote(alcance, familia),
+    personal: personalPorEtapa(alcance, familia),
+    personalPorLote: personalPorLote(alcance, familia),
+    tablas: stages.map((s) => buildTable(alcance, familia, s, { onlyCritical })),
   };
 }
