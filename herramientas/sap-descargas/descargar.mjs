@@ -579,18 +579,53 @@ const LEER_REJILLA = `(() => {
   return { prefijo, cabecera, filas: [...filas].sort((a, b) => a - b), etiquetas };
 })()`;
 
-/** Cierra la ventana emergente del visor de PDF. */
+const URL_PDF = /\.pdf(\?|$)/i;
+
+/**
+ * Un PDF de verdad empieza por "%PDF-" y termina por "%%EOF". El visor pide
+ * el archivo por tramos, así que sin esta comprobación se guardaba como
+ * bueno el primer fragmento de un kilobyte.
+ */
+function esPdfCompleto(cuerpo) {
+  if (!cuerpo || cuerpo.length < 5000) return false;
+  if (cuerpo.subarray(0, 5).toString("latin1") !== "%PDF-") return false;
+  return cuerpo.subarray(-1500).toString("latin1").includes("%%EOF");
+}
+
+/** ¿Sigue abierta la ventana del visor? */
+async function hayVisorAbierto(marco) {
+  if (!marco) return false;
+  return (await marco.locator('embed[type*="pdf"], object[type*="pdf"], iframe[src*=".pdf"]').count()) > 0;
+}
+
+/**
+ * Cierra la ventana emergente del visor y comprueba que se cerró de verdad:
+ * si queda abierta, tapa la rejilla y el clic siguiente no llega nunca.
+ */
 async function cerrarVisor(marco, page) {
-  for (const sel of ['[title="Cancelar"]', "text=OK", '[title="Cerrar"]']) {
-    const loc = marco.locator(sel).last();
-    if ((await loc.count()) > 0) {
-      await loc.click({ timeout: 5000 }).catch(() => {});
-      await page.waitForTimeout(600);
-      return;
+  if (!(await hayVisorAbierto(marco))) return true;
+
+  const candidatos = [
+    'button:has-text("OK")',
+    '[title="Cancelar"]',
+    '[title="Cerrar"]',
+    '[title="Close"]',
+    'text="OK"',
+  ];
+
+  for (const sel of candidatos) {
+    for (const ambito of [marco, page]) {
+      const loc = ambito.locator(sel).last();
+      if ((await loc.count().catch(() => 0)) === 0) continue;
+      await loc.click({ timeout: 4000 }).catch(() => {});
+      await page.waitForTimeout(700);
+      if (!(await hayVisorAbierto(marco))) return true;
     }
   }
+
   await page.keyboard.press("Escape").catch(() => {});
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(700);
+  return !(await hayVisorAbierto(marco));
 }
 
 /**
@@ -600,7 +635,7 @@ async function cerrarVisor(marco, page) {
  * pulsar el icono, SAP lo sirve como application/pdf, y leerlo de ahí evita
  * depender de los botones del visor incrustado.
  */
-async function descargarLoteDelReporte(page, lote, descargas, config) {
+async function descargarLoteDelReporte(page, contexto, lote, descargas, config) {
   const guardados = [];
   const marcoDe = () => page.frames().find((f) => /webgui/i.test(f.url()));
 
@@ -631,34 +666,68 @@ async function descargarLoteDelReporte(page, lote, descargas, config) {
 
   for (const fila of rejilla.filas) {
     for (const { nombre, col } of columnas) {
+      const etiqueta = (rejilla.etiquetas[fila] || `fila${fila}`).replace(/[\\/:*?"<>|\s]+/g, "_");
+      // "Producción-OP" -> "OP"; la parte útil del nombre es la de después
+      // del guion, y así el archivo no arrastra tildes.
+      const sufijo = nombre.split("-").pop().replace(/[^A-Za-z]+/g, "");
+      const rotulo = `${lote}_${etiqueta}_${sufijo}.pdf`;
+
+      // Si quedó una ventana abierta, tapa la rejilla y el clic no llega.
+      if (!(await cerrarVisor(marcoDe() || marco, page))) {
+        throw new Error("no consigo cerrar la ventana del visor; el resto de etapas quedaría bloqueado");
+      }
+
       const id = `${rejilla.prefijo}${fila},${col}`;
-      const marcoActual = marcoDe();
-      const celda = marcoActual.locator(`[id="${id}"]`);
+      const celda = (marcoDe() || marco).locator(`[id="${id}"]`);
       if ((await celda.count()) === 0) continue;
 
-      try {
-        const esperaPdf = page.waitForResponse(
-          (r) => /\.pdf(\?|$)/i.test(r.url()) || (r.headers()["content-type"] || "").includes("pdf"),
-          { timeout: config.reporteLote?.esperaPdfMs || 45000 }
-        );
-        await celda.click();
-        const respuesta = await esperaPdf;
-        const cuerpo = await respuesta.body();
+      // El .catch() va aquí y no en el await: si el clic falla antes de
+      // llegar a esperar, esta promesa quedaría rechazada sin nadie que la
+      // recoja, y eso tumbaba el proceso entero.
+      const esperaPdf = page
+        .waitForResponse((r) => URL_PDF.test(r.url()), {
+          timeout: config.reporteLote?.esperaPdfMs || 45000,
+        })
+        .catch(() => null);
 
-        const etiqueta = (rejilla.etiquetas[fila] || `fila${fila}`).replace(/[\\/:*?"<>|\s]+/g, "_");
-        // "Producción-OP" -> "OP"; la parte útil del nombre es la de después
-        // del guion, y así el archivo no arrastra tildes.
-        const sufijo = nombre.split("-").pop().replace(/[^A-Za-z]+/g, "");
-        const destino = path.join(descargas, `${lote}_${etiqueta}_${sufijo}.pdf`);
-        await writeFile(destino, cuerpo);
+      // Si el clic no llega a darse no tiene sentido esperar el PDF; la
+      // promesa ya lleva su propio .catch(), así que abandonarla es seguro.
+      const clic = await celda.click({ timeout: 15000 }).then(
+        () => true,
+        () => false
+      );
+      const respuesta = clic ? await esperaPdf : null;
 
-        guardados.push(path.basename(destino));
-        console.log(`     · ${path.basename(destino)} (${Math.round(cuerpo.length / 1024)} kB)`);
-      } catch {
-        console.log(`     · sin PDF en ${nombre} de la fila ${fila}`);
-      } finally {
+      if (!respuesta) {
+        console.log(`     · ${rotulo}: no se abrió el PDF`);
         await cerrarVisor(marcoDe() || marco, page);
+        continue;
       }
+
+      // El visor de Chrome pide el PDF por tramos, así que la respuesta que
+      // se ve puede ser sólo un trozo (206). Se vuelve a pedir entero con la
+      // misma sesión, que es lo que garantiza el archivo completo.
+      let cuerpo;
+      try {
+        const completa = await contexto.request.get(respuesta.url(), { timeout: 60000 });
+        cuerpo = await completa.body();
+      } catch {
+        cuerpo = await respuesta.body().catch(() => null);
+      }
+
+      if (!esPdfCompleto(cuerpo)) {
+        const kb = cuerpo ? Math.round(cuerpo.length / 1024) : 0;
+        console.log(`     · ${rotulo}: lo descargado no es un PDF válido (${kb} kB) — se descarta`);
+        await cerrarVisor(marcoDe() || marco, page);
+        continue;
+      }
+
+      const destino = path.join(descargas, rotulo);
+      await writeFile(destino, cuerpo);
+      guardados.push(rotulo);
+      console.log(`     · ${rotulo} (${Math.round(cuerpo.length / 1024)} kB)`);
+
+      await cerrarVisor(marcoDe() || marco, page);
     }
   }
 
@@ -699,7 +768,7 @@ async function modoDescargar() {
     for (const lote of lotes) {
       console.log(`  Lote ${lote}`);
       try {
-        const archivos = await descargarLoteDelReporte(page, lote, descargas, config);
+        const archivos = await descargarLoteDelReporte(page, contexto, lote, descargas, config);
         if (archivos.length > 0) resultado.ok.push(lote);
         else resultado.vacios.push(lote);
       } catch (err) {
@@ -791,6 +860,13 @@ async function modoDescargar() {
 }
 
 // ------------------------------------------------------------------ main ---
+
+// Red de seguridad: una promesa rechazada que nadie recoja tumbaba el
+// proceso con un volcado de pila en mitad de una tanda de descargas.
+process.on("unhandledRejection", (motivo) => {
+  const texto = motivo instanceof Error ? motivo.message.split("\n")[0] : String(motivo);
+  console.error(`\n  (aviso interno, la descarga continúa: ${texto})`);
+});
 
 const modo = process.argv[2];
 try {
