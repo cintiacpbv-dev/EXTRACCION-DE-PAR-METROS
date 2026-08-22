@@ -8,6 +8,8 @@
 // presentaciones de un mismo producto, y evita depender de coincidencias
 // exactas de cadena que el texto adicional rompería.
 
+import { esMuestraMedica } from "./muestraMedica.js";
+
 /** Primera palabra del nombre del producto, normalizada para comparar. */
 export function firstWord(producto) {
   const w = (producto || "").trim().split(/\s+/)[0] || "";
@@ -19,9 +21,15 @@ export function firstWord(producto) {
  * (por primera palabra), mismo lote, misma etapa. Cargar un PDF que caiga en
  * la misma casilla actualiza ese documento en vez de crear uno nuevo, aunque
  * el nombre completo del producto no sea idéntico letra por letra.
+ *
+ * La muestra médica forma parte de la casilla porque un mismo lote fabrica a
+ * la vez producto de venta y muestra médica, en la misma etapa: el lote
+ * 2036006 tiene "…3g CJA x20" y "…3g CJA x2MM" bajo ACONDICIONADO. Sin
+ * distinguirlas, ambas caerían en la misma casilla y una borraría a la otra.
  */
 export function slotKey({ producto, lote, stage }) {
-  return `${firstWord(producto)}::${lote}::${stage}`;
+  const muestra = esMuestraMedica(producto) ? "::MM" : "";
+  return `${firstWord(producto)}::${lote}::${stage}${muestra}`;
 }
 
 /**

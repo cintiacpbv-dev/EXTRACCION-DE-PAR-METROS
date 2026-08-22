@@ -187,7 +187,7 @@ function cuadroLotes(model) {
       n++;
       const celdas = [
         celda(n, { bold: true, align: AlignmentType.CENTER, width: A.num }),
-        celda(model.recetas[f.lote] || "", { align: AlignmentType.CENTER, width: A.receta }),
+        celda(model.recetas[f.clave] || "", { align: AlignmentType.CENTER, width: A.receta }),
         celda(f.producto, { align: AlignmentType.CENTER, width: A.producto }),
         celda(f.lote, { align: AlignmentType.CENTER, width: A.lote }),
       ];

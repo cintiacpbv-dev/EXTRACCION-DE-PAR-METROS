@@ -49,6 +49,7 @@ import { exportCuadrosToWord } from "./lib/exportCuadros.js";
 import {
   aggregatePersonnel,
   buildTable,
+  claveLote,
   listProducts,
   listStages,
   summarizeProducts,
@@ -277,12 +278,14 @@ export default function App() {
 
   // Qué documentos hay ya en el análisis, con la misma clave que usa el
   // ayudante de descargas (lote + etapa + tipo), para no ofrecer analizar
-  // dos veces lo mismo.
+  // dos veces lo mismo. El lote lleva la marca de muestra médica porque un
+  // mismo lote y etapa traen a la vez venta y muestra: sin ella, analizar
+  // uno daría por analizado al otro y ese documento no se cargaría nunca.
   // Se cuenta sobre TODO lo cargado, incluidas las muestras médicas ocultas:
   // si no, el panel de SAP ofrecería una y otra vez analizar documentos que
   // luego se descartan, y el contador nunca bajaría.
   const analizados = useMemo(
-    () => new Set(todosDocs.map((d) => `${d.lote}::${d.stage}::${d.kind || "registro"}`)),
+    () => new Set(todosDocs.map((d) => `${claveLote(d)}::${d.stage}::${d.kind || "registro"}`)),
     [todosDocs]
   );
 

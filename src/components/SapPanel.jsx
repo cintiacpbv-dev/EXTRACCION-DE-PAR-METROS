@@ -8,6 +8,7 @@ import {
   traerPdf,
   contarLotes,
 } from "../lib/sapLocal.js";
+import { claveLote } from "../lib/model.js";
 import { esMuestraMedica } from "../lib/muestraMedica.js";
 
 const ETIQUETAS = {
@@ -25,8 +26,14 @@ const ETIQUETAS = {
  * página web no puede manejar un Chrome, ni entrar a la red interna, ni usar
  * la sesión de SAP. Aquí sólo se le encarga y se recogen los resultados.
  */
-/** Misma clave que usa la aplicación para saber si un documento ya se analizó. */
-const claveDe = (a) => `${a.lote}::${a.etapa}::${a.tipo === "OP" ? "orden" : "registro"}`;
+/**
+ * Misma clave que usa la aplicación para saber si un documento ya se analizó.
+ * Incluye la marca de muestra médica: un lote trae a la vez producto de venta
+ * y muestra ("...3g CJA x20" y "...3g CJA x2MM") en la misma etapa, y sin
+ * distinguirlos analizar uno daría por analizado al otro.
+ */
+const claveDe = (a) =>
+  `${claveLote({ lote: a.lote, producto: a.producto })}::${a.etapa}::${a.tipo === "OP" ? "orden" : "registro"}`;
 
 export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), omitirMM = false }) {
   const [base, setBase] = useState(null);

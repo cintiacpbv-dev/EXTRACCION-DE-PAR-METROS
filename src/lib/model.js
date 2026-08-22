@@ -1,4 +1,5 @@
 import { computeStats } from "./stats.js";
+import { documentoEsMuestraMedica } from "./muestraMedica.js";
 import { firstWord } from "./productIdentity.js";
 
 /** Categorías que se muestran en la vista "Parámetros de proceso". */
@@ -23,6 +24,22 @@ export function withFamilies(documents) {
   }
 
   return documents.map((doc) => ({ ...doc, familia: porPrimeraPalabra.get(firstWord(doc.producto)) }));
+}
+
+/**
+ * Identidad de la columna de un lote.
+ *
+ * Un mismo lote fabrica a la vez producto de venta y muestra medica: el
+ * 2036006 trae "...3g CJA x20" y "...3g CJA x2MM" bajo Acondicionado, cada
+ * uno con su propia orden, su propia receta y sus propios parametros. Es el
+ * mismo numero de lote pero no el mismo producto, asi que indexar las
+ * columnas solo por el numero haria que una presentacion pisara a la otra.
+ * La muestra medica se rotula aparte para poder distinguirlas. Se reconoce
+ * con el mismo criterio que usa el boton de omitir muestras medicas, para
+ * que lo que se omite y lo que lleva columna propia sean siempre lo mismo.
+ */
+export function claveLote(doc) {
+  return documentoEsMuestraMedica(doc) ? `${doc.lote} MM` : doc.lote;
 }
 
 export function listProducts(documents) {
@@ -105,7 +122,7 @@ export function listStages(documents, familia) {
  */
 export function buildTable(documents, familia, stage, { onlyCritical = true } = {}) {
   const docs = documents.filter((d) => d.familia === familia && d.stage === stage);
-  const lotes = [...new Set(docs.map((d) => d.lote))].sort();
+  const lotes = [...new Set(docs.map(claveLote))].sort();
 
   const rowsById = new Map();
   const sectionOrder = [];
@@ -130,7 +147,7 @@ export function buildTable(documents, familia, stage, { onlyCritical = true } = 
       }
 
       const row = rowsById.get(p.id);
-      row.values[doc.lote] = p.value;
+      row.values[claveLote(doc)] = p.value;
       if (p.valueType === "number") row.valueType = "number";
       if (!row.setpoint && p.setpoint) row.setpoint = p.setpoint;
       if (!row.unit && p.unit) row.unit = p.unit;

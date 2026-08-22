@@ -168,12 +168,17 @@ async function findBatchRows(producto, lote) {
   return { rows: data.filter((b) => firstWord(b.producto) === firstWord(producto)), error: null };
 }
 
-/** La fila donde escribir: se prefiere el nombre exacto, si no la más antigua. */
+/**
+ * La fila donde escribir. Tiene que ser la del nombre exacto: un mismo lote
+ * y etapa pueden traer producto de venta y muestra médica a la vez
+ * ("…3g CJA x20" y "…3g CJA x2MM"), y reaprovechar la fila de otra
+ * presentación metía los dos en la misma casilla, donde el segundo borraba
+ * al primero. Sin coincidencia exacta se crea una fila nueva.
+ */
 async function findBatchRow(producto, lote) {
   const { rows, error } = await findBatchRows(producto, lote);
   if (error) return { row: null, error };
-  const exacto = rows.find((b) => b.producto === producto);
-  return { row: exacto || rows[0] || null, error: null };
+  return { row: rows.find((b) => b.producto === producto) || null, error: null };
 }
 
 /**

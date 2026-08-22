@@ -5,7 +5,7 @@
 // rescatar las fechas de proceso de entre los campos de trazabilidad, y los
 // materiales de la sección de insumos.
 
-import { aggregatePersonnel, buildTable, listStages } from "./model.js";
+import { aggregatePersonnel, buildTable, claveLote, listStages } from "./model.js";
 
 const FECHA_RE = /^(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}:\d{2}))?/;
 
@@ -59,16 +59,17 @@ export function lotesConFechas(documents, familia) {
 
   for (const doc of ordenados) {
     if (doc.familia !== familia) continue;
-    if (!porLote.has(doc.lote)) porLote.set(doc.lote, { lote: doc.lote, producto: doc.producto, etapas: {} });
+    const clave = claveLote(doc);
+    if (!porLote.has(clave)) porLote.set(clave, { clave, lote: doc.lote, producto: doc.producto, etapas: {} });
 
-    const fila = porLote.get(doc.lote);
+    const fila = porLote.get(clave);
     fila.etapas[doc.stage] = fechasDeProceso(doc);
     if (doc.orden?.cabecera?.producto) fila.producto = doc.orden.cabecera.producto;
   }
 
   return {
     stages,
-    filas: [...porLote.values()].sort((a, b) => a.lote.localeCompare(b.lote)),
+    filas: [...porLote.values()].sort((a, b) => a.clave.localeCompare(b.clave)),
   };
 }
 
@@ -103,7 +104,7 @@ export function materialesPorLote(documents, familia) {
     if (doc.familia !== familia || !doc.orden) continue;
     const porCodigo = new Map();
     for (const ins of doc.orden.insumos) porCodigo.set(ins.codigo, ins);
-    ordenPorLoteEtapa.set(`${doc.lote}::${doc.stage}`, porCodigo);
+    ordenPorLoteEtapa.set(`${claveLote(doc)}::${doc.stage}`, porCodigo);
   }
 
   const registrosCubiertos = new Set();
@@ -111,7 +112,7 @@ export function materialesPorLote(documents, familia) {
   for (const doc of documents) {
     if (doc.familia !== familia || doc.kind === "orden") continue;
 
-    const claveLoteEtapa = `${doc.lote}::${doc.stage}`;
+    const claveLoteEtapa = `${claveLote(doc)}::${doc.stage}`;
     const enOrden = ordenPorLoteEtapa.get(claveLoteEtapa);
 
     if (doc.insumos?.length > 0) {
@@ -170,7 +171,7 @@ export function materialesPorLote(documents, familia) {
   // orden: se usa su lista para no dejar el cuadro vacío.
   for (const doc of documents) {
     if (doc.familia !== familia || !doc.orden) continue;
-    if (registrosCubiertos.has(`${doc.lote}::${doc.stage}`)) continue;
+    if (registrosCubiertos.has(`${claveLote(doc)}::${doc.stage}`)) continue;
 
     for (const ins of doc.orden.insumos) {
       filas.push({
@@ -221,11 +222,11 @@ export function rendimientoPorLote(documents, familia) {
 export function personalPorLote(documents, familia) {
   return listStages(documents, familia).map((stage) => {
     const docs = documents.filter((d) => d.familia === familia && d.stage === stage && d.kind !== "orden");
-    const lotes = [...new Set(docs.map((d) => d.lote))].sort();
+    const lotes = [...new Set(docs.map(claveLote))].sort();
 
     const porLote = {};
     for (const lote of lotes) {
-      const doc = docs.find((d) => d.lote === lote);
+      const doc = docs.find((d) => claveLote(d) === lote);
       porLote[lote] = {
         operarios: (doc?.personnel?.operarios || []).map((p) => p.name),
         supervisores: (doc?.personnel?.supervisores || []).map((p) => p.name),
@@ -247,7 +248,8 @@ export function recetaPorLote(documents, familia) {
   for (const doc of documents) {
     if (doc.familia !== familia) continue;
     const receta = doc.meta?.receta || doc.orden?.cabecera?.productoCodigo;
-    if (receta && !mapa[doc.lote]) mapa[doc.lote] = receta;
+    const clave = claveLote(doc);
+    if (receta && !mapa[clave]) mapa[clave] = receta;
   }
   return mapa;
 }
@@ -256,7 +258,7 @@ export function recetaPorLote(documents, familia) {
 export function personalPorEtapa(documents, familia) {
   return listStages(documents, familia).map((stage) => ({
     stage,
-    lotes: [...new Set(documents.filter((d) => d.familia === familia && d.stage === stage).map((d) => d.lote))].sort(),
+    lotes: [...new Set(documents.filter((d) => d.familia === familia && d.stage === stage).map(claveLote))].sort(),
     ...aggregatePersonnel(documents, familia, stage),
   }));
 }
