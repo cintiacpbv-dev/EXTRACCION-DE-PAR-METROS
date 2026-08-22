@@ -246,6 +246,14 @@ export default function App() {
     [docs, productoActivo, stageActiva]
   );
 
+  // Qué documentos hay ya en el análisis, con la misma clave que usa el
+  // ayudante de descargas (lote + etapa + tipo), para no ofrecer analizar
+  // dos veces lo mismo.
+  const analizados = useMemo(
+    () => new Set(docs.map((d) => `${d.lote}::${d.stage}::${d.kind || "registro"}`)),
+    [docs]
+  );
+
   const productDocs = useMemo(
     () => docs.filter((d) => d.familia === productoActivo),
     [docs, productoActivo]
@@ -607,7 +615,11 @@ export default function App() {
                 />
               </div>
 
-              <SapPanel onArchivos={(archivos) => handleFiles(archivos)} ocupado={busy} />
+              <SapPanel
+                onArchivos={(archivos) => handleFiles(archivos)}
+                ocupado={busy}
+                analizados={analizados}
+              />
 
               {!blank && productos.length > 0 && (
                 <div className="selectors">

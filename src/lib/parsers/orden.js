@@ -25,13 +25,64 @@ function num(valor) {
   return Number.isNaN(n) ? null : n;
 }
 
+/**
+ * Producto y cifras de rendimiento, leídos por posición.
+ *
+ * Van en la línea que sigue al rótulo "Código Producto Versión". Se busca
+ * ahí y no por el valor del código, porque el código no siempre empieza por
+ * la misma cifra: 6000000118 en acondicionado, pero 5000000855 en
+ * fabricación y 5000000865 en envase. Dar por hecho el 6 dejaba a esas dos
+ * etapas sin nombre de producto ni rendimiento.
+ */
+function extraerProducto(pages) {
+  const lineas = pages?.[0]?.lines;
+  if (!Array.isArray(lineas)) return null;
+
+  const i = lineas.findIndex((l) => /^C[oó]digo\s+Producto\b/i.test(norm(l.text).trim()));
+  if (i === -1) return null;
+
+  for (const linea of lineas.slice(i + 1, i + 4)) {
+    const m = norm(linea.text).trim().match(/^(\d{10})\s+(.+)$/);
+    if (!m) continue;
+
+    // La cola de la línea son las cifras de rendimiento; el resto es el
+    // nombre. En una orden sin llenar esas cifras no están, y el nombre
+    // igualmente se recupera.
+    const cifras = m[2].match(/(-?[\d.,]+)\s+(-?[\d.,]+)\s+(-?[\d.,]+)\s+(-?[\d.,]+)\s*%\s*$/);
+    const nombre = m[2].replace(/(\s+-?[\d.,]+){1,4}\s*%?\s*$/, "").replace(/\s{2,}/g, " ").trim();
+
+    return {
+      codigo: m[1],
+      nombre: nombre || null,
+      entregado: cifras ? num(cifras[1]) : null,
+      controlCalidad: cifras ? num(cifras[2]) : null,
+      obtenido: cifras ? num(cifras[3]) : null,
+      rendimiento: cifras ? num(cifras[4]) : null,
+    };
+  }
+
+  return null;
+}
+
 /** Cabecera: producto, lote, etapa, orden, fechas y rendimiento declarado. */
-function extraerCabecera(flatText) {
+function extraerCabecera(flatText, pages) {
   const t = norm(flatText);
 
-  // "Código Producto Versión: 1101 ... 6000003270 FLUIBRONCOL ORAL ... LATAM EC"
-  // El nombre va entre el código de producto y la primera cifra de rendimiento.
-  const prod = t.match(/\b(6\d{9})\s+(.+?)\s+(-?\d[\d.,]*)\s+(-?\d[\d.,]*)\s+(-?\d[\d.,]*)\s+(-?\d[\d.,]*)\s*%/);
+  const prodPos = extraerProducto(pages);
+  // Respaldo sobre el texto corrido por si la plantilla no encaja.
+  const m = t.match(/\b(\d{10})\s+(.+?)\s+(-?\d[\d.,]*)\s+(-?\d[\d.,]*)\s+(-?\d[\d.,]*)\s+(-?\d[\d.,]*)\s*%/);
+  const prod =
+    prodPos ||
+    (m
+      ? {
+          codigo: m[1],
+          nombre: m[2].replace(/\s{2,}/g, " ").trim(),
+          entregado: num(m[3]),
+          controlCalidad: num(m[4]),
+          obtenido: num(m[5]),
+          rendimiento: num(m[6]),
+        }
+      : null);
 
   return {
     tipoOrden: match1(t, /Tipo de orden:\s*(\S+)/i),
@@ -48,12 +99,12 @@ function extraerCabecera(flatText) {
     fin: match1(t, /Fecha final:\s*([\d-]{8,10}(?:\s+[\d:]{4,8})?)/i),
     teorico: match1(t, /Te[oó]rico:\s*([\d.,]+)\s*\w*/i),
     teoricoUnidad: match1(t, /Te[oó]rico:\s*[\d.,]+\s*([A-Z]{2,4})/i),
-    productoCodigo: prod ? prod[1] : null,
-    producto: prod ? prod[2].replace(/\s{2,}/g, " ").trim() : null,
-    entregado: prod ? num(prod[3]) : null,
-    controlCalidad: prod ? num(prod[4]) : null,
-    obtenido: prod ? num(prod[5]) : null,
-    rendimiento: prod ? num(prod[6]) : null,
+    productoCodigo: prod?.codigo ?? null,
+    producto: prod?.nombre ?? null,
+    entregado: prod?.entregado ?? null,
+    controlCalidad: prod?.controlCalidad ?? null,
+    obtenido: prod?.obtenido ?? null,
+    rendimiento: prod?.rendimiento ?? null,
   };
 }
 
@@ -182,7 +233,7 @@ function extraerEntregas(pages) {
  * con kind: "orden" para distinguirlo del registro de manufactura.
  */
 export function parseOrden(pages, flatText) {
-  const cabecera = extraerCabecera(flatText);
+  const cabecera = extraerCabecera(flatText, pages);
   const insumos = extraerInsumos(pages);
   const firmas = extraerFirmas(flatText);
   const { entregas, muestras } = extraerEntregas(pages);

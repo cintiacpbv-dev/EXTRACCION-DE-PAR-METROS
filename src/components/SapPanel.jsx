@@ -23,7 +23,10 @@ const ETIQUETAS = {
  * página web no puede manejar un Chrome, ni entrar a la red interna, ni usar
  * la sesión de SAP. Aquí sólo se le encarga y se recogen los resultados.
  */
-export default function SapPanel({ onArchivos, ocupado }) {
+/** Misma clave que usa la aplicación para saber si un documento ya se analizó. */
+const claveDe = (a) => `${a.lote}::${a.etapa}::${a.tipo === "OP" ? "orden" : "registro"}`;
+
+export default function SapPanel({ onArchivos, ocupado, analizados = new Set() }) {
   const [base, setBase] = useState(null);
   const [buscando, setBuscando] = useState(true);
   const [abierto, setAbierto] = useState(false);
@@ -31,6 +34,7 @@ export default function SapPanel({ onArchivos, ocupado }) {
   const [estado, setEstado] = useState(null);
   const [error, setError] = useState(null);
   const [analizando, setAnalizando] = useState(false);
+  const [enDisco, setEnDisco] = useState([]);
   const sondeo = useRef(null);
 
   const aplicar = useCallback((encontrada) => {
@@ -63,7 +67,15 @@ export default function SapPanel({ onArchivos, ocupado }) {
 
     const tic = async () => {
       try {
-        setEstado(await pedirEstado(base));
+        const nuevo = await pedirEstado(base);
+        setEstado((previo) => {
+          // La carpeta sólo se relee cuando cambia el número de documentos
+          // resueltos o al terminar, para no pedirla cada segundo.
+          const cambio =
+            (previo?.resultados?.length ?? -1) !== nuevo.resultados.length || previo?.fase !== nuevo.fase;
+          if (cambio) listarArchivos(base).then(setEnDisco).catch(() => {});
+          return nuevo;
+        });
       } catch {
         setBase(null); // se cerró la ventana del ayudante
       }
@@ -87,14 +99,17 @@ export default function SapPanel({ onArchivos, ocupado }) {
     setError(null);
     setAnalizando(true);
     try {
-      const archivos = await listarArchivos(base);
-      if (archivos.length === 0) {
-        setError("Todavía no hay PDF descargados.");
+      // Se manda sólo lo que aún no está en el análisis: reprocesar lo ya
+      // cargado no aporta nada y cuesta varios segundos por documento.
+      const pendientes = (await listarArchivos(base)).filter((a) => !analizados.has(claveDe(a)));
+      if (pendientes.length === 0) {
+        setError("Todo lo descargado ya está analizado.");
         return;
       }
       const ficheros = [];
-      for (const a of archivos) ficheros.push(await traerPdf(base, a));
+      for (const a of pendientes) ficheros.push(await traerPdf(base, a));
       await onArchivos(ficheros);
+      setEnDisco(await listarArchivos(base).catch(() => enDisco));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -111,6 +126,9 @@ export default function SapPanel({ onArchivos, ocupado }) {
   // mostrarlo, una tanda que falla se veía exactamente igual que una que no
   // había empezado.
   const fallo = error || (estado?.fase === "error" ? estado.error : null);
+
+  // Lo que hay en la carpeta y todavía no está en el análisis.
+  const sinAnalizar = enDisco.filter((a) => !analizados.has(claveDe(a)));
 
   const subtitulo = trabajando
     ? estado.mensaje || "Trabajando…"
@@ -180,9 +198,20 @@ export default function SapPanel({ onArchivos, ocupado }) {
             <button
               className="btn btn--ghost"
               onClick={analizar}
-              disabled={trabajando || analizando || ocupado}
+              disabled={trabajando || analizando || ocupado || sinAnalizar.length === 0}
+              title={
+                sinAnalizar.length === 0 && enDisco.length > 0
+                  ? "Todo lo que hay descargado ya está en el análisis"
+                  : undefined
+              }
             >
-              {analizando ? "Analizando…" : "Analizar lo descargado"}
+              {analizando
+                ? "Analizando…"
+                : enDisco.length === 0
+                  ? "Analizar lo descargado"
+                  : sinAnalizar.length === 0
+                    ? "Todo analizado"
+                    : `Analizar ${sinAnalizar.length} documento${sinAnalizar.length === 1 ? "" : "s"}`}
             </button>
             {nLotes > 0 && <span className="counter">{nLotes === 1 ? "1 lote" : `${nLotes} lotes`}</span>}
           </div>
@@ -242,6 +271,9 @@ export default function SapPanel({ onArchivos, ocupado }) {
                             <span className={`sap-marca ${marca.clase}`}>
                               {r.estado === "ok" ? <IconCheck size={13} /> : null} {marca.texto}
                             </span>
+                            {r.estado === "ok" && analizados.has(claveDe(r)) ? (
+                              <span className="sap-analizado">ya analizado</span>
+                            ) : null}
                             {r.detalle ? <span className="muted"> ({r.detalle})</span> : null}
                           </td>
                         </tr>

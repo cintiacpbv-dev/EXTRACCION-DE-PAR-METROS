@@ -171,6 +171,9 @@ async function listarArchivos(raiz) {
             producto: producto.name,
             etapa: etapa.name,
             tipo: tipo.name,
+            // El lote va al principio del nombre; se devuelve aparte para
+            // que la página pueda saber qué está ya analizado.
+            lote: archivo.name.split("_")[0],
             nombre: archivo.name,
             ruta: [producto.name, etapa.name, tipo.name, archivo.name].join("/"),
             bytes: info?.size ?? 0,
