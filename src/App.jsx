@@ -227,7 +227,17 @@ export default function App() {
 
   // Las etapas de un mismo lote nombran al producto de forma distinta, así que
   // todo el análisis trabaja sobre la familia de producto, no sobre el código.
-  const docs = useMemo(() => withFamilies(documents), [documents]);
+  const todosDocs = useMemo(() => withFamilies(documents), [documents]);
+
+  // Con la omisión activa las muestras médicas se apartan de TODO lo que se
+  // ve y se exporta, no sólo de las cargas nuevas: las que ya estaban
+  // guardadas seguían apareciendo en las tablas y en el FORMATO A09.
+  const docs = useMemo(
+    () => (omitirMM ? todosDocs.filter((d) => !documentoEsMuestraMedica(d)) : todosDocs),
+    [todosDocs, omitirMM]
+  );
+
+  const muestrasOcultas = todosDocs.length - docs.length;
 
   const productos = useMemo(() => listProducts(docs), [docs]);
   const resumenProductos = useMemo(() => summarizeProducts(docs), [docs]);
@@ -263,9 +273,12 @@ export default function App() {
   // Qué documentos hay ya en el análisis, con la misma clave que usa el
   // ayudante de descargas (lote + etapa + tipo), para no ofrecer analizar
   // dos veces lo mismo.
+  // Se cuenta sobre TODO lo cargado, incluidas las muestras médicas ocultas:
+  // si no, el panel de SAP ofrecería una y otra vez analizar documentos que
+  // luego se descartan, y el contador nunca bajaría.
   const analizados = useMemo(
-    () => new Set(docs.map((d) => `${d.lote}::${d.stage}::${d.kind || "registro"}`)),
-    [docs]
+    () => new Set(todosDocs.map((d) => `${d.lote}::${d.stage}::${d.kind || "registro"}`)),
+    [todosDocs]
   );
 
   const productDocs = useMemo(
@@ -750,11 +763,13 @@ export default function App() {
                         "info"
                       );
                     }}
-                    title="Las muestras médicas se reconocen por las dos emes mayúsculas de su descripción"
+                    title="Las muestras médicas se reconocen por las dos emes mayúsculas de la descripción del producto"
                     aria-pressed={omitirMM}
                   >
                     {omitirMM ? <IconCheck size={16} /> : <IconFilter size={16} />}
-                    Omitir muestras médicas
+                    {omitirMM && muestrasOcultas > 0
+                      ? `Muestras médicas fuera (${muestrasOcultas})`
+                      : "Omitir muestras médicas"}
                   </button>
 
                   {table && (

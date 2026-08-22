@@ -8,6 +8,7 @@ import {
   traerPdf,
   contarLotes,
 } from "../lib/sapLocal.js";
+import { esMuestraMedica } from "../lib/muestraMedica.js";
 
 const ETIQUETAS = {
   ok: { texto: "Descargado", clase: "sap-marca--ok" },
@@ -102,7 +103,9 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
     try {
       // Se manda sólo lo que aún no está en el análisis: reprocesar lo ya
       // cargado no aporta nada y cuesta varios segundos por documento.
-      const pendientes = (await listarArchivos(base)).filter((a) => !analizados.has(claveDe(a)));
+      const pendientes = (await listarArchivos(base)).filter(
+        (a) => !analizados.has(claveDe(a)) && !(omitirMM && esMuestraMedica(a.producto))
+      );
       if (pendientes.length === 0) {
         setError("Todo lo descargado ya está analizado.");
         return;
@@ -129,7 +132,11 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
   const fallo = error || (estado?.fase === "error" ? estado.error : null);
 
   // Lo que hay en la carpeta y todavía no está en el análisis.
-  const sinAnalizar = enDisco.filter((a) => !analizados.has(claveDe(a)));
+  // Se descuentan también las muestras médicas cuando están omitidas: si no,
+  // el botón invitaría a analizar documentos que después se descartan.
+  const sinAnalizar = enDisco.filter(
+    (a) => !analizados.has(claveDe(a)) && !(omitirMM && esMuestraMedica(a.producto))
+  );
 
   const subtitulo = trabajando
     ? estado.mensaje || "Trabajando…"
