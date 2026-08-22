@@ -276,13 +276,60 @@ const RECONOCER_PANTALLA = `(() => {
   return { titulo: document.title, campos, botones, tablas };
 })()`;
 
+// La rejilla de resultados (ALV) no se deja leer con el volcado general: sus
+// celdas de icono son enlaces sueltos dentro de una maraña de tablas
+// anidadas. Se busca de forma dirigida por el texto de las columnas.
+const RECONOCER_REJILLA = `(() => {
+  const texto = (el) => (el.innerText || el.textContent || "").trim().slice(0, 40);
+  const CLAVES = /Producci|RMD|OP\\b|Almac|Calidad/i;
+
+  // Toda la fila de cabecera que mencione las columnas que interesan.
+  const cabeceras = [...document.querySelectorAll("th, td")]
+    .filter((c) => CLAVES.test(texto(c)) && texto(c).length < 30)
+    .slice(0, 40)
+    .map((c) => ({ texto: texto(c), id: c.id || "", clase: (c.className || "").slice(0, 40) }));
+
+  // Cualquier cosa pulsable de la rejilla: los iconos son enlaces o imágenes.
+  const pulsables = [...document.querySelectorAll("a, img, area, [onclick]")]
+    .filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    })
+    .slice(0, 120)
+    .map((el) => ({
+      tag: el.tagName.toLowerCase(),
+      id: el.id || "",
+      titulo: el.title || el.getAttribute("alt") || "",
+      texto: texto(el),
+      href: (el.getAttribute("href") || "").slice(0, 60),
+    }))
+    .filter((e) => e.id || e.titulo);
+
+  return { cabeceras, pulsables };
+})()`;
+
+/** Devuelve el primer selector de la lista que exista en el ámbito dado. */
+async function localizar(ambito, candidatos, descripcion) {
+  for (const sel of candidatos) {
+    const loc = ambito.locator(sel).first();
+    if ((await loc.count()) > 0) return { loc, sel };
+  }
+  throw new Error(`No encontré ${descripcion}. Probé: ${candidatos.join(" | ")}`);
+}
+
+const SEL_LOTE = ['input[title="Número de lote"]', 'input[title*="lote" i]', "#M0\\:46\\:\\:\\:3\\:64"];
+const SEL_CONSULTA = ['[title="Ejecutar <objeto>"]', "text=Consulta", "#M0\\:46\\:\\:\\:6\\:7"];
+
 /**
- * Vuelca la estructura de la pantalla que se tenga abierta, para poder
- * escribir los selectores exactos del modo guiado.
+ * Vuelca la estructura de la pantalla, para poder escribir los selectores
+ * exactos del modo guiado.
  *
  * Hace falta porque el SAP GUI dibujado en el navegador genera
  * identificadores propios ("M0:46:::0:") que no se pueden adivinar desde
  * fuera y que además cambian entre pantallas.
+ *
+ * De paso hace él mismo la búsqueda del lote: así queda comprobado que los
+ * selectores ya conocidos funcionan, en vez de darlos por buenos.
  */
 async function modoExplorar() {
   const config = await leerConfig();
@@ -292,16 +339,54 @@ async function modoExplorar() {
   await page.goto(config.urlInicio, { waitUntil: "domcontentloaded" }).catch(() => {});
 
   console.log("\n─────────────────────────────────────────────────────");
-  console.log(" En la ventana de SAP que se acaba de abrir:");
-  console.log("   1. Entra a 'Reporte Sobre de Lote Digital'.");
-  console.log("   2. Escribe un lote y pulsa 'Consulta'.");
-  console.log("   3. Deja en pantalla la tabla con las etapas.");
+  console.log(" Espera a que cargue 'Reporte Sobre de Lote Digital'.");
+  console.log(" No hace falta que busques nada: lo hago yo.");
   console.log("─────────────────────────────────────────────────────\n");
 
-  await preguntar("Cuando tengas la tabla a la vista, pulsa Enter aquí… ");
+  const lote = await preguntar("¿Qué lote uso de ejemplo? ");
+  await preguntar("Cuando veas la pantalla de búsqueda, pulsa Enter aquí… ");
 
   const informe = [];
   informe.push(`Explorado el ${new Date().toISOString()}`);
+
+  // --- Se intenta la búsqueda con los selectores ya conocidos --------------
+  const marco = page.frames().find((f) => /webgui/i.test(f.url()));
+  if (marco && lote) {
+    informe.push(`\nMARCO DE LA TRANSACCIÓN: ${marco.name()}`);
+    try {
+      const campo = await localizar(marco, SEL_LOTE, "el campo del lote");
+      await campo.loc.fill(lote);
+      informe.push(`  campo del lote  -> OK con  ${campo.sel}`);
+
+      const boton = await localizar(marco, SEL_CONSULTA, "el botón Consulta");
+      await boton.loc.click();
+      informe.push(`  botón Consulta  -> OK con  ${boton.sel}`);
+
+      await page.waitForTimeout(4000); // que la rejilla termine de pintarse
+      console.log("  Búsqueda lanzada. Leyendo la tabla de resultados…\n");
+    } catch (err) {
+      informe.push(`  FALLO: ${err.message}`);
+      console.log(`  No pude buscar solo: ${err.message}`);
+      await preguntar("Haz tú la búsqueda y pulsa Enter cuando veas la tabla… ");
+    }
+
+    // --- Estructura de la rejilla de resultados ---------------------------
+    try {
+      // Al pulsar Consulta la transacción repinta el marco entero, así que la
+      // referencia anterior ya no vale y hay que volver a buscarlo.
+      const marcoActual = page.frames().find((f) => /webgui/i.test(f.url())) || marco;
+      const rejilla = await marcoActual.evaluate(RECONOCER_REJILLA);
+      informe.push(`\n-- COLUMNAS DE LA REJILLA (${rejilla.cabeceras.length}) --`);
+      for (const c of rejilla.cabeceras) informe.push(`  "${c.texto}" id="${c.id}" clase="${c.clase}"`);
+
+      informe.push(`\n-- ELEMENTOS PULSABLES DE LA REJILLA (${rejilla.pulsables.length}) --`);
+      for (const p of rejilla.pulsables) {
+        informe.push(`  <${p.tag}> id="${p.id}" titulo="${p.titulo}" texto="${p.texto}" href="${p.href}"`);
+      }
+    } catch (err) {
+      informe.push(`\nNo pude leer la rejilla: ${err.message}`);
+    }
+  }
 
   for (const frame of page.frames()) {
     let datos;

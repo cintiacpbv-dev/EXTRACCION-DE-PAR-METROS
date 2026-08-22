@@ -11,12 +11,14 @@ echo Se abrira SAP con tu sesion ya iniciada.
 echo.
 echo QUE TIENES QUE HACER:
 echo.
-echo   1. Entra a "Reporte Sobre de Lote Digital".
-echo   2. Escribe un lote y pulsa "Consulta".
-echo   3. Deja en pantalla la tabla con las etapas.
-echo   4. Vuelve a ESTA ventana y pulsa Enter.
+echo   1. Te preguntare un lote de ejemplo: escribelo aqui.
+echo   2. Espera a que cargue "Reporte Sobre de Lote Digital".
+echo   3. Vuelve a ESTA ventana y pulsa Enter.
 echo.
-echo Se creara el archivo diagnostico.txt, que hay que enviarme.
+echo El resto lo hago yo: relleno el lote, pulso Consulta y leo
+echo la tabla de resultados.
+echo.
+echo Se creara diagnostico.txt, que hay que enviarme.
 echo Solo lleva nombres de campos, botones y columnas.
 echo.
 echo ============================================================
