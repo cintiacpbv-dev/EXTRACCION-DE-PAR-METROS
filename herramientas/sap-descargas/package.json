@@ -1,0 +1,15 @@
+{
+  "name": "sap-descargas",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Descarga por lotes los RMD y órdenes desde SAP Fiori, con tu propia sesión.",
+  "scripts": {
+    "aprender": "node descargar.mjs aprender",
+    "descargar": "node descargar.mjs descargar",
+    "instalar-navegador": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.50.0"
+  }
+}

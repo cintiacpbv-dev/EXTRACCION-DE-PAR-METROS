@@ -139,6 +139,20 @@ dedicado como el de la orden.
 dos: quedan pendientes de un tercer tipo de documento, el **Certificado de
 Insumo**, todavía no incorporado.
 
+## Descargar los PDF desde SAP sin ir uno a uno
+
+[`herramientas/sap-descargas`](./herramientas/sap-descargas) baja de una vez
+todos los RMD y órdenes de una lista de lotes, como paso previo al análisis.
+
+Corre en tu computadora, no en la página: SAP vive en la red interna y además
+envía `X-Frame-Options` para impedir que otro sitio lo incruste, así que la
+página web no puede alcanzarlo ni automatizarlo desde un iframe. El script no
+pide credenciales — abre un Chrome con perfil propio donde inicias sesión a
+mano una vez.
+
+Como cada instalación de SAP coloca sus aplicaciones en sitios distintos, el
+script aprende el camino mirándote hacer una descarga, en vez de adivinarlo.
+
 ## Imagen de cada producto
 
 En la biblioteca, cada producto puede llevar su propia imagen en lugar del

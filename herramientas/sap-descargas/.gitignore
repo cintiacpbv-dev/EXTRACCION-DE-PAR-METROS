@@ -1,0 +1,9 @@
+# La sesión de SAP vive aquí: nunca debe salir de tu computadora.
+.perfil-sap/
+
+# Los PDF descargados y la configuración con la dirección interna de SAP
+# tampoco van al repositorio.
+descargas/
+config.json
+
+node_modules/
