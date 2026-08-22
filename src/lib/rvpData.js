@@ -102,13 +102,16 @@ export function materialesPorLote(documents, familia) {
     ordenPorLoteEtapa.set(`${doc.lote}::${doc.stage}`, porCodigo);
   }
 
+  // Un lote y etapa cuenta como "cubierto por el registro" sólo si su
+  // sección INSUMOS de verdad aportó alguna fila de material — no basta con
+  // que exista el documento: si el detector no encontró nada ahí (como pasa
+  // hoy con el detalle de Acondicionado), la orden debe poder rellenarlo.
   const registrosCubiertos = new Set();
 
   for (const doc of documents) {
     if (doc.familia !== familia || doc.kind === "orden") continue;
 
     const claveLoteEtapa = `${doc.lote}::${doc.stage}`;
-    registrosCubiertos.add(claveLoteEtapa);
     const enOrden = ordenPorLoteEtapa.get(claveLoteEtapa);
 
     for (const p of doc.params) {
@@ -118,6 +121,7 @@ export function materialesPorLote(documents, familia) {
       const m = p.value.match(INSUMO_RE);
       if (!m) continue; // firmas y verificaciones de la misma sección
 
+      registrosCubiertos.add(claveLoteEtapa);
       const insOrden = enOrden?.get(m[1]);
       filas.push({
         nombre: p.label,
@@ -136,8 +140,9 @@ export function materialesPorLote(documents, familia) {
     }
   }
 
-  // Lote y etapa donde sólo se cargó la orden (no el registro): sin esto,
-  // esos insumos no aparecerían en absoluto.
+  // Lote y etapa donde el registro no aportó ningún material —porque no se
+  // cargó, o porque el detector no encontró nada en su sección INSUMOS— pero
+  // sí hay orden: se usa su lista para no dejar el cuadro vacío.
   for (const doc of documents) {
     if (doc.familia !== familia || !doc.orden) continue;
     if (registrosCubiertos.has(`${doc.lote}::${doc.stage}`)) continue;
