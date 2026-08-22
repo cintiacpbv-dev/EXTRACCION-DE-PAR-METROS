@@ -46,7 +46,14 @@ export default function ParamTable({ table }) {
           {table.sections.map((section) => (
             <Fragment key={section.title}>
               <tr className="section-row">
-                <td colSpan={colCount}>{section.title}</td>
+                {/* El rótulo se ancla por separado de la celda: la celda ocupa
+                    todo el ancho de la tabla, así que al desplazarse en
+                    horizontal su texto quedaba fuera de la vista y la fila
+                    parecía vacía justo cuando más falta hace saber qué
+                    bloque se está leyendo. */}
+                <td colSpan={colCount}>
+                  <span className="section-row__label">{section.title}</span>
+                </td>
               </tr>
               {section.rows.map((row) => (
                 <tr key={row.id}>

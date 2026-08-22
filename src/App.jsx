@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import UploadZone from "./components/UploadZone.jsx";
 import ParamTable from "./components/ParamTable.jsx";
 import LoadedBatches from "./components/LoadedBatches.jsx";
@@ -41,19 +41,36 @@ import {
 } from "./lib/model.js";
 import "./App.css";
 
-// La URL refleja qué se está viendo (#/  ·  #/producto/<nombre>) para poder
-// recargar la página, mandar un enlace, o usar atrás/adelante del navegador
-// y volver exactamente al mismo producto abierto.
+// La URL refleja qué se está viendo (#/ · #/nuevo · #/producto/<nombre>) para
+// poder recargar la página, mandar un enlace, o usar atrás/adelante del
+// navegador y volver exactamente a donde se estaba.
+//
+// La sesión en blanco tiene su propia ruta (#/nuevo) a propósito: cuando no la
+// tenía, "Nuevo análisis" escribía "#/" —que se lee como la biblioteca— y el
+// oyente de hashchange devolvía al usuario a la biblioteca de inmediato. Al
+// entrar sin ningún hash (el caso normal) ese primer "#/" sí cambia la URL y
+// dispara el evento, de modo que el primer clic se perdía y había que pulsar
+// dos veces para poder cargar archivos.
 function readRoute() {
   const hash = window.location.hash.replace(/^#\/?/, "");
+  if (hash === "nuevo") return { view: "product", producto: null, blank: true };
   if (hash.startsWith("producto/")) {
-    return { view: "product", producto: decodeURIComponent(hash.slice("producto/".length)) };
+    return {
+      view: "product",
+      producto: decodeURIComponent(hash.slice("producto/".length)),
+      blank: false,
+    };
   }
-  return { view: "library", producto: null };
+  return { view: "library", producto: null, blank: false };
 }
 
-function writeRoute(view, producto) {
-  const next = view === "product" && producto ? `#/producto/${encodeURIComponent(producto)}` : "#/";
+function routeHash(view, producto, blank) {
+  if (view !== "product") return "#/";
+  return blank || !producto ? "#/nuevo" : `#/producto/${encodeURIComponent(producto)}`;
+}
+
+function writeRoute(view, producto, blank) {
+  const next = routeHash(view, producto, blank);
   if (window.location.hash !== next) window.location.hash = next;
 }
 
@@ -71,9 +88,24 @@ export default function App() {
   const [reportScope, setReportScope] = useState("etapa");
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
+  // Qué zona de carga está trabajando, para no anunciar el mismo archivo en
+  // las dos a la vez.
+  const [busyKind, setBusyKind] = useState(null);
   const [messages, setMessages] = useState([]);
   const [copyState, setCopyState] = useState("idle");
   const [loading, setLoading] = useState(true);
+
+  // Procesar un PDF es asíncrono y dura varios segundos. Leer los documentos
+  // del estado capturado al empezar haría que una segunda carga (o un borrado
+  // hecho entretanto) pisara lo recién añadido, así que se consulta siempre
+  // la referencia viva.
+  const documentsRef = useRef(documents);
+  documentsRef.current = documents;
+
+  // Los avisos se descartan solos; si el componente se desmonta antes, los
+  // temporizadores pendientes se cancelan.
+  const timersRef = useRef([]);
+  useEffect(() => () => timersRef.current.forEach(clearTimeout), []);
 
   useEffect(() => {
     (async () => {
@@ -117,9 +149,20 @@ export default function App() {
 
       const route = readRoute();
       const familias = listProducts(withFamilies(docs));
-      if (route.view === "product" && route.producto && familias.includes(route.producto)) {
+
+      if (route.blank) {
         setView("product");
-        setProducto(route.producto);
+        setBlank(true);
+      } else if (route.view === "product" && route.producto) {
+        if (familias.includes(route.producto)) {
+          setView("product");
+          setProducto(route.producto);
+        } else {
+          // El enlace apunta a un producto que ya no existe (se eliminó, o se
+          // abrió en otro navegador): se limpia la URL sin dejar rastro en el
+          // historial, para que no siga contradiciendo lo que se ve.
+          window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/`);
+        }
       }
       setLoading(false);
     })();
@@ -127,12 +170,13 @@ export default function App() {
 
   useEffect(() => {
     function onHashChange() {
+      // La ruta es la única fuente de verdad: se aplica entera, sin dejar
+      // fuera "blank", que es lo que antes hacía que la vista y la URL
+      // pudieran contradecirse.
       const route = readRoute();
       setView(route.view);
-      if (route.view === "product") {
-        setProducto(route.producto);
-        setBlank(!route.producto);
-      }
+      setProducto(route.producto);
+      setBlank(route.blank);
     }
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -181,14 +225,14 @@ export default function App() {
   function pushMessage(text, type = "info") {
     const id = Date.now() + Math.random();
     setMessages((m) => [...m, { id, text, type }]);
-    setTimeout(() => setMessages((m) => m.filter((x) => x.id !== id)), 7000);
+    timersRef.current.push(setTimeout(() => setMessages((m) => m.filter((x) => x.id !== id)), 7000));
   }
 
   function openProduct(familia) {
     setBlank(false);
     setProducto(familia);
     setView("product");
-    writeRoute("product", familia);
+    writeRoute("product", familia, false);
   }
 
   function startNew() {
@@ -196,17 +240,20 @@ export default function App() {
     setProducto(null);
     setStage(null);
     setView("product");
-    writeRoute("product", null);
+    writeRoute("product", null, true);
   }
 
   function backToLibrary() {
     setView("library");
-    writeRoute("library", null);
+    setBlank(false);
+    writeRoute("library", null, false);
   }
 
   async function handleFiles(files, expectedKind) {
+    if (busy) return; // una segunda tanda simultánea pisaría a la primera
     setBusy(true);
-    let next = documents;
+    setBusyKind(expectedKind);
+    let next = documentsRef.current;
     const nuevos = [];
     // Huellas de contenido ya vistas en esta misma tanda de carga, para
     // detectar dos archivos idénticos seleccionados juntos por error.
@@ -251,7 +298,7 @@ export default function App() {
         // PDF quedaría bloqueado y ese dato nunca se podría completar.
         const yaVisto =
           hashesEnEstaTanda.find((h) => h.hash === contentHash) ||
-          (await findDuplicateDocument(documents, contentHash));
+          (await findDuplicateDocument(next, contentHash));
 
         if (yaVisto) {
           const cuenta = (d) =>
@@ -311,11 +358,12 @@ export default function App() {
       setStage(nuevos[0].stage);
       if (familiaNueva) {
         setProducto(familiaNueva);
-        writeRoute("product", familiaNueva);
+        writeRoute("product", familiaNueva, false);
       }
     }
     setBusy(false);
     setBusyLabel("");
+    setBusyKind(null);
 
     if (supabaseEnabled) {
       let avisoMigracion = false;
@@ -456,7 +504,7 @@ export default function App() {
                 <UploadZone
                   onFiles={(files) => handleFiles(files, "registro")}
                   busy={busy}
-                  busyLabel={busyLabel}
+                  busyLabel={busyKind === "registro" ? busyLabel : ""}
                   compact={!blank && productDocs.length > 0}
                   title="Arrastra aquí los RMD (Registros de Manufactura)"
                   compactTitle="Agregar otro RMD"
@@ -465,7 +513,7 @@ export default function App() {
                 <UploadZone
                   onFiles={(files) => handleFiles(files, "orden")}
                   busy={busy}
-                  busyLabel={busyLabel}
+                  busyLabel={busyKind === "orden" ? busyLabel : ""}
                   compact={!blank && productDocs.length > 0}
                   title="Arrastra aquí las Órdenes de Producción / Envase / Acondicionado"
                   compactTitle="Agregar otra orden"

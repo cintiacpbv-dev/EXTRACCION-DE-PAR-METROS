@@ -1,18 +1,25 @@
+/* Fondo blanco, acentos celestes, tipografía IBM Plex.
+   La app se compromete deliberadamente con un único tema claro: es una
+   herramienta de planta que se usa junto a documentos impresos en papel
+   blanco, así que cada color se declara de forma explícita y no se hereda
+   del tema del sistema (ver color-scheme más abajo). */
 :root {
-  /* Fondo blanco, acentos celestes, tipografía negra. */
   --bg: #ffffff;
   --surface: #ffffff;
-  --surface-soft: #f2f9fd;
-  --surface-tint: #e8f4fb;
-  --border: #d3e6f2;
-  --border-strong: #b6d8ea;
+  --surface-soft: #f1f8fc;
+  --surface-tint: #e4f1fa;
+  --border: #d7e7f1;
+  --border-strong: #b3d4e8;
 
-  --text: #000000;
-  --text-soft: #4a5c66;
-  --text-muted: #7b8f9b;
+  /* Tinta azulada en vez de negro puro: sobre fondo blanco el negro absoluto
+     vibra y endurece la lectura de tablas densas. */
+  --text: #0a1e2b;
+  --text-soft: #46606f;
+  --text-muted: #75909f;
 
-  --sky: #1b87c9;
-  --sky-dark: #12648f;
+  --sky: #1273b0;
+  --sky-dark: #0d5580;
+  --sky-deep: #093f61;
   --sky-soft: #dceff9;
 
   --ok: #0f7a4f;
@@ -20,14 +27,22 @@
   --warn: #a4442c;
   --warn-soft: #fdeeea;
 
-  --shadow-sm: 0 1px 2px rgba(18, 100, 143, 0.06);
-  --shadow: 0 1px 3px rgba(18, 100, 143, 0.08), 0 8px 24px rgba(18, 100, 143, 0.06);
+  /* Sombras teñidas de cielo, en capas: una de contacto y otra de difusión. */
+  --shadow-sm: 0 1px 1px rgba(9, 63, 97, 0.04), 0 1px 3px rgba(9, 63, 97, 0.05);
+  --shadow: 0 1px 2px rgba(9, 63, 97, 0.05), 0 4px 12px rgba(9, 63, 97, 0.06);
+  --shadow-lg: 0 2px 4px rgba(9, 63, 97, 0.05), 0 12px 32px rgba(9, 63, 97, 0.1);
+  --ring: 0 0 0 3px rgba(18, 115, 176, 0.28);
 
   --radius: 12px;
   --radius-sm: 8px;
 
-  --sans: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, "Courier New", monospace;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, "Courier New", monospace;
+
+  /* Los controles nativos (select, scrollbars) deben seguir el tema de la
+     página, no el del sistema operativo: sin esto se pintan oscuros y
+     quedan ilegibles sobre el fondo blanco. */
+  color-scheme: light;
 }
 
 * {
@@ -57,6 +72,8 @@ h3 {
   margin: 0;
   font-weight: 600;
   color: var(--text);
+  letter-spacing: -0.011em;
+  text-wrap: balance;
 }
 
 p {
@@ -71,6 +88,14 @@ input {
   color: inherit;
 }
 
+/* Un único anillo de foco para todo lo que se puede enfocar con el teclado:
+   antes sólo lo tenía el desplegable de producto. */
+:where(button, select, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 code {
   font-family: var(--mono);
   font-size: 0.92em;
@@ -81,4 +106,36 @@ code {
 
 ::selection {
   background: var(--sky-soft);
+}
+
+/* Barras de desplazamiento discretas, en el mismo celeste del resto. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid var(--bg);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

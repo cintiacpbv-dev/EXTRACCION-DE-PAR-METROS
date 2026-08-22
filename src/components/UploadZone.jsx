@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { IconUpload } from "./Icons.jsx";
 
 /**
@@ -17,6 +17,7 @@ export default function UploadZone({
   hint = "Cualquier producto y cualquier etapa. Los parámetros se detectan solos a partir del documento.",
 }) {
   const inputRef = useRef(null);
+  const hintId = useId();
   const [dragOver, setDragOver] = useState(false);
 
   const handleFiles = useCallback(
@@ -29,10 +30,13 @@ export default function UploadZone({
     [onFiles]
   );
 
+  const etiqueta = busy ? busyLabel || "Procesando…" : compact ? compactTitle : title;
+
   return (
     <div
       className={`upload-zone ${compact ? "upload-zone--compact" : ""} ${dragOver ? "is-drag" : ""} ${busy ? "is-busy" : ""}`}
       onDragOver={(e) => {
+        if (busy) return;
         e.preventDefault();
         setDragOver(true);
       }}
@@ -40,34 +44,48 @@ export default function UploadZone({
       onDrop={(e) => {
         e.preventDefault();
         setDragOver(false);
+        // Sin esta guarda se podía soltar un segundo grupo de archivos
+        // mientras el primero seguía procesándose, y la tanda que terminaba
+        // antes se perdía al guardarse la otra encima.
+        if (busy) return;
         handleFiles(e.dataTransfer.files);
       }}
       onClick={() => !busy && inputRef.current?.click()}
       role="button"
-      tabIndex={0}
+      tabIndex={busy ? -1 : 0}
+      aria-label={compact ? compactTitle : title}
+      aria-describedby={hintId}
+      aria-busy={busy}
       title={compact ? hint : undefined}
       onKeyDown={(e) => {
-        if ((e.key === "Enter" || e.key === " ") && !busy) inputRef.current?.click();
+        if ((e.key === "Enter" || e.key === " ") && !busy) {
+          e.preventDefault();
+          inputRef.current?.click();
+        }
       }}
     >
       <input
         ref={inputRef}
         type="file"
-        accept="application/pdf"
+        accept="application/pdf,.pdf"
         multiple
         hidden
+        // El input vive dentro del contenedor pulsable: sin detener la
+        // propagación, su propio clic vuelve a burbujear hasta el onClick de
+        // arriba y reabre el diálogo en bucle.
+        onClick={(e) => e.stopPropagation()}
         onChange={(e) => {
           handleFiles(e.target.files);
           e.target.value = "";
         }}
       />
-      <span className="upload-zone__icon">
+      <span className="upload-zone__icon" aria-hidden="true">
         <IconUpload size={compact ? 15 : 22} />
       </span>
-      <span className="upload-zone__title">
-        {busy ? busyLabel || "Procesando…" : compact ? compactTitle : title}
+      <span className="upload-zone__title">{etiqueta}</span>
+      <span id={hintId} className={compact ? "sr-only" : "upload-zone__hint"}>
+        {hint}
       </span>
-      {!compact && <span className="upload-zone__hint">{hint}</span>}
     </div>
   );
 }

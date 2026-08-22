@@ -1,7 +1,18 @@
+import { useState } from "react";
 import { IconUser, IconShieldCheck } from "./Icons.jsx";
 import { formatPersonName } from "../lib/personName.js";
 
+// Con veinte lotes cargados una etapa puede reunir más de sesenta nombres, y
+// la lista completa empuja la tabla de parámetros fuera de la pantalla. Se
+// muestran primero los que más intervienen —que es el dato que se consulta—
+// y el resto queda a un clic.
+const VISIBLES = 12;
+
 function RoleList({ title, icon, people, emptyHint }) {
+  const [verTodos, setVerTodos] = useState(false);
+  const hayDeMas = people.length > VISIBLES;
+  const mostrados = verTodos || !hayDeMas ? people : people.slice(0, VISIBLES);
+
   return (
     <div className="personnel-role">
       <div className="personnel-role__head">
@@ -12,14 +23,25 @@ function RoleList({ title, icon, people, emptyHint }) {
       {people.length === 0 ? (
         <p className="muted personnel-role__empty">{emptyHint}</p>
       ) : (
-        <ul className="personnel-role__list">
-          {people.map((p) => (
-            <li key={p.name} className="personnel-chip">
-              <span>{formatPersonName(p.name)}</span>
-              <span className="personnel-chip__count">{p.count}</span>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="personnel-role__list">
+            {mostrados.map((p) => (
+              <li key={p.name} className="personnel-chip">
+                <span>{formatPersonName(p.name)}</span>
+                <span className="personnel-chip__count">{p.count}</span>
+              </li>
+            ))}
+          </ul>
+          {hayDeMas && (
+            <button className="personnel-role__more" onClick={() => setVerTodos((v) => !v)}>
+              {verTodos
+                ? "Ver menos"
+                : people.length - VISIBLES === 1
+                  ? "Ver el que falta"
+                  : `Ver los ${people.length - VISIBLES} restantes`}
+            </button>
+          )}
+        </>
       )}
     </div>
   );
