@@ -116,12 +116,36 @@ async function abrirNavegador(config) {
   const descargas = path.resolve(AQUI, config.carpetaSalida || "descargas");
   await mkdir(descargas, { recursive: true });
 
-  const contexto = await chromium.launchPersistentContext(perfil, {
-    headless: false, // tienes que poder iniciar sesión y ver qué pasa
-    acceptDownloads: true,
-    viewport: null,
-    args: ["--start-maximized"],
-  });
+  let contexto;
+  try {
+    contexto = await chromium.launchPersistentContext(perfil, {
+      headless: false, // tienes que poder iniciar sesión y ver qué pasa
+      acceptDownloads: true,
+      viewport: null,
+      args: ["--start-maximized"],
+    });
+  } catch (err) {
+    const detalle = err.message.split("\n")[0];
+
+    // Puede estar la librería instalada pero faltar el navegador que usa:
+    // son dos descargas distintas y una puede quedarse a medias.
+    if (/Executable doesn't exist|playwright install/i.test(err.message)) {
+      console.error("\nFalta el navegador que usa el script (es una descarga aparte de la librería).");
+      console.error("Vuelve a abrir 1-APRENDER.bat: ahora lo instala solo.\n");
+      console.error("Si aun así falla, ejecuta desde esta carpeta:  npx playwright install chromium\n");
+      process.exit(1);
+    }
+
+    console.error("\nNo se pudo abrir el navegador.");
+    console.error(`  ${detalle}\n`);
+    if (/spawn|EPERM|EACCES/i.test(detalle)) {
+      console.error("Ese mensaje suele venir del antivirus, de permisos, o de que ya hay");
+      console.error("otra ventana del script abierta usando el mismo perfil.");
+      console.error("Cierra las ventanas que hayan quedado y vuelve a intentarlo.\n");
+    }
+    console.error("Si sigue sin funcionar, cópiame este texto.\n");
+    process.exit(1);
+  }
 
   return { contexto, descargas };
 }

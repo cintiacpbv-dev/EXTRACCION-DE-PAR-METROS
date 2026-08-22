@@ -25,6 +25,4 @@ if not exist "node_modules" (
 
 node descargar.mjs descargar
 echo.
-echo Los PDF quedaron en la carpeta "descargas".
-echo.
 pause

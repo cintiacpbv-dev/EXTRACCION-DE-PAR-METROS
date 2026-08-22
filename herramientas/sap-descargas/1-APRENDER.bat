@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-title Paso 1 - Enseñarle a SAP como se descarga
+title Paso 1 - Ensenarle a SAP como se descarga
 
 echo ============================================================
 echo   PASO 1 - Ensenarle a SAP como se descarga
@@ -20,18 +20,18 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "node_modules" (
-  echo Primera vez: instalando lo necesario. Tarda unos minutos.
-  echo.
-  call npm install
-  if errorlevel 1 goto error
-  call npx playwright install chromium
-  if errorlevel 1 goto error
-  echo.
-  echo Instalacion terminada.
-  echo.
-)
+echo Comprobando que este todo instalado...
+echo.
 
+REM Las dos ordenes son rapidas si ya estaba todo, y arreglan el caso en que
+REM las dependencias esten pero falte el navegador (o al reves).
+call npm install --silent
+if errorlevel 1 goto error
+
+call npx playwright install chromium
+if errorlevel 1 goto error
+
+echo.
 node descargar.mjs aprender
 echo.
 pause
