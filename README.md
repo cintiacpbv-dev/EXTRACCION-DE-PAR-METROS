@@ -95,13 +95,14 @@ VITE_SUPABASE_ANON_KEY=tu-anon-public-key
 En el **SQL Editor** del proyecto:
 
 - Instalación nueva → ejecuta [`supabase_schema.sql`](./supabase_schema.sql)
-  y después las migraciones v2 a v6.
+  y después las migraciones v2 a v7.
 - Instalación existente → ejecuta las migraciones que falten, en orden:
   [`v2`](./supabase_migration_v2.sql) (parámetros genéricos),
   [`v3`](./supabase_migration_v3.sql) (participantes),
   [`v4`](./supabase_migration_v4.sql) (órdenes de producción),
-  [`v5`](./supabase_migration_v5.sql) (receta del lote) y
-  [`v6`](./supabase_migration_v6.sql) (materiales de la sección INSUMOS).
+  [`v5`](./supabase_migration_v5.sql) (receta del lote),
+  [`v6`](./supabase_migration_v6.sql) (materiales de la sección INSUMOS) y
+  [`v7`](./supabase_migration_v7.sql) (imagen de cada producto).
 
 Sin Supabase configurado la app funciona igual, guardando en el `localStorage`.
 
@@ -137,6 +138,34 @@ dedicado como el de la orden.
 **Proveedor, fabricante y fecha de vencimiento** no están en ninguno de los
 dos: quedan pendientes de un tercer tipo de documento, el **Certificado de
 Insumo**, todavía no incorporado.
+
+## Imagen de cada producto
+
+En la biblioteca, cada producto puede llevar su propia imagen en lugar del
+icono genérico. El botón de imagen de la tarjeta ofrece tres vías:
+
+1. **Subir una imagen del equipo** — la vía fiable: una foto o el arte de la
+   caja.
+2. **Buscar en internet** — consulta **Openverse** y **Wikimedia Commons**.
+3. **Pegar el enlace** de una imagen.
+
+Son las dos únicas fuentes que sirven aquí: no piden clave de API (una clave
+dentro del JavaScript que descarga el navegador queda a la vista de
+cualquiera y es facturable), permiten CORS, y devuelven material de licencia
+reutilizable —lo correcto para un documento de validación—. La licencia de
+cada resultado se muestra bajo la miniatura.
+
+> **Ninguna indexa marcas comerciales de laboratorio**: buscar «FLUIBRONCOL»
+> devuelve cero resultados. La búsqueda sirve para ilustrar por principio
+> activo o forma farmacéutica; para la caja real del producto hay que subir
+> la foto. La app propone términos alternativos a partir del nombre del
+> registro (`CAP` → cápsulas, `GRN` → granulado…).
+
+Venga de donde venga, la imagen se recorta en cuadrado a 256 px y se guarda
+en PNG. Si el PNG supera los 60 kB —lo normal en una fotografía— se
+recomprime en JPEG, que a este tamaño baja de 150 kB a unos 11 kB sin
+diferencia apreciable. Se guarda en Supabase, así que se ve desde cualquier
+computadora.
 
 ## Alcance del FORMATO A09: una etapa o todas
 
@@ -227,6 +256,8 @@ src/
     exportExcel.js        Libro .xlsx ya formateado (ExcelJS) y texto TSV
     exportCuadros.js      FORMATO A09 en Word, formato exacto del original
     personName.js         Nombre legible a partir del código del RMD ("A. Lacho")
+    imageSearch.js         Búsqueda de imágenes (Openverse y Wikimedia Commons)
+    productImage.js        Normaliza la imagen a PNG y la guarda
     dedupe.js              Huella de contenido para no procesar el mismo PDF dos veces
     productIdentity.js    Agrupa presentaciones de un mismo producto
     storage.js            Persistencia local y en Supabase
@@ -237,6 +268,7 @@ src/
     LoadedBatches.jsx      Resumen de lotes cargados
     PersonnelPanel.jsx     Participantes de la etapa activa
     ProductLibrary.jsx     Pantalla de inicio con los productos guardados
+    ProductImagePicker.jsx Elegir la imagen de un producto
     Icons.jsx              Iconografía de trazo
   App.jsx                 Orquestación e interfaz
 ```

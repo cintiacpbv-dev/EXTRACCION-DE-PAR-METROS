@@ -1,4 +1,4 @@
-import { IconFlask, IconLayers, IconClock, IconPlus, IconTrash } from "./Icons.jsx";
+import { IconFlask, IconLayers, IconClock, IconPlus, IconTrash, IconImage } from "./Icons.jsx";
 import { relativeDate } from "../lib/formatDate.js";
 
 /**
@@ -6,7 +6,7 @@ import { relativeDate } from "../lib/formatDate.js";
  * para decidir si abrirlo o eliminarlo, y una tarjeta aparte para arrancar un
  * análisis nuevo sin mezclarlo con lo que ya había.
  */
-export default function ProductLibrary({ productos, onOpen, onNew, onDelete }) {
+export default function ProductLibrary({ productos, imagenes = {}, onOpen, onNew, onDelete, onCambiarImagen }) {
   return (
     <section className="library">
       <div className="library__head">
@@ -28,8 +28,12 @@ export default function ProductLibrary({ productos, onOpen, onNew, onDelete }) {
         {productos.map((p) => (
           <div key={p.familia} className="library-card">
             <button className="library-card__body" onClick={() => onOpen(p.familia)}>
-              <div className="library-card__icon">
-                <IconFlask size={18} />
+              <div className={`library-card__icon ${imagenes[p.familia] ? "library-card__icon--foto" : ""}`}>
+                {imagenes[p.familia] ? (
+                  <img src={imagenes[p.familia]} alt="" />
+                ) : (
+                  <IconFlask size={18} />
+                )}
               </div>
               <strong className="library-card__title">{p.familia}</strong>
 
@@ -46,17 +50,30 @@ export default function ProductLibrary({ productos, onOpen, onNew, onDelete }) {
               </div>
             </button>
 
-            <button
-              className="library-card__delete"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(p.familia);
-              }}
-              title={`Eliminar ${p.familia}`}
-              aria-label={`Eliminar ${p.familia}`}
-            >
-              <IconTrash size={15} />
-            </button>
+            <div className="library-card__acciones">
+              <button
+                className="library-card__accion"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCambiarImagen(p.familia);
+                }}
+                title={`Cambiar la imagen de ${p.familia}`}
+                aria-label={`Cambiar la imagen de ${p.familia}`}
+              >
+                <IconImage size={15} />
+              </button>
+              <button
+                className="library-card__accion library-card__accion--borrar"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(p.familia);
+                }}
+                title={`Eliminar ${p.familia}`}
+                aria-label={`Eliminar ${p.familia}`}
+              >
+                <IconTrash size={15} />
+              </button>
+            </div>
           </div>
         ))}
       </div>

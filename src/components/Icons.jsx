@@ -220,6 +220,34 @@ export function IconBox(props) {
   );
 }
 
+export function IconImage(props) {
+  return (
+    <Svg {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="8.5" cy="9.5" r="1.5" />
+      <path d="m4 17 4.5-4.5 3 3L15 12l5 5" />
+    </Svg>
+  );
+}
+
+export function IconSearch(props) {
+  return (
+    <Svg {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </Svg>
+  );
+}
+
+export function IconLink(props) {
+  return (
+    <Svg {...props}>
+      <path d="M10 13a5 5 0 0 0 7.5.5l2-2A5 5 0 0 0 12.5 4.5l-1 1" />
+      <path d="M14 11a5 5 0 0 0-7.5-.5l-2 2A5 5 0 0 0 11.5 19.5l1-1" />
+    </Svg>
+  );
+}
+
 export function IconShieldCheck(props) {
   return (
     <Svg {...props}>

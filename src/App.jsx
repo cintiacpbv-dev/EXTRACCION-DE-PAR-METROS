@@ -4,6 +4,7 @@ import ParamTable from "./components/ParamTable.jsx";
 import LoadedBatches from "./components/LoadedBatches.jsx";
 import ProductLibrary from "./components/ProductLibrary.jsx";
 import PersonnelPanel from "./components/PersonnelPanel.jsx";
+import ProductImagePicker from "./components/ProductImagePicker.jsx";
 import {
   IconCloud,
   IconDrive,
@@ -29,6 +30,13 @@ import {
   loadDocumentsFromSupabase,
 } from "./lib/storage.js";
 import { supabaseEnabled } from "./lib/supabaseClient.js";
+import {
+  cargarImagenesLocales,
+  guardarImagenesLocales,
+  cargarImagenesRemotas,
+  guardarImagenRemota,
+  borrarImagenRemota,
+} from "./lib/productImage.js";
 import { exportProductToExcel, tableToClipboardText } from "./lib/exportExcel.js";
 import { exportCuadrosToWord } from "./lib/exportCuadros.js";
 import {
@@ -94,6 +102,11 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [copyState, setCopyState] = useState("idle");
   const [loading, setLoading] = useState(true);
+  // Imagen de cada producto (familia → PNG en data URI o enlace) y qué
+  // producto tiene abierto el selector. Lo guardado en este navegador se lee
+  // ya en el primer render; lo de Supabase llega después.
+  const [imagenes, setImagenes] = useState(cargarImagenesLocales);
+  const [imagenAbierta, setImagenAbierta] = useState(null);
 
   // Procesar un PDF es asíncrono y dura varios segundos. Leer los documentos
   // del estado capturado al empezar haría que una segunda carga (o un borrado
@@ -106,6 +119,21 @@ export default function App() {
   // temporizadores pendientes se cancelan.
   const timersRef = useRef([]);
   useEffect(() => () => timersRef.current.forEach(clearTimeout), []);
+
+  // Las imágenes de Supabase se traen aparte de los documentos: son
+  // opcionales y no deben retrasar ni bloquear la carga del análisis.
+  useEffect(() => {
+    if (!supabaseEnabled) return;
+    (async () => {
+      const remotas = await cargarImagenesRemotas();
+      if (Object.keys(remotas).length === 0) return;
+      setImagenes((previas) => {
+        const unidas = { ...previas, ...remotas };
+        guardarImagenesLocales(unidas);
+        return unidas;
+      });
+    })();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -416,6 +444,30 @@ export default function App() {
     if (productoActivo === familia) backToLibrary();
   }
 
+  async function handleGuardarImagen(familia, imagen) {
+    const siguiente = { ...imagenes, [familia]: imagen };
+    setImagenes(siguiente);
+    guardarImagenesLocales(siguiente);
+
+    const res = await guardarImagenRemota(familia, imagen);
+    if (!res.ok) {
+      pushMessage(
+        `La imagen se ve en este navegador, pero no se pudo guardar en Supabase: ${res.error}. ¿Falta ejecutar supabase_migration_v7.sql?`,
+        "error"
+      );
+    } else if (!res.skipped) {
+      pushMessage(`Imagen actualizada para "${familia}".`, "success");
+    }
+  }
+
+  async function handleQuitarImagen(familia) {
+    const siguiente = { ...imagenes };
+    delete siguiente[familia];
+    setImagenes(siguiente);
+    guardarImagenesLocales(siguiente);
+    await borrarImagenRemota(familia);
+  }
+
   async function handleExport() {
     if (!productoActivo) return;
     const ok = await exportProductToExcel(docs, productoActivo, { onlyCritical });
@@ -484,14 +536,37 @@ export default function App() {
       </header>
 
       <main className="main">
+        {/* Los avisos viven al nivel de la página, no dentro de la tarjeta de
+            carga: cuando estaban ahí, todo lo que se anunciaba desde la
+            biblioteca —imagen guardada, producto eliminado— no se llegaba a
+            ver nunca. */}
+        {messages.length > 0 && (
+          <div className="toasts">
+            {messages.map((m) => (
+              <div key={m.id} className={`toast toast--${m.type}`}>
+                {m.type === "success" ? (
+                  <IconCheck size={15} />
+                ) : m.type === "info" ? (
+                  <IconCopy size={15} />
+                ) : (
+                  <IconAlert size={15} />
+                )}
+                <span>{m.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {loading ? (
           <div className="empty-state">Cargando…</div>
         ) : view === "library" ? (
           <ProductLibrary
             productos={resumenProductos}
+            imagenes={imagenes}
             onOpen={openProduct}
             onNew={startNew}
             onDelete={handleDeleteProduct}
+            onCambiarImagen={setImagenAbierta}
           />
         ) : (
           <>
@@ -520,23 +595,6 @@ export default function App() {
                   hint="Aportan el Lote ME de cada material, el rendimiento oficial y las fechas exactas."
                 />
               </div>
-
-              {messages.length > 0 && (
-                <div className="toasts">
-                  {messages.map((m) => (
-                    <div key={m.id} className={`toast toast--${m.type}`}>
-                      {m.type === "success" ? (
-                        <IconCheck size={15} />
-                      ) : m.type === "info" ? (
-                        <IconCopy size={15} />
-                      ) : (
-                        <IconAlert size={15} />
-                      )}
-                      <span>{m.text}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
 
               {!blank && productos.length > 0 && (
                 <div className="selectors">
@@ -654,6 +712,16 @@ export default function App() {
           "El detector lee la estructura del propio registro, así que admite nuevos productos, etapas y parámetros sin tocar el código."
         )}
       </footer>
+
+      {imagenAbierta && (
+        <ProductImagePicker
+          familia={imagenAbierta}
+          imagenActual={imagenes[imagenAbierta] || null}
+          onGuardar={(imagen) => handleGuardarImagen(imagenAbierta, imagen)}
+          onQuitar={() => handleQuitarImagen(imagenAbierta)}
+          onCerrar={() => setImagenAbierta(null)}
+        />
+      )}
     </div>
   );
 }
