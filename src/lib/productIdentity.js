@@ -23,3 +23,13 @@ export function firstWord(producto) {
 export function slotKey({ producto, lote, stage }) {
   return `${firstWord(producto)}::${lote}::${stage}`;
 }
+
+/**
+ * Un lote y etapa tienen dos documentos distintos y complementarios: el
+ * registro de manufactura (parámetros y personal de planta) y la orden de
+ * producción (materiales con su lote, rendimiento oficial y fechas). Se
+ * guardan en casillas separadas para que cargar uno no reemplace al otro.
+ */
+export function documentKey(doc) {
+  return `${slotKey(doc)}::${doc.kind || "registro"}`;
+}

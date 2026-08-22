@@ -1,11 +1,11 @@
 import { supabase, supabaseEnabled } from "./supabaseClient.js";
-import { firstWord, slotKey } from "./productIdentity.js";
+import { documentKey, firstWord, slotKey } from "./productIdentity.js";
 
 const LOCAL_KEY = "deteccion-parametros:documentos:v2";
 
-/** Un documento queda identificado por producto (primera palabra) + lote + etapa. */
+/** Producto (primera palabra) + lote + etapa + tipo de documento. */
 export function docKey(doc) {
-  return slotKey(doc);
+  return documentKey(doc);
 }
 
 export function loadLocalDocuments() {
@@ -90,6 +90,24 @@ export async function syncDocumentToSupabase(doc) {
     batchRow = data;
   }
 
+  // Una orden de producción no aporta parámetros ni personal de planta: su
+  // contenido va entero a batch_orders y no toca lo que guardó el registro.
+  if (doc.kind === "orden") {
+    const { error } = await supabase.from("batch_orders").upsert(
+      {
+        batch_id: batchRow.id,
+        stage: doc.stage,
+        orden: doc.orden?.cabecera?.orden || null,
+        producto: doc.producto,
+        data: doc.orden,
+        file_name: doc.fileName || null,
+      },
+      { onConflict: "batch_id,stage" }
+    );
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, batchId: batchRow.id };
+  }
+
   // Se reemplazan los valores de esta etapa: al volver a procesar un PDF, los
   // parámetros detectados pueden cambiar y no deben quedar filas huérfanas.
   const { error: delErr } = await supabase
@@ -160,6 +178,15 @@ export async function deleteDocumentFromSupabase(doc) {
   if (error) return { ok: false, error: error.message };
   if (!batchRow) return { ok: true };
 
+  if (doc.kind === "orden") {
+    const { error: e } = await supabase
+      .from("batch_orders")
+      .delete()
+      .eq("batch_id", batchRow.id)
+      .eq("stage", doc.stage);
+    return e ? { ok: false, error: e.message } : { ok: true };
+  }
+
   const { error: delErr } = await supabase
     .from("batch_values")
     .delete()
@@ -184,9 +211,10 @@ export async function loadDocumentsFromSupabase() {
   const { data: valueRows, error: valErr } = await selectAll("batch_values", "sort_order");
   if (valErr) return [];
 
-  // batch_personnel es best-effort: si el proyecto todavía no corrió la
-  // migración v3, se sigue cargando todo lo demás con normalidad.
+  // batch_personnel y batch_orders son best-effort: si el proyecto todavía no
+  // corrió las migraciones v3 / v4, se sigue cargando todo lo demás.
   const { data: personnelRows } = await selectAll("batch_personnel");
+  const { data: orderRows } = await selectAll("batch_orders");
 
   const byId = new Map(batchRows.map((b) => [b.id, b]));
   const docs = new Map();
@@ -244,7 +272,31 @@ export async function loadDocumentsFromSupabase() {
     else list.push({ name: row.name, count: row.count });
   }
 
+  // Las órdenes viven en su propio documento, complementario al registro del
+  // mismo lote y etapa (ver documentKey en productIdentity.js).
+  const ordenes = (orderRows || []).map((row) => {
+    const batch = byId.get(row.batch_id);
+    if (!batch) return null;
+    return {
+      kind: "orden",
+      producto: row.producto || batch.producto,
+      lote: batch.lote,
+      stage: row.stage,
+      fileName: row.file_name,
+      meta: { producto: row.producto || batch.producto, lote: batch.lote, stage: row.stage },
+      params: [],
+      personnel: { operarios: [], supervisores: [] },
+      orden: row.data,
+      uploadedAt: row.updated_at || row.created_at || null,
+    };
+  });
+
   // paramIds sólo sirve para deduplicar durante la reconstrucción; no forma
   // parte del documento que se guarda ni se compara más adelante.
-  return [...docs.values()].map(({ paramIds: _paramIds, ...doc }) => doc);
+  const registros = [...docs.values()].map(({ paramIds: _paramIds, ...doc }) => ({
+    ...doc,
+    kind: "registro",
+  }));
+
+  return [...registros, ...ordenes.filter(Boolean)];
 }

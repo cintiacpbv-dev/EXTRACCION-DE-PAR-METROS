@@ -1,8 +1,8 @@
 # Detección de Parámetros
 
-Aplicación web que lee Registros de Manufactura en PDF, **descubre por sí sola
-los parámetros críticos** y los tabula para el análisis comparativo de validación
-entre lotes.
+Aplicación web que lee **Registros de Manufactura** y **Órdenes de Producción**
+en PDF, descubre por sí sola los parámetros críticos y los tabula para el
+análisis comparativo de validación entre lotes.
 
 No está atada a ningún producto ni a ninguna etapa: sirve igual para
 FLUIBRONCOL, para otro producto, y para Fabricación, Envase, Acondicionado,
@@ -10,8 +10,8 @@ Recubrimiento, Inspección o cualquier etapa futura.
 
 ## Qué hace
 
-- **Carga múltiple**: arrastra uno o varios PDF a la vez; detecta solo el
-  producto, el lote y la etapa de cada documento.
+- **Carga múltiple**: arrastra uno o varios PDF a la vez; detecta solo el tipo
+  de documento (registro u orden), el producto, el lote y la etapa.
 - **Detección automática de parámetros**: encuentra etiqueta, setpoint, unidad y
   valor sin listas predefinidas (ver *Cómo funciona la detección*).
 - **Tabla de validación**: `Parámetros | Setpoint | Lote 1 | Lote 2 … | Mínimo |
@@ -91,10 +91,32 @@ VITE_SUPABASE_ANON_KEY=tu-anon-public-key
 En el **SQL Editor** del proyecto:
 
 - Instalación nueva → ejecuta [`supabase_schema.sql`](./supabase_schema.sql)
-- Si ya tenías la versión anterior → ejecuta
-  [`supabase_migration_v2.sql`](./supabase_migration_v2.sql)
+  y después las migraciones v2, v3 y v4.
+- Instalación existente → ejecuta las migraciones que falten, en orden:
+  [`v2`](./supabase_migration_v2.sql) (parámetros genéricos),
+  [`v3`](./supabase_migration_v3.sql) (participantes) y
+  [`v4`](./supabase_migration_v4.sql) (órdenes de producción).
 
 Sin Supabase configurado la app funciona igual, guardando en el `localStorage`.
+
+## Los dos documentos que lee
+
+| | Registro de Manufactura | Orden de Producción |
+|---|---|---|
+| Parámetros de proceso | ✅ | — |
+| Personal de planta (Realizado / VB) | ✅ | — |
+| Lote de cada material (**Lote ME**) | — | ✅ |
+| Consumos y mermas por insumo | parcial | ✅ |
+| Rendimiento oficial | calculado en el registro | ✅ declarado |
+| Fechas de proceso | deducidas | ✅ exactas |
+| Firmas de almacén | — | ✅ |
+
+Se complementan: para un mismo lote y etapa conviven como dos documentos
+distintos, y ninguno reemplaza al otro. Cuando hay orden, sus fechas y su lote
+de material mandan sobre lo deducido del registro.
+
+**Proveedor, fabricante y fecha de vencimiento** no están en ninguno de los dos
+y deben completarse desde el sistema de almacén.
 
 ## Informe de validación en Word (RVP)
 

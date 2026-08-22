@@ -43,18 +43,29 @@ export default function LoadedBatches({ documents, onRemove }) {
             <div className="batch-row" key={g.lote}>
               <span className="batch-row__lote">Lote {g.lote}</span>
               <div className="batch-row__stages">
-                {g.docs.map((doc) => (
-                  <span className="stage-pill" key={doc.stage}>
-                    {doc.stage} · {doc.params.length}
-                    <button
-                      onClick={() => onRemove(doc)}
-                      title={`Quitar ${doc.stage} del lote ${doc.lote}`}
-                      aria-label={`Quitar ${doc.stage} del lote ${doc.lote}`}
+                {g.docs.map((doc) => {
+                  const esOrden = doc.kind === "orden";
+                  const detalle = esOrden
+                    ? `orden · ${doc.orden?.insumos?.length ?? 0} insumos`
+                    : doc.params.length;
+                  const que = esOrden ? `la orden de ${doc.stage}` : doc.stage;
+
+                  return (
+                    <span
+                      className={`stage-pill ${esOrden ? "stage-pill--orden" : ""}`}
+                      key={`${doc.stage}::${doc.kind || "registro"}`}
                     >
-                      <IconClose size={11} />
-                    </button>
-                  </span>
-                ))}
+                      {doc.stage} · {detalle}
+                      <button
+                        onClick={() => onRemove(doc)}
+                        title={`Quitar ${que} del lote ${doc.lote}`}
+                        aria-label={`Quitar ${que} del lote ${doc.lote}`}
+                      >
+                        <IconClose size={11} />
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
             </div>
           ))}

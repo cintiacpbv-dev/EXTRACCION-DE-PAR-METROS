@@ -218,7 +218,20 @@ export default function App() {
       setBusyLabel(`Analizando ${file.name}…`);
       try {
         const result = await processPdfFile(file);
-        const contentHash = await computeContentHash(result.params);
+        // Una orden no tiene parámetros: su huella se calcula sobre lo que sí
+        // la identifica, que son sus insumos y el número de orden.
+        const contentHash = await computeContentHash(
+          result.kind === "orden"
+            ? [
+                { section: "ORDEN", label: result.meta.orden || "", value: result.meta.lote },
+                ...result.orden.insumos.map((i) => ({
+                  section: "INSUMO",
+                  label: i.codigo,
+                  value: `${i.loteMaterial}|${i.consumo}`,
+                })),
+              ]
+            : result.params
+        );
 
         // Un documento ya cargado (de esta tanda o de antes) con exactamente
         // el mismo contenido: se detecta y no se vuelve a procesar.
@@ -235,6 +248,7 @@ export default function App() {
         }
 
         const doc = {
+          kind: result.kind,
           producto: result.meta.producto,
           lote: result.meta.lote || "SIN LOTE",
           stage: result.stage,
@@ -242,13 +256,16 @@ export default function App() {
           meta: result.meta,
           params: result.params,
           personnel: result.personnel,
+          orden: result.orden || null,
           uploadedAt: new Date().toISOString(),
         };
         next = upsertDocument(next, doc);
         nuevos.push(doc);
         hashesEnEstaTanda.push({ hash: contentHash, fileName: doc.fileName, lote: doc.lote, stage: doc.stage });
         pushMessage(
-          `${file.name} · ${doc.stage} · lote ${doc.lote} — ${doc.params.length} parámetros detectados`,
+          doc.kind === "orden"
+            ? `${file.name} · Orden ${doc.meta.orden || ""} · ${doc.stage} · lote ${doc.lote} — ${doc.orden.insumos.length} insumos con su lote`
+            : `${file.name} · ${doc.stage} · lote ${doc.lote} — ${doc.params.length} parámetros detectados`,
           "success"
         );
       } catch (err) {

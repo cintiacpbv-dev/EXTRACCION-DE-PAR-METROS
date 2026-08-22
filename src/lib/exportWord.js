@@ -142,18 +142,22 @@ function tablaLotes(model) {
 }
 
 function tablaMateriales(model) {
-  const widths = anchos([3100, 1400, 1400, 1700, 1200, 1100], 0, ANCHO_VERTICAL);
-  const cabecera = ["Nombre", "Código", "Lote", "Cantidad registrada", "Proveedor", "Fecha de vencimiento"];
+  // "Lote ME" es el lote del propio material, que sólo declara la orden de
+  // producción; proveedor y vencimiento no están en ninguno de los dos
+  // documentos y se dejan para completar a mano.
+  const widths = anchos([3400, 1500, 1600, 1500, 1500, 1600, 1740], 0, ANCHO_HORIZONTAL);
+  const cabecera = ["Nombre", "Código", "Lote ME", "Lote", "Consumo", "Proveedor", "Fecha de vencimiento"];
 
   const filas = model.materiales.map((m) =>
     new TableRow({
       children: [
         celda(m.nombre, { width: widths[0] }),
         celda(m.codigo, { width: widths[1], align: AlignmentType.CENTER }),
-        celda(m.lote, { width: widths[2], align: AlignmentType.CENTER }),
-        celda(m.cantidad, { width: widths[3], align: AlignmentType.CENTER }),
-        celda("", { width: widths[4] }),
+        celda(m.loteMaterial || "—", { width: widths[2], align: AlignmentType.CENTER }),
+        celda(m.lote, { width: widths[3], align: AlignmentType.CENTER }),
+        celda(m.consumo ?? m.cantidad, { width: widths[4], align: AlignmentType.CENTER }),
         celda("", { width: widths[5] }),
+        celda("", { width: widths[6] }),
       ],
     })
   );
@@ -165,7 +169,45 @@ function tablaMateriales(model) {
         celda(h, { bold: true, fill: GRIS_CABECERA, width: widths[i], align: AlignmentType.CENTER })
       ),
     }),
-    ...(filas.length ? filas : [new TableRow({ children: [celda("Sin insumos detectados", { colSpan: 6, width: ANCHO_VERTICAL })] })]),
+    ...(filas.length ? filas : [new TableRow({ children: [celda("Sin insumos detectados", { colSpan: 7, width: ANCHO_HORIZONTAL })] })]),
+  ]);
+}
+
+/** Rendimiento oficial declarado en las órdenes de producción. */
+function tablaRendimiento(model) {
+  const widths = anchos([1500, 1900, 2000, 1900, 2000, 1900, 1740], 0, ANCHO_HORIZONTAL);
+  const cabecera = [
+    "Lote",
+    "N° de Orden",
+    "Teórico",
+    "Entregado",
+    "Control de Calidad",
+    "Obtenido",
+    "Rendimiento",
+  ];
+
+  const filas = model.rendimiento.map((r) =>
+    new TableRow({
+      children: [
+        celda(r.lote, { width: widths[0], align: AlignmentType.CENTER }),
+        celda(r.orden || "—", { width: widths[1], align: AlignmentType.CENTER }),
+        celda(`${r.teorico ?? "—"} ${r.unidad || ""}`.trim(), { width: widths[2], align: AlignmentType.CENTER }),
+        celda(r.entregado ?? "—", { width: widths[3], align: AlignmentType.CENTER }),
+        celda(r.controlCalidad ?? "—", { width: widths[4], align: AlignmentType.CENTER }),
+        celda(r.obtenido ?? "—", { width: widths[5], align: AlignmentType.CENTER }),
+        celda(r.rendimiento !== null ? `${r.rendimiento} %` : "—", { width: widths[6], align: AlignmentType.CENTER }),
+      ],
+    })
+  );
+
+  return tabla(widths, [
+    new TableRow({
+      tableHeader: true,
+      children: cabecera.map((h, i) =>
+        celda(h, { bold: true, fill: GRIS_CABECERA, width: widths[i], align: AlignmentType.CENTER })
+      ),
+    }),
+    ...filas,
   ]);
 }
 
@@ -277,19 +319,17 @@ export function buildRvpDocument(documents, familia, options) {
   const model = buildRvpModel(documents, familia, options);
   const hoy = new Date().toISOString().slice(0, 10);
 
-  // Sección vertical: portada, materiales y personal.
+  const conOrden = model.rendimiento.length > 0;
+
+  // Sección vertical: portada y personal.
   const vertical = [
     texto(`REPORTE DE VALIDACIÓN DE PROCESO — ${familia}`, { bold: true, size: 28, align: AlignmentType.CENTER }),
-    texto(`Generado el ${hoy} a partir de los registros de manufactura`, { size: 16, align: AlignmentType.CENTER }),
+    texto(
+      `Generado el ${hoy} a partir de los registros de manufactura${conOrden ? " y las órdenes de producción" : ""}`,
+      { size: 16, align: AlignmentType.CENTER }
+    ),
     texto(""),
     encabezado(HeadingLevel.HEADING_1, "1. RECOLECCIÓN DE DATOS DEL PROCESO"),
-    encabezado(HeadingLevel.HEADING_2, "1.2 MATERIALES UTILIZADOS EN LOS LOTES"),
-    texto(
-      "Las columnas de proveedor y fecha de vencimiento no figuran en el registro de manufactura; deben completarse desde el sistema de almacén.",
-      { size: 15 }
-    ),
-    tablaMateriales(model),
-    texto(""),
     encabezado(HeadingLevel.HEADING_2, "1.3 PERSONAL QUE INTERVINO EN EL PROCESO"),
   ];
 
@@ -298,14 +338,31 @@ export function buildRvpDocument(documents, familia, options) {
     vertical.push(texto(""));
   }
 
-  // Sección horizontal: las tablas que crecen una columna por lote.
+  // Sección horizontal: las tablas anchas.
   const horizontal = [
     encabezado(HeadingLevel.HEADING_2, "1.1 LOTES CONTROLADOS EN LA VALIDACIÓN Y FECHAS DE PROCESO"),
     tablaLotes(model),
     texto(""),
-    encabezado(HeadingLevel.HEADING_1, "2. RESULTADOS DE LA VALIDACIÓN"),
-    encabezado(HeadingLevel.HEADING_2, "2.1 VERIFICACIONES DE PARÁMETROS DE PROCESO"),
+    encabezado(HeadingLevel.HEADING_2, "1.2 MATERIALES UTILIZADOS EN LOS LOTES"),
+    texto(
+      conOrden
+        ? "El lote de material (Lote ME) proviene de la orden de producción. Proveedor y fecha de vencimiento no figuran en ninguno de los dos documentos: deben completarse desde el sistema de almacén."
+        : "Sin órdenes de producción cargadas no se conoce el lote de cada material (Lote ME). Proveedor y fecha de vencimiento deben completarse desde el sistema de almacén.",
+      { size: 15 }
+    ),
+    tablaMateriales(model),
+    texto(""),
   ];
+
+  if (conOrden) {
+    horizontal.push(encabezado(HeadingLevel.HEADING_2, "1.4 RENDIMIENTO POR LOTE"));
+    horizontal.push(texto("Valores declarados en la orden de producción.", { size: 15 }));
+    horizontal.push(tablaRendimiento(model));
+    horizontal.push(texto(""));
+  }
+
+  horizontal.push(encabezado(HeadingLevel.HEADING_1, "2. RESULTADOS DE LA VALIDACIÓN"));
+  horizontal.push(encabezado(HeadingLevel.HEADING_2, "2.1 VERIFICACIONES DE PARÁMETROS DE PROCESO"));
 
   for (const table of model.tablas) {
     if (table.lotes.length === 0 || table.rowCount === 0) continue;

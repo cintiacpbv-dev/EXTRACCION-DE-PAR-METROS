@@ -380,6 +380,12 @@
   font-weight: 500;
 }
 
+/* La orden de producción se distingue del registro de manufactura. */
+.stage-pill--orden {
+  background: #fff4e5;
+  color: #9a5b13;
+}
+
 .stage-pill button {
   display: grid;
   place-items: center;
