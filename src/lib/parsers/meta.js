@@ -20,6 +20,11 @@ export function extractMeta(flatTextRaw) {
   }
   if (stage) stage = stage.replace(/\s+/g, " ").toUpperCase();
 
+  // "Código  Version Fab. / Alt. … 5000000855  1001/ 1  5  Autorizado/…"
+  // Es la receta del producto, que el informe de validación pide en su tabla
+  // de lotes controlados.
+  const recetaMatch = text.match(/(\d{10})\s+\d{3,4}\s*\/\s*\d+\s+\d+\s+Autorizado/i);
+
   const loteMatch = text.match(/Lote:\s*([\w-]+)/i);
   const ordenMatch = text.match(/Orden\s*N[ºo°]:\s*(\d+)/i);
   const expiraMatch = text.match(/Expira:\s*([\d-]{8,10})/i);
@@ -37,6 +42,7 @@ export function extractMeta(flatTextRaw) {
 
   return {
     stage: stage || "SIN ETAPA",
+    receta: recetaMatch ? recetaMatch[1] : null,
     lote: loteMatch ? loteMatch[1] : null,
     orden: ordenMatch ? ordenMatch[1] : null,
     producto: producto || "PRODUCTO SIN IDENTIFICAR",

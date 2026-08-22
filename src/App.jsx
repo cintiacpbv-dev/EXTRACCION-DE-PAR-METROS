@@ -33,6 +33,7 @@ import {
 import { supabaseEnabled } from "./lib/supabaseClient.js";
 import { exportProductToExcel, tableToClipboardText } from "./lib/exportExcel.js";
 import { exportRvpToWord } from "./lib/exportWord.js";
+import { exportCuadrosToWord } from "./lib/exportCuadros.js";
 import { copyRvpToClipboard } from "./lib/rvpHtml.js";
 import {
   aggregatePersonnel,
@@ -233,18 +234,32 @@ export default function App() {
             : result.params
         );
 
-        // Un documento ya cargado (de esta tanda o de antes) con exactamente
-        // el mismo contenido: se detecta y no se vuelve a procesar.
+        // Un documento ya cargado con el mismo contenido no se vuelve a
+        // procesar… salvo que al reprocesarlo aporte algo que la copia
+        // guardada no tiene. Es el caso de los análisis hechos antes de que
+        // la app detectara el personal: sin esta salvedad, volver a subir el
+        // PDF quedaría bloqueado y ese dato nunca se podría completar.
         const yaVisto =
           hashesEnEstaTanda.find((h) => h.hash === contentHash) ||
           (await findDuplicateDocument(documents, contentHash));
 
         if (yaVisto) {
+          const cuenta = (d) =>
+            (d?.personnel?.operarios?.length || 0) + (d?.personnel?.supervisores?.length || 0);
+          const aporta = cuenta(result) > 0 && cuenta(yaVisto) === 0;
+
+          if (!aporta) {
+            pushMessage(
+              `${file.name}: contenido idéntico a "${yaVisto.fileName}" (lote ${yaVisto.lote}, ${yaVisto.stage}) — se omitió, ya estaba cargado.`,
+              "info"
+            );
+            continue;
+          }
+
           pushMessage(
-            `${file.name}: contenido idéntico a "${yaVisto.fileName}" (lote ${yaVisto.lote}, ${yaVisto.stage}) — se omitió, ya estaba cargado.`,
-            "info"
+            `${file.name}: ya estaba cargado, pero sin los participantes. Se actualizó con ${cuenta(result)} nombres.`,
+            "success"
           );
-          continue;
         }
 
         const doc = {
@@ -344,6 +359,16 @@ export default function App() {
       pushMessage("Informe Word generado. Revisa las columnas marcadas para completar a mano.", "success");
     } catch (err) {
       pushMessage(`No se pudo generar el informe: ${err.message}`, "error");
+    }
+  }
+
+  async function handleExportCuadros() {
+    if (!productoActivo) return;
+    try {
+      await exportCuadrosToWord(docs, productoActivo, { onlyCritical });
+      pushMessage("Cuadros generados con el formato del reporte de referencia.", "success");
+    } catch (err) {
+      pushMessage(`No se pudieron generar los cuadros: ${err.message}`, "error");
     }
   }
 
@@ -522,6 +547,10 @@ export default function App() {
                       : rvpCopyState === "error"
                         ? "No se pudo copiar"
                         : "Copiar informe"}
+                  </button>
+                  <button className="btn btn--ghost" onClick={handleExportCuadros} disabled={!productoActivo}>
+                    <IconFileText size={16} />
+                    Cuadros 1-2-3
                   </button>
                   <button className="btn btn--ghost" onClick={handleExportWord} disabled={!productoActivo}>
                     <IconFileText size={16} />

@@ -118,6 +118,29 @@ de material mandan sobre lo deducido del registro.
 **Proveedor, fabricante y fecha de vencimiento** no están en ninguno de los dos
 y deben completarse desde el sistema de almacén.
 
+## Cuadros 1-2-3 con el formato del reporte de referencia
+
+El botón **Cuadros 1-2-3** entrega en Word, con el formato exacto del reporte
+de validación de referencia, los tres cuadros de recolección de datos:
+
+1. Lotes controlados en la validación y fechas de proceso
+2. Materiales utilizados en los lotes
+3. Personal que intervino en el proceso
+
+El formato no se aproxima: está tomado del XML del propio documento de
+referencia — cabeceras en azul `C6D9F1`, Arial 8 pt, bordes de media línea,
+celdas combinadas en vertical y horizontal, alturas de fila, alineaciones y
+repetición de la cabecera al continuar en la página siguiente.
+
+Se adapta a los datos: el cuadro 1 abre dos columnas por etapa, el 2 agrupa
+los materiales por presentación combinando el nombre repetido, y el 3 arma una
+tabla por cada bloque de 10 lotes, como hace el original con sus dos
+presentaciones.
+
+Las columnas **RECETA** y **Lote ME** se llenan desde la orden de producción;
+**Proveedor**, **Fabricante** y **Fecha de vencimiento** quedan en blanco
+porque no figuran en ninguno de los dos documentos.
+
 ## Informe de validación en Word (RVP)
 
 El botón **Informe Word** genera un `.docx` con la estructura del reporte de

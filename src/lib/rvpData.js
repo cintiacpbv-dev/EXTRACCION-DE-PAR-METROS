@@ -104,6 +104,7 @@ export function materialesPorLote(documents, familia) {
           merma: ins.mermaProceso,
           lote: doc.lote,
           stage: doc.stage,
+          producto: doc.producto,
         });
       }
       continue;
@@ -128,6 +129,7 @@ export function materialesPorLote(documents, familia) {
         merma: null,
         lote: doc.lote,
         stage: doc.stage,
+        producto: doc.producto,
       });
     }
   }
@@ -155,6 +157,41 @@ export function rendimientoPorLote(documents, familia) {
     .sort((a, b) => a.lote.localeCompare(b.lote));
 }
 
+/**
+ * Personal lote por lote, que es como lo pide la tabla del informe: una
+ * columna por lote y, dentro de cada etapa, una fila de operadores y otra de
+ * supervisores. (aggregatePersonnel, en cambio, resume toda la etapa.)
+ */
+export function personalPorLote(documents, familia) {
+  return listStages(documents, familia).map((stage) => {
+    const docs = documents.filter((d) => d.familia === familia && d.stage === stage && d.kind !== "orden");
+    const lotes = [...new Set(docs.map((d) => d.lote))].sort();
+
+    const porLote = {};
+    for (const lote of lotes) {
+      const doc = docs.find((d) => d.lote === lote);
+      porLote[lote] = {
+        operarios: (doc?.personnel?.operarios || []).map((p) => p.name),
+        supervisores: (doc?.personnel?.supervisores || []).map((p) => p.name),
+      };
+    }
+
+    const producto = docs[0]?.producto || familia;
+    return { stage, lotes, porLote, producto };
+  });
+}
+
+/** Receta (código de producto) declarada para cada lote. */
+export function recetaPorLote(documents, familia) {
+  const mapa = {};
+  for (const doc of documents) {
+    if (doc.familia !== familia) continue;
+    const receta = doc.orden?.cabecera?.productoCodigo || doc.meta?.receta;
+    if (receta && !mapa[doc.lote]) mapa[doc.lote] = receta;
+  }
+  return mapa;
+}
+
 /** Personal por etapa, en el formato de las tablas de personal del RVP. */
 export function personalPorEtapa(documents, familia) {
   return listStages(documents, familia).map((stage) => ({
@@ -175,9 +212,11 @@ export function buildRvpModel(documents, familia, { onlyCritical = true } = {}) 
     familia,
     stages,
     lotes: lotesConFechas(documents, familia),
+    recetas: recetaPorLote(documents, familia),
     materiales: materialesPorLote(documents, familia),
     rendimiento: rendimientoPorLote(documents, familia),
     personal: personalPorEtapa(documents, familia),
+    personalPorLote: personalPorLote(documents, familia),
     tablas: stages.map((stage) => buildTable(documents, familia, stage, { onlyCritical })),
   };
 }
