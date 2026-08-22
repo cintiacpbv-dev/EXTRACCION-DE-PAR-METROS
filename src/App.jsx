@@ -256,7 +256,9 @@ export default function App() {
         if (yaVisto) {
           const cuenta = (d) =>
             (d?.personnel?.operarios?.length || 0) + (d?.personnel?.supervisores?.length || 0);
-          const aporta = cuenta(result) > 0 && cuenta(yaVisto) === 0;
+          const sumaParticipantes = cuenta(result) > 0 && cuenta(yaVisto) === 0;
+          const sumaReceta = !!result.meta?.receta && !yaVisto.meta?.receta;
+          const aporta = sumaParticipantes || sumaReceta;
 
           if (!aporta) {
             pushMessage(
@@ -266,10 +268,10 @@ export default function App() {
             continue;
           }
 
-          pushMessage(
-            `${file.name}: ya estaba cargado, pero sin los participantes. Se actualizó con ${cuenta(result)} nombres.`,
-            "success"
-          );
+          const aportes = [];
+          if (sumaParticipantes) aportes.push(`${cuenta(result)} nombres`);
+          if (sumaReceta) aportes.push("la receta");
+          pushMessage(`${file.name}: ya estaba cargado, pero se actualizó con ${aportes.join(" y ")}.`, "success");
         }
 
         const doc = {
