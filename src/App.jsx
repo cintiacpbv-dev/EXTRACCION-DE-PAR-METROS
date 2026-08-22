@@ -373,6 +373,16 @@ export default function App() {
             : `${file.name} · ${doc.stage} · lote ${doc.lote} — ${doc.params.length} parámetros detectados`,
           "success"
         );
+
+        // Un registro maestro todavía sin llenar trae la cabecera en blanco:
+        // sirve para conocer el producto y sus parámetros, pero no aporta
+        // ninguna lectura que comparar entre lotes.
+        if (doc.kind === "registro" && !result.meta.lote) {
+          pushMessage(
+            `${file.name} no tiene lote asignado: es un registro maestro sin llenar. Se guardó como "SIN LOTE" y no aporta valores que comparar.`,
+            "info"
+          );
+        }
       } catch (err) {
         pushMessage(`${file.name}: ${err.message}`, "error");
       }
