@@ -236,6 +236,113 @@ async function modoAprender() {
   await contexto.close();
 }
 
+// --------------------------------------------------------------- explorar ---
+
+// Lo que se extrae de cada marco de la pantalla. Sólo estructura: qué campos,
+// botones y columnas hay y cómo referirse a ellos. No se vuelca el contenido
+// de la tabla.
+const RECONOCER_PANTALLA = `(() => {
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const texto = (el) => (el.innerText || el.textContent || "").trim().slice(0, 60);
+
+  const campos = [...document.querySelectorAll("input, textarea, select")]
+    .filter(visible)
+    .slice(0, 60)
+    .map((el) => ({
+      etiqueta: el.title || el.getAttribute("aria-label") || "",
+      id: el.id || "",
+      name: el.getAttribute("name") || "",
+      tipo: el.type || el.tagName.toLowerCase(),
+      valor: (el.value || "").slice(0, 20),
+    }));
+
+  const botones = [...document.querySelectorAll("button, a, [role=button], input[type=button], input[type=submit]")]
+    .filter(visible)
+    .map((el) => ({ texto: texto(el), titulo: el.title || "", id: el.id || "" }))
+    .filter((b) => b.texto || b.titulo)
+    .slice(0, 60);
+
+  const tablas = [...document.querySelectorAll("table")].filter(visible).slice(0, 4).map((t) => {
+    const filaCab = t.querySelector("tr");
+    const cabeceras = filaCab
+      ? [...filaCab.children].map((c, i) => ({ i, texto: texto(c) })).filter((c) => c.texto)
+      : [];
+    return { id: t.id || "", filas: t.rows.length, cabeceras: cabeceras.slice(0, 30) };
+  });
+
+  return { titulo: document.title, campos, botones, tablas };
+})()`;
+
+/**
+ * Vuelca la estructura de la pantalla que se tenga abierta, para poder
+ * escribir los selectores exactos del modo guiado.
+ *
+ * Hace falta porque el SAP GUI dibujado en el navegador genera
+ * identificadores propios ("M0:46:::0:") que no se pueden adivinar desde
+ * fuera y que además cambian entre pantallas.
+ */
+async function modoExplorar() {
+  const config = await leerConfig();
+  const { contexto } = await abrirNavegador(config);
+  const page = contexto.pages()[0] || (await contexto.newPage());
+
+  await page.goto(config.urlInicio, { waitUntil: "domcontentloaded" }).catch(() => {});
+
+  console.log("\n─────────────────────────────────────────────────────");
+  console.log(" En la ventana de SAP que se acaba de abrir:");
+  console.log("   1. Entra a 'Reporte Sobre de Lote Digital'.");
+  console.log("   2. Escribe un lote y pulsa 'Consulta'.");
+  console.log("   3. Deja en pantalla la tabla con las etapas.");
+  console.log("─────────────────────────────────────────────────────\n");
+
+  await preguntar("Cuando tengas la tabla a la vista, pulsa Enter aquí… ");
+
+  const informe = [];
+  informe.push(`Explorado el ${new Date().toISOString()}`);
+
+  for (const frame of page.frames()) {
+    let datos;
+    try {
+      datos = await frame.evaluate(RECONOCER_PANTALLA);
+    } catch {
+      continue; // marcos de otro dominio, que no se pueden leer
+    }
+    if (datos.campos.length === 0 && datos.botones.length === 0 && datos.tablas.length === 0) continue;
+
+    informe.push("\n" + "=".repeat(60));
+    informe.push(`MARCO: ${frame.name() || "(principal)"}`);
+    informe.push(`URL:   ${frame.url().slice(0, 160)}`);
+    informe.push(`TÍTULO: ${datos.titulo}`);
+
+    informe.push(`\n-- CAMPOS (${datos.campos.length}) --`);
+    for (const c of datos.campos) {
+      informe.push(`  etiqueta="${c.etiqueta}" id="${c.id}" name="${c.name}" tipo=${c.tipo} valor="${c.valor}"`);
+    }
+
+    informe.push(`\n-- BOTONES (${datos.botones.length}) --`);
+    for (const b of datos.botones) {
+      informe.push(`  texto="${b.texto}" titulo="${b.titulo}" id="${b.id}"`);
+    }
+
+    for (const t of datos.tablas) {
+      informe.push(`\n-- TABLA id="${t.id}" (${t.filas} filas) --`);
+      for (const c of t.cabeceras) informe.push(`  columna ${c.i}: "${c.texto}"`);
+    }
+  }
+
+  const destino = path.join(AQUI, "diagnostico.txt");
+  await writeFile(destino, informe.join("\n"), "utf8");
+
+  console.log(`\nGuardado en:\n  ${destino}\n`);
+  console.log("Ábrelo con el Bloc de notas y cópiame el contenido.");
+  console.log("Sólo lleva nombres de campos, botones y columnas — no los datos de la tabla.\n");
+
+  await contexto.close();
+}
+
 // ----------------------------------------------------------------- grabar ---
 
 /**
@@ -434,6 +541,8 @@ const modo = process.argv[2];
 try {
   if (modo === "aprender") {
     await modoAprender();
+  } else if (modo === "explorar") {
+    await modoExplorar();
   } else if (modo === "grabar") {
     await modoGrabar();
   } else if (modo === "descargar") {
@@ -441,7 +550,8 @@ try {
   } else {
     console.log("Uso:");
     console.log("  node descargar.mjs aprender     enseñarle a SAP una vez cómo se descarga");
-    console.log("  node descargar.mjs grabar       grabar los pasos cuando el PDF no tiene dirección propia");
+    console.log("  node descargar.mjs explorar     leer la estructura de la pantalla (campos y botones)");
+    console.log("  node descargar.mjs grabar       grabar los pasos con el Inspector de Playwright");
     console.log("  node descargar.mjs descargar    bajar todos los lotes de lotes.txt");
     process.exitCode = 1;
   }
