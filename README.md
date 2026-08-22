@@ -211,6 +211,7 @@ validación de referencia, los tres cuadros de recolección de datos:
 1. Lotes controlados en la validación y fechas de proceso
 2. Materiales utilizados en los lotes
 3. Personal que intervino en el proceso
+4. Verificación de parámetros de proceso
 
 El formato no se aproxima: está tomado del XML del propio documento de
 referencia — cabeceras en azul `C6D9F1`, Arial 8 pt, bordes de media línea,
@@ -218,9 +219,21 @@ celdas combinadas en vertical y horizontal, alturas de fila, alineaciones y
 repetición de la cabecera al continuar en la página siguiente.
 
 Se adapta a los datos: el cuadro 1 abre dos columnas por etapa, el 2 agrupa
-los materiales por presentación combinando el nombre repetido, y el 3 arma una
-tabla por cada bloque de 10 lotes, como hace el original con sus dos
-presentaciones. Los nombres de operarios y supervisores se muestran en el
+los materiales por presentación combinando el nombre repetido, y el 3 y el 4
+arman una tabla por cada bloque de 10 lotes, como hace el original con sus
+dos presentaciones.
+
+El cuadro 4 replica las páginas 8 a 15 del formato de referencia: hoja
+horizontal, tabla de 14454 DXA centrada, cabecera de dos filas
+(«Parámetros de proceso» · «Rango de operación» · «RESULTADOS» sobre las
+columnas de lote), rótulo de etapa girado de abajo arriba en la primera
+columna, nombre del parámetro justificado ocupando tres columnas, y
+Arial 7,5 pt en la cabecera y 7 pt en los datos — más pequeño que los otros
+cuadros.
+
+> En un corte de página, Word reparte la celda girada entre las dos hojas y
+> el rótulo puede quedar recortado. Es una limitación de las celdas
+> combinadas, no del contenido. Los nombres de operarios y supervisores se muestran en el
 formato "A. Lacho" (inicial del nombre + apellido, sin la inicial final del
 código del RMD) y, cuando hay más de uno por lote y rol, cada uno en su
 propia línea dentro de la celda.

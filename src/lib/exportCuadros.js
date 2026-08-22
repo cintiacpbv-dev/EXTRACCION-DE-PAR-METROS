@@ -7,6 +7,7 @@
 //   Cuadro 1  LOTES CONTROLADOS EN LA VALIDACIÓN Y FECHAS DE PROCESO
 //   Cuadro 2  MATERIALES UTILIZADOS EN LOS LOTES
 //   Cuadro 3  PERSONAL QUE INTERVINO EN EL PROCESO
+//   Cuadro 4  VERIFICACIÓN DE PARÁMETROS DE PROCESO (págs. 8-15 del original)
 
 import {
   AlignmentType,
@@ -21,6 +22,7 @@ import {
   TableCell,
   TableLayoutType,
   TableRow,
+  TextDirection,
   TextRun,
   VerticalAlign,
   WidthType,
@@ -293,6 +295,148 @@ function tablaPersonalBloque(entrada, lotes) {
   );
 }
 
+// --- Cuadro 4: verificación de parámetros de proceso ------------------------
+//
+// Réplica del cuadro de las páginas 8 a 15 del formato de referencia. Sus
+// medidas salen del XML de ese documento: tabla de 14454 DXA centrada, con
+// una primera columna estrecha de texto girado, el nombre del parámetro
+// ocupando tres columnas, el rango de operación, y una columna por lote.
+
+const ANCHOS_PARAM = { rotulo: 422, nombreA: 707, nombreB: 34, nombreC: 881, rango: 1353 };
+const ANCHO_TABLA_PARAM = 14454;
+
+// El original usa 7,5 pt en la cabecera y 7 pt en los datos, más pequeño que
+// los otros cuadros.
+const TAM_PARAM_CAB = 15;
+const TAM_PARAM_DATO = 14;
+
+const ALTO_PAR_CAB1 = 248;
+const ALTO_PAR_CAB2 = 280;
+const ALTO_PAR_SECCION = 286;
+const ALTO_PAR_DATO = 400;
+
+// Por debajo de esta cantidad de filas el rótulo girado no cabe.
+const MIN_FILAS_ROTULO = 4;
+
+function parrafoParam(texto, { bold = false, align, size = TAM_PARAM_DATO } = {}) {
+  return new Paragraph({
+    alignment: align,
+    spacing: { before: 0, after: 0 },
+    children: [new TextRun({ text: String(texto ?? ""), font: FUENTE, size, bold })],
+  });
+}
+
+function celdaParam(texto, opciones = {}) {
+  const { bold, align, fill, width, colSpan, rowSpan, size, girado } = opciones;
+  return new TableCell({
+    width: width ? { size: width, type: WidthType.DXA } : undefined,
+    columnSpan: colSpan,
+    rowSpan,
+    shading: fill ? { type: ShadingType.CLEAR, color: "auto", fill } : undefined,
+    verticalAlign: VerticalAlign.CENTER,
+    // La primera columna lleva el texto girado de abajo arriba, como el
+    // rótulo "MATERIAL DE ACONDICIONADO" del original.
+    textDirection: girado ? TextDirection.BOTTOM_TO_TOP_LEFT_TO_RIGHT : undefined,
+    children: [parrafoParam(texto, { bold, align, size })],
+  });
+}
+
+function valorParaCuadro(valor) {
+  if (valor === undefined || valor === null || valor === "") return "---";
+  if (valor === "ü") return "Conforme";
+  return typeof valor === "number" ? String(Math.round(valor * 1000) / 1000) : String(valor);
+}
+
+/** Un bloque del cuadro 4: la tabla de parámetros para un grupo de lotes. */
+function cuadroParametros(datos, lotes, etapa) {
+  const A = ANCHOS_PARAM;
+  const fijas = A.rotulo + A.nombreA + A.nombreB + A.nombreC + A.rango;
+  const anchoLote = Math.floor((ANCHO_TABLA_PARAM - fijas) / Math.max(lotes.length, 1));
+  const anchos = [A.rotulo, A.nombreA, A.nombreB, A.nombreC, A.rango, ...Array(lotes.length).fill(anchoLote)];
+  const nCols = anchos.length;
+  const total = anchos.reduce((a, b) => a + b, 0);
+
+  const filas = [
+    // Cabecera de dos filas: los rótulos fijos se combinan en vertical y
+    // "RESULTADOS" abarca todas las columnas de lote.
+    fila(
+      [
+        celdaParam("Parámetros de proceso", {
+          bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA,
+          colSpan: 4, rowSpan: 2, size: TAM_PARAM_CAB, width: A.rotulo + A.nombreA + A.nombreB + A.nombreC,
+        }),
+        celdaParam("Rango de operación", {
+          bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA,
+          rowSpan: 2, size: TAM_PARAM_CAB, width: A.rango,
+        }),
+        celdaParam("RESULTADOS", {
+          bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA,
+          colSpan: lotes.length, size: TAM_PARAM_CAB, width: anchoLote * lotes.length,
+        }),
+      ],
+      { alto: ALTO_PAR_CAB1, cabecera: true }
+    ),
+    fila(
+      lotes.map((l) =>
+        celdaParam(l, {
+          bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA,
+          size: TAM_PARAM_CAB, width: anchoLote,
+        })
+      ),
+      { alto: ALTO_PAR_CAB2, cabecera: true }
+    ),
+  ];
+
+  for (const seccion of datos.sections) {
+    filas.push(
+      fila([celdaParam(seccion.title, { bold: true, colSpan: nCols, width: total, size: TAM_PARAM_CAB })], {
+        alto: ALTO_PAR_SECCION,
+      })
+    );
+
+    seccion.rows.forEach((row, i) => {
+      const celdas = [];
+
+      // El rótulo girado se combina sólo a lo largo de las filas de SU
+      // sección. Abarcar todas las filas de datos cruzaría por encima de las
+      // filas de sección, que ocupan el ancho entero, y la tabla se
+      // descuadraba por la derecha.
+      if (i === 0) {
+        // El rótulo sólo se escribe si la sección tiene filas suficientes
+        // para que quepa girado; en un bloque de una o dos filas saldría
+        // partido en pedazos ilegibles. La celda se emite igual, vacía, para
+        // no descuadrar la columna.
+        const cabeElRotulo = seccion.rows.length >= MIN_FILAS_ROTULO;
+        celdas.push(
+          celdaParam(cabeElRotulo ? etapa : "", {
+            align: AlignmentType.CENTER, girado: true, rowSpan: seccion.rows.length, width: A.rotulo,
+          })
+        );
+      }
+
+      const etiqueta = row.unit && !row.label.includes(row.unit) ? `${row.label} (${row.unit})` : row.label;
+      celdas.push(
+        celdaParam(etiqueta, {
+          align: AlignmentType.BOTH, colSpan: 3, width: A.nombreA + A.nombreB + A.nombreC,
+        })
+      );
+      celdas.push(
+        celdaParam(row.setpoint || "Referencial", { align: AlignmentType.CENTER, width: A.rango })
+      );
+
+      for (const lote of lotes) {
+        celdas.push(
+          celdaParam(valorParaCuadro(row.values[lote]), { align: AlignmentType.CENTER, width: anchoLote })
+        );
+      }
+
+      filas.push(fila(celdas, { alto: ALTO_PAR_DATO }));
+    });
+  }
+
+  return tabla(anchos, filas);
+}
+
 // --- documento --------------------------------------------------------------
 
 function titulo(texto) {
@@ -334,12 +478,28 @@ export function buildCuadrosDocument(documents, familia, options) {
     }
   }
 
+  // Cuadro 4: una tabla por etapa y por bloque de lotes, como el original,
+  // que parte sus veinte lotes en dos tablas de diez.
+  const parametros = [titulo("4. VERIFICACIÓN DE PARÁMETROS DE PROCESO")];
+  for (const datos of model.tablas) {
+    if (datos.lotes.length === 0 || datos.rowCount === 0) continue;
+
+    for (let i = 0; i < datos.lotes.length; i += LOTES_POR_TABLA) {
+      const grupo = datos.lotes.slice(i, i + LOTES_POR_TABLA);
+      parametros.push(cuadroParametros(datos, grupo, datos.stage));
+      parametros.push(new Paragraph({ children: [] }));
+    }
+  }
+
   return new Document({
     styles: { default: { document: { run: { font: FUENTE, size: TAM } } } },
     sections: [
       { properties: pagina(true), children: horizontal },
       { properties: pagina(false), children: vertical },
       { properties: pagina(true), children: personal },
+      // El cuadro 4 crece una columna por lote: horizontal, como en el
+      // formato de referencia, donde ocupa las páginas 8 a 15.
+      { properties: pagina(true), children: parametros },
     ],
   });
 }
