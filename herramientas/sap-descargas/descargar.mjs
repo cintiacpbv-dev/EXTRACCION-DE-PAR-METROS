@@ -28,6 +28,7 @@ import { fileURLToPath } from "url";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const RUTA_CONFIG = path.join(AQUI, "config.json");
+const RUTA_EJEMPLO = path.join(AQUI, "config.ejemplo.json");
 const RUTA_LOTES = path.join(AQUI, "lotes.txt");
 const MARCA_LOTE = "{LOTE}";
 
@@ -46,19 +47,53 @@ async function cargarNavegador() {
   }
 }
 
+// Una sola interfaz de lectura para todo el programa: abrir y cerrar una por
+// pregunta deja la entrada en un estado del que la siguiente ya no se
+// recupera, y el script se queda colgado sin decir nada.
+let lector = null;
+function preguntador() {
+  if (!lector) lector = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return lector;
+}
+
 async function preguntar(texto) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const respuesta = await rl.question(texto);
-  rl.close();
+  const respuesta = await preguntador().question(texto);
   return respuesta.trim();
 }
 
+function cerrarPreguntas() {
+  lector?.close();
+  lector = null;
+}
+
+/**
+ * Devuelve la configuración, creándola la primera vez y preguntando la
+ * dirección de SAP si todavía no está puesta. Así no hay que copiar ni editar
+ * ningún archivo a mano: todo se responde en la propia ventana.
+ */
 async function leerConfig() {
   if (!existsSync(RUTA_CONFIG)) {
-    console.error(`No encuentro ${RUTA_CONFIG}. Copia config.ejemplo.json a config.json y pon la dirección de tu SAP.`);
-    process.exit(1);
+    await writeFile(RUTA_CONFIG, await readFile(RUTA_EJEMPLO, "utf8"), "utf8");
   }
-  return JSON.parse(await readFile(RUTA_CONFIG, "utf8"));
+
+  const config = JSON.parse(await readFile(RUTA_CONFIG, "utf8"));
+
+  if (!config.urlInicio || /PON-AQUI/i.test(config.urlInicio)) {
+    console.log("\nAntes de empezar necesito saber por dónde entras a SAP.");
+    console.log("Abre SAP en tu navegador como siempre y copia la dirección de la barra de arriba.\n");
+
+    let url = "";
+    while (!/^https?:\/\//i.test(url)) {
+      url = await preguntar("Pega aquí la dirección de SAP: ");
+      if (!/^https?:\/\//i.test(url)) console.log("  Tiene que empezar por http:// o https://. Inténtalo otra vez.");
+    }
+
+    config.urlInicio = url;
+    await guardarConfig(config);
+    console.log("  Guardada. No te la volveré a pedir.\n");
+  }
+
+  return config;
 }
 
 async function guardarConfig(config) {
@@ -191,13 +226,16 @@ async function modoDescargar() {
   const config = await leerConfig();
 
   if (!config.patronUrl) {
-    console.error("Todavía no sé cómo descargar. Ejecuta primero:  node descargar.mjs aprender");
+    console.error("Todavía no sé cómo se descarga en tu SAP.");
+    console.error("Abre primero 1-APRENDER.bat y hazme una descarga de ejemplo.");
     process.exit(1);
   }
 
   const lotes = await leerLotes();
   if (lotes.length === 0) {
-    console.error(`Escribe un lote por línea en ${RUTA_LOTES} y vuelve a intentarlo.`);
+    console.error("No hay ningún lote que descargar.");
+    console.error(`Abre lotes.txt con el Bloc de notas, escribe un lote por línea, guarda y vuelve a intentarlo.`);
+    console.error(`  ${RUTA_LOTES}`);
     process.exit(1);
   }
 
@@ -261,13 +299,17 @@ async function modoDescargar() {
 // ------------------------------------------------------------------ main ---
 
 const modo = process.argv[2];
-if (modo === "aprender") {
-  await modoAprender();
-} else if (modo === "descargar") {
-  await modoDescargar();
-} else {
-  console.log("Uso:");
-  console.log("  node descargar.mjs aprender     enseñarle a SAP una vez cómo se descarga");
-  console.log("  node descargar.mjs descargar    bajar todos los lotes de lotes.txt");
-  process.exit(1);
+try {
+  if (modo === "aprender") {
+    await modoAprender();
+  } else if (modo === "descargar") {
+    await modoDescargar();
+  } else {
+    console.log("Uso:");
+    console.log("  node descargar.mjs aprender     enseñarle a SAP una vez cómo se descarga");
+    console.log("  node descargar.mjs descargar    bajar todos los lotes de lotes.txt");
+    process.exitCode = 1;
+  }
+} finally {
+  cerrarPreguntas();
 }

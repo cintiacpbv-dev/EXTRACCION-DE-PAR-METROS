@@ -22,28 +22,29 @@ El script no pide usuario ni contraseña. Abre un Chrome con un perfil propio
 o segundo factor si los hay— y esa sesión queda en esa carpeta, que está
 excluida del repositorio. Nada viaja a Supabase ni a ningún servidor.
 
-## Puesta en marcha, una sola vez
+## Cómo se usa
 
-```bash
-npm install
-npm run instalar-navegador
-```
+No hay que escribir comandos: son dos archivos que se abren con **doble
+clic**, en esta carpeta.
 
-Después copia `config.ejemplo.json` a `config.json` y pon en `urlInicio` la
-dirección desde la que entras a SAP.
+| Archivo | Cuándo |
+|---|---|
+| `1-APRENDER.bat` | Una sola vez, para enseñarle cómo se descarga en tu SAP |
+| `2-DESCARGAR.bat` | Cada vez que quieras bajar una tanda de lotes |
+
+La primera vez, `1-APRENDER.bat` instala solo lo que necesita (tarda unos
+minutos) y te pide la dirección de SAP. Si no tienes Node.js, te lo dice y
+te indica de dónde bajarlo.
 
 ## Paso 1 — enseñarle cómo se descarga
 
 Cada instalación de SAP coloca sus aplicaciones y botones en sitios
 distintos, así que el script no adivina el camino: te mira hacerlo una vez.
 
-```bash
-npm run aprender
-```
-
-Se abre SAP, inicias sesión, le dices qué lote vas a usar y **descargas ese
-lote a mano, como siempre**. El script observa qué dirección se utilizó,
-sustituye el lote por un hueco y guarda el patrón en `config.json`.
+Doble clic en **`1-APRENDER.bat`**. Se abre SAP, inicias sesión, le dices qué
+lote vas a usar y **descargas ese lote a mano, como siempre**. El script
+observa qué dirección se utilizó, sustituye el lote por un hueco y guarda el
+patrón.
 
 Si la dirección no contiene el lote, te lo dice: significa que SAP identifica
 el documento por el estado de la sesión y no por la URL. En ese caso la
@@ -52,14 +53,12 @@ con la URL que imprime y una captura de la pantalla de búsqueda.
 
 ## Paso 2 — descargar todos los lotes
 
-Escribe los lotes en `lotes.txt`, uno por línea, y ejecuta:
+Abre `lotes.txt` con el Bloc de notas, escribe **un lote por línea**, guarda,
+y doble clic en **`2-DESCARGAR.bat`**.
 
-```bash
-npm run descargar
-```
-
-Los PDF quedan en `descargas/`. Al terminar imprime un resumen: cuántos
-bajaron, cuáles no devolvieron un PDF y cuáles dieron error.
+Los PDF quedan en la carpeta `descargas`. Al terminar imprime un resumen:
+cuántos bajaron, cuáles no devolvieron un PDF y cuáles dieron error. Después
+arrastras esa carpeta a la aplicación.
 
 ## Si algo falla
 
