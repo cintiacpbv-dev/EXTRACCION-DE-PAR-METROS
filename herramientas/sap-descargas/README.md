@@ -50,6 +50,39 @@ patrón.
 Si la dirección no contiene el lote, te lo dice y hay que pasar al modo
 guiado, más abajo.
 
+## Cómo recorre el Reporte Sobre de Lote Digital
+
+Es el modo por defecto. Para cada lote de `lotes.txt`:
+
+1. Rellena **N° de Lote** y pulsa **Consulta**.
+2. Lee la rejilla de resultados, que numera sus celdas como
+   `grid#C102#fila,columna` — la fila 0 es la cabecera y cada fila siguiente
+   una etapa del lote.
+3. Averigua en qué columna están **Producción-OP** y **Producción-RMD**
+   leyendo la cabecera, en vez de fijar el número: así sigue valiendo si
+   cambia el orden de las columnas.
+4. Abre el icono de cada etapa y guarda el PDF.
+
+El PDF no se saca del visor incrustado sino de la propia respuesta de red:
+al pulsar el icono SAP lo sirve como `application/pdf`, y leerlo de ahí evita
+depender de los botones del visor.
+
+Salen seis archivos por lote, con el nombre de la etapa:
+
+```
+2058836_ACONDICIONADO-ACON_OP.pdf
+2058836_ACONDICIONADO-ACON_RMD.pdf
+2058836_ACONDICIONADO-ENVS_OP.pdf
+2058836_ACONDICIONADO-ENVS_RMD.pdf
+2058836_SOLIDOS-FABR_OP.pdf
+2058836_SOLIDOS-FABR_RMD.pdf
+```
+
+Los campos se localizan por su etiqueta visible (`Número de lote`,
+`Ejecutar <objeto>`) y no por el identificador generado (`M0:46:::3:64`),
+que cambia entre pantallas. Si aun así no encaja, en `config.json` se puede
+poner `"reporteLote": { "activo": false }` para volver a los otros modos.
+
 ## Cuando el PDF no tiene dirección propia
 
 Pasa cuando el launchpad abre una transacción clásica de SAP GUI dibujada en

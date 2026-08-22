@@ -529,11 +529,151 @@ async function descargarGuiado(config, lotes, contexto, page, descargas) {
   return resultado;
 }
 
+// --- Reporte Sobre de Lote Digital (transacción ZPPPT) ----------------------
+//
+// La rejilla de resultados numera sus celdas como "grid#C102#fila,columna":
+// la fila 0 es la cabecera y cada fila siguiente es una etapa del lote. Los
+// iconos que abren el PDF viven en las columnas "Producción-OP" y
+// "Producción-RMD", cuyo número se averigua leyendo la cabecera en vez de
+// fijarlo, por si cambia el orden de las columnas.
+
+const COLUMNAS_PDF = ["Producción-OP", "Producción-RMD"];
+
+const LEER_REJILLA = `(() => {
+  const celdas = [...document.querySelectorAll('[id^="grid#"]')];
+  if (celdas.length === 0) return null;
+
+  const partes = celdas[0].id.match(/^(grid#[^#]+#)(\\d+),(\\d+)$/);
+  if (!partes) return null;
+  const prefijo = partes[1];
+
+  const cabecera = {};
+  const filas = new Set();
+
+  for (const c of celdas) {
+    const m = c.id.match(/^grid#[^#]+#(\\d+),(\\d+)$/);
+    if (!m) continue;
+    const fila = Number(m[1]);
+    const col = Number(m[2]);
+    const texto = (c.innerText || c.textContent || "").trim();
+
+    if (fila === 0) {
+      if (texto) cabecera[texto] = col;
+    } else {
+      filas.add(fila);
+    }
+  }
+
+  // Un texto por fila, para nombrar los archivos de forma reconocible.
+  const etiquetas = {};
+  for (const fila of filas) {
+    const trozos = [];
+    for (let col = 0; col <= 4; col++) {
+      const el = document.getElementById(prefijo + fila + "," + col);
+      const t = el ? (el.innerText || "").trim() : "";
+      if (t && !/^\\d+$/.test(t)) trozos.push(t);
+    }
+    etiquetas[fila] = trozos.slice(0, 2).join("-");
+  }
+
+  return { prefijo, cabecera, filas: [...filas].sort((a, b) => a - b), etiquetas };
+})()`;
+
+/** Cierra la ventana emergente del visor de PDF. */
+async function cerrarVisor(marco, page) {
+  for (const sel of ['[title="Cancelar"]', "text=OK", '[title="Cerrar"]']) {
+    const loc = marco.locator(sel).last();
+    if ((await loc.count()) > 0) {
+      await loc.click({ timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(600);
+      return;
+    }
+  }
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(600);
+}
+
+/**
+ * Busca un lote y baja los PDF de todas sus etapas.
+ *
+ * El PDF no se captura del visor sino de la propia respuesta de red: al
+ * pulsar el icono, SAP lo sirve como application/pdf, y leerlo de ahí evita
+ * depender de los botones del visor incrustado.
+ */
+async function descargarLoteDelReporte(page, lote, descargas, config) {
+  const guardados = [];
+  const marcoDe = () => page.frames().find((f) => /webgui/i.test(f.url()));
+
+  let marco = marcoDe();
+  if (!marco) throw new Error("no encuentro la transacción en la pantalla");
+
+  const campo = await localizar(marco, SEL_LOTE, "el campo del lote");
+  await campo.loc.fill(lote);
+  const boton = await localizar(marco, SEL_CONSULTA, "el botón Consulta");
+  await boton.loc.click();
+
+  // La transacción repinta el marco entero al consultar.
+  await page.waitForTimeout(config.reporteLote?.esperaRejillaMs || 5000);
+  marco = marcoDe();
+  if (!marco) throw new Error("la transacción desapareció tras consultar");
+
+  const rejilla = await marco.evaluate(LEER_REJILLA);
+  if (!rejilla || rejilla.filas.length === 0) {
+    throw new Error("la búsqueda no devolvió ninguna etapa");
+  }
+
+  const columnas = COLUMNAS_PDF.map((nombre) => ({ nombre, col: rejilla.cabecera[nombre] })).filter(
+    (c) => c.col !== undefined
+  );
+  if (columnas.length === 0) {
+    throw new Error(`no encontré las columnas ${COLUMNAS_PDF.join(" ni ")}`);
+  }
+
+  for (const fila of rejilla.filas) {
+    for (const { nombre, col } of columnas) {
+      const id = `${rejilla.prefijo}${fila},${col}`;
+      const marcoActual = marcoDe();
+      const celda = marcoActual.locator(`[id="${id}"]`);
+      if ((await celda.count()) === 0) continue;
+
+      try {
+        const esperaPdf = page.waitForResponse(
+          (r) => /\.pdf(\?|$)/i.test(r.url()) || (r.headers()["content-type"] || "").includes("pdf"),
+          { timeout: config.reporteLote?.esperaPdfMs || 45000 }
+        );
+        await celda.click();
+        const respuesta = await esperaPdf;
+        const cuerpo = await respuesta.body();
+
+        const etiqueta = (rejilla.etiquetas[fila] || `fila${fila}`).replace(/[\\/:*?"<>|\s]+/g, "_");
+        // "Producción-OP" -> "OP"; la parte útil del nombre es la de después
+        // del guion, y así el archivo no arrastra tildes.
+        const sufijo = nombre.split("-").pop().replace(/[^A-Za-z]+/g, "");
+        const destino = path.join(descargas, `${lote}_${etiqueta}_${sufijo}.pdf`);
+        await writeFile(destino, cuerpo);
+
+        guardados.push(path.basename(destino));
+        console.log(`     · ${path.basename(destino)} (${Math.round(cuerpo.length / 1024)} kB)`);
+      } catch {
+        console.log(`     · sin PDF en ${nombre} de la fila ${fila}`);
+      } finally {
+        await cerrarVisor(marcoDe() || marco, page);
+      }
+    }
+  }
+
+  return guardados;
+}
+
 async function modoDescargar() {
   const config = await leerConfig();
   const tieneGuiado = (config.guiado?.pasos || []).length > 0;
 
-  if (!config.patronUrl && !tieneGuiado) {
+  // Por defecto se usa el recorrido del Reporte Sobre de Lote Digital, que es
+  // el que baja los PDF de todas las etapas de un lote de una sola pasada.
+  const modoReporte = config.reporteLote?.activo !== false;
+
+  if (!config.patronUrl && !tieneGuiado && !modoReporte) {
     console.error("Todavía no sé cómo se descarga en tu SAP.");
     console.error("Abre primero 1-APRENDER.bat y hazme una descarga de ejemplo.");
     process.exit(1);
@@ -554,6 +694,36 @@ async function modoDescargar() {
   console.log(`\nDescargando ${lotes.length} lote(s) en ${descargas}\n`);
 
   const resultado = { ok: [], vacios: [], fallos: [] };
+
+  if (modoReporte && !config.patronUrl) {
+    for (const lote of lotes) {
+      console.log(`  Lote ${lote}`);
+      try {
+        const archivos = await descargarLoteDelReporte(page, lote, descargas, config);
+        if (archivos.length > 0) resultado.ok.push(lote);
+        else resultado.vacios.push(lote);
+      } catch (err) {
+        resultado.fallos.push(`${lote}: ${err.message.split("\n")[0]}`);
+        console.log(`     ✗ ${err.message.split("\n")[0]}`);
+      }
+      // Se vuelve a la pantalla de búsqueda para el siguiente lote.
+      await page.goto(config.urlInicio, { waitUntil: "domcontentloaded" }).catch(() => {});
+      await page.waitForTimeout(config.reporteLote?.esperaRejillaMs || 5000);
+    }
+
+    console.log(
+      `\nListo: ${resultado.ok.length} lote(s) con PDF, ${resultado.vacios.length} sin resultados, ${resultado.fallos.length} con error.`
+    );
+    if (resultado.ok.length > 0) {
+      console.log(`\nArrastra la carpeta "${path.basename(descargas)}" a la aplicación.`);
+    }
+    if (resultado.fallos.length > 0) {
+      console.log("\nErrores:");
+      for (const f of resultado.fallos) console.log(`  · ${f}`);
+    }
+    await contexto.close();
+    return;
+  }
 
   // Cuando el PDF no tiene dirección propia se maneja la transacción paso a
   // paso; si la tiene, basta pedirla, que es mucho más rápido y estable.
