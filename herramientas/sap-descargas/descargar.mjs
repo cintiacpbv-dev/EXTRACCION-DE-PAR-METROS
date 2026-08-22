@@ -30,6 +30,7 @@ const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const RUTA_CONFIG = path.join(AQUI, "config.json");
 const RUTA_EJEMPLO = path.join(AQUI, "config.ejemplo.json");
 const RUTA_LOTES = path.join(AQUI, "lotes.txt");
+const RUTA_LOTES_EJEMPLO = path.join(AQUI, "lotes.ejemplo.txt");
 const MARCA_LOTE = "{LOTE}";
 
 // Playwright se carga sólo cuando de verdad se va a abrir el navegador: así
@@ -101,7 +102,12 @@ async function guardarConfig(config) {
 }
 
 async function leerLotes() {
-  if (!existsSync(RUTA_LOTES)) return [];
+  // La lista de trabajo se crea a partir de la plantilla y no se versiona:
+  // son datos de producción, no código.
+  if (!existsSync(RUTA_LOTES)) {
+    if (!existsSync(RUTA_LOTES_EJEMPLO)) return [];
+    await writeFile(RUTA_LOTES, await readFile(RUTA_LOTES_EJEMPLO, "utf8"), "utf8");
+  }
   const texto = await readFile(RUTA_LOTES, "utf8");
   return texto
     .split(/\r?\n/)

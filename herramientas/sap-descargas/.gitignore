@@ -10,3 +10,6 @@ node_modules/
 
 # El diagnostico puede llevar nombres internos: se revisa antes de compartir.
 diagnostico.txt
+
+# La lista de lotes es dato de trabajo, no codigo.
+lotes.txt

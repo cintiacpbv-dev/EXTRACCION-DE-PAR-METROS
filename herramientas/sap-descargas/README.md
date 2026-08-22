@@ -128,7 +128,7 @@ es lo habitual en WebGUI.
 
 ## Paso 2 — descargar todos los lotes
 
-Abre `lotes.txt` con el Bloc de notas, escribe **un lote por línea**, guarda,
+Abre `lotes.txt` con el Bloc de notas (se crea sola a partir de `lotes.ejemplo.txt`), escribe **un lote por línea**, guarda,
 y doble clic en **`2-DESCARGAR.bat`**.
 
 Los PDF quedan en la carpeta `descargas`. Al terminar imprime un resumen:
