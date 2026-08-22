@@ -246,6 +246,27 @@ export default function App() {
   const muestrasOcultas = todosDocs.length - docs.length;
 
   const productos = useMemo(() => listProducts(docs), [docs]);
+
+  // Una imagen elegida cuando la tabla de Supabase todavía no existía —o sin
+  // conexión— se guarda sólo en este navegador, y en los demás equipos el
+  // producto se queda con el icono genérico para siempre, porque al arrancar
+  // sólo se descargan las imágenes, nunca se suben. Aquí se suben las que
+  // falten, una vez que se sabe qué productos hay: las de productos ya
+  // borrados no se recuperan, para no dejar filas huérfanas.
+  const imagenesSincronizadas = useRef(false);
+  useEffect(() => {
+    if (!supabaseEnabled || imagenesSincronizadas.current || productos.length === 0) return;
+    imagenesSincronizadas.current = true;
+
+    (async () => {
+      const remotas = await cargarImagenesRemotas();
+      for (const familia of productos) {
+        const imagen = imagenes[familia];
+        if (!imagen || remotas[familia]) continue;
+        await guardarImagenRemota(familia, imagen);
+      }
+    })();
+  }, [productos, imagenes]);
   const resumenProductos = useMemo(() => summarizeProducts(docs), [docs]);
 
   // La selección se resuelve durante el render, salvo en una sesión nueva en

@@ -194,7 +194,18 @@ export default function ProductImagePicker({ familia, imagenActual, onGuardar, o
                     disabled={aplicando !== null}
                     title={`${r.titulo}${r.autor ? ` — ${r.autor}` : ""}${r.licencia ? ` (${r.licencia})` : ""}`}
                   >
-                    <img src={r.miniatura} alt={r.titulo} loading="lazy" />
+                    <img
+                      src={r.miniatura}
+                      alt={r.titulo}
+                      loading="lazy"
+                      // Openverse no guarda las miniaturas: las pide al sitio
+                      // de origen cuando se abren, y unas cuantas fallan. Si
+                      // no carga se prueba con la imagen original, que suele
+                      // seguir en pie; sólo si tampoco, se deja el hueco.
+                      onError={(e) => {
+                        if (e.currentTarget.src !== r.url) e.currentTarget.src = r.url;
+                      }}
+                    />
                     <span className="picker-resultado__pie">
                       {aplicando === r.id ? "Guardando…" : r.licencia || r.origen}
                     </span>

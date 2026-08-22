@@ -58,7 +58,10 @@ async function buscarCommons(consulta) {
       const info = p.imageinfo?.[0];
       if (!info) return null;
       // Commons también indexa PDF y vídeo; aquí sólo interesan las imágenes.
-      if (!/\.(png|jpe?g|webp|gif|svg)$/i.test(info.url || "")) return null;
+      // La extensión puede no ser lo último de la URL: Commons le añade
+      // parámetros de seguimiento ("...Foo.jpg?utm_source=commons..."), y
+      // exigir que terminara en la extensión descartaba todos los resultados.
+      if (!/\.(png|jpe?g|webp|gif|svg)(\?|$)/i.test(info.url || "")) return null;
       const meta = info.extmetadata || {};
       return {
         id: `wc:${p.pageid}`,
@@ -107,16 +110,19 @@ export function sugerenciasDeBusqueda(nombreProducto) {
   const texto = String(nombreProducto || "");
   const sugerencias = new Set();
 
+  // Términos de una sola palabra: los repositorios son de fotografía
+  // general, no de farmacia, y acotar con "farmacéutico" ("granulado
+  // farmacéutico", "crema farmacéutica") no devolvía ningún resultado.
   const formas = [
-    ["GRN", "granulado farmacéutico"],
-    ["SAC", "sachet farmacéutico"],
+    ["GRN", "granulado"],
+    ["SAC", "sachet"],
     ["CJA", "caja de medicamento"],
     ["TAB", "tabletas"],
     ["CAP", "cápsulas"],
     ["JBE", "jarabe"],
     ["SOL", "solución"],
-    ["CRE", "crema farmacéutica"],
-    ["SUS", "suspensión oral"],
+    ["CRE", "crema"],
+    ["SUS", "suspensión"],
     ["INY", "inyectable"],
   ];
   for (const [clave, termino] of formas) {

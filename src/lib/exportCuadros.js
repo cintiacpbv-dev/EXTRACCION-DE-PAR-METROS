@@ -76,7 +76,31 @@ const LOTES_POR_TABLA = 10; // como el original, una tabla por bloque de lotes
 // sólo si sobran, continúan en la hoja siguiente. Por debajo de este ancho
 // los nombres dejan de leerse.
 const ANCHO_UTIL_HORIZONTAL = A4_ALTO - MARGEN * 2;
+const ANCHO_UTIL_VERTICAL = A4_ANCHO - MARGEN * 2;
 const ANCHO_MIN_COL_PERSONAL = 650;
+
+/**
+ * Encoge un juego de anchos hasta que quepa en la hoja vertical, repartiendo
+ * la reduccion en proporcion.
+ *
+ * El cuadro 1 va en vertical porque asi esta en el formato, y ahi mide 9634
+ * DXA con dos etapas. Cada etapa suma dos columnas de fecha, asi que a la
+ * tercera se pasa del ancho de la hoja: en vez de girarla —lo que ya no seria
+ * el formato— se ajustan las columnas. Con dos etapas el factor es 1 y los
+ * anchos quedan exactamente como los del original.
+ */
+function ajustarAVertical(anchos) {
+  const total = anchos.reduce((a, b) => a + b, 0);
+  if (total <= ANCHO_UTIL_VERTICAL) return anchos;
+
+  const factor = ANCHO_UTIL_VERTICAL / total;
+  const ajustados = anchos.map((a) => Math.floor(a * factor));
+  // Lo que se pierde al redondear hacia abajo se devuelve a la ultima
+  // columna, para que la suma sea exactamente el ancho util de la hoja.
+  const sobra = ANCHO_UTIL_VERTICAL - ajustados.reduce((a, b) => a + b, 0);
+  ajustados[ajustados.length - 1] += sobra;
+  return ajustados;
+}
 
 function lotesPorHoja(total) {
   const caben = Math.max(1, Math.floor(ANCHO_UTIL_HORIZONTAL / ANCHO_MIN_COL_PERSONAL));
@@ -146,8 +170,16 @@ function filaProducto(texto, nCols, ancho, alto) {
 
 function cuadroLotes(model) {
   const { stages, filas: lotes } = model.lotes;
-  const A = ANCHOS_LOTES;
-  const anchos = [A.num, A.receta, A.producto, A.lote, ...Array(stages.length * 2).fill(A.fecha)];
+  const anchos = ajustarAVertical([
+    ANCHOS_LOTES.num,
+    ANCHOS_LOTES.receta,
+    ANCHOS_LOTES.producto,
+    ANCHOS_LOTES.lote,
+    ...Array(stages.length * 2).fill(ANCHOS_LOTES.fecha),
+  ]);
+  const [anchoNum, anchoReceta, anchoProducto, anchoLote] = anchos;
+  const anchoFecha = anchos[4] ?? ANCHOS_LOTES.fecha;
+  const A = { num: anchoNum, receta: anchoReceta, producto: anchoProducto, lote: anchoLote, fecha: anchoFecha };
   const total = anchos.reduce((a, b) => a + b, 0);
   const nCols = anchos.length;
 
@@ -475,14 +507,14 @@ function pagina(horizontal) {
 export function buildCuadrosDocument(documents, familia, options) {
   const model = buildRvpModel(documents, familia, options);
 
-  // El cuadro de lotes crece dos columnas por etapa y el de personal una por
-  // lote: ambos van en horizontal, como el original hace con los suyos.
-  const horizontal = [
+  // Los cuadros 1 y 2 van en vertical, como en el formato de referencia; el
+  // 1 encoge sus columnas si las etapas no caben (ver ajustarAVertical).
+  const vertical = [
     titulo("1. LOTES CONTROLADOS EN LA VALIDACIÓN Y FECHAS DE PROCESO"),
     cuadroLotes(model),
+    titulo("2. MATERIALES UTILIZADOS EN LOS LOTES"),
+    cuadroMateriales(model),
   ];
-
-  const vertical = [titulo("2. MATERIALES UTILIZADOS EN LOS LOTES"), cuadroMateriales(model)];
 
   const personal = [titulo("3. PERSONAL QUE INTERVINO EN EL PROCESO")];
   for (const entrada of model.personalPorLote) {
@@ -510,7 +542,6 @@ export function buildCuadrosDocument(documents, familia, options) {
   return new Document({
     styles: { default: { document: { run: { font: FUENTE, size: TAM } } } },
     sections: [
-      { properties: pagina(true), children: horizontal },
       { properties: pagina(false), children: vertical },
       { properties: pagina(true), children: personal },
       // El cuadro 4 crece una columna por lote: horizontal, como en el
