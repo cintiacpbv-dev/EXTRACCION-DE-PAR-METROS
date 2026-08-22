@@ -29,6 +29,9 @@ import {
   syncDocumentToSupabase,
   deleteDocumentFromSupabase,
   loadDocumentsFromSupabase,
+  marcarEliminados,
+  olvidarEliminado,
+  purgarEliminados,
 } from "./lib/storage.js";
 import { supabaseEnabled } from "./lib/supabaseClient.js";
 import {
@@ -138,11 +141,17 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const locales = loadLocalDocuments();
+      // Primero se resuelven las eliminaciones que quedaron a medias: si no,
+      // lo que aún estaba en Supabase se leería como si nunca se hubiera
+      // borrado.
+      const ocultas = await purgarEliminados();
+      const vivo = (d) => !ocultas.has(docKey(d));
+
+      const locales = loadLocalDocuments().filter(vivo);
       let docs = locales;
 
       if (supabaseEnabled) {
-        const remotos = await loadDocumentsFromSupabase();
+        const remotos = (await loadDocumentsFromSupabase()).filter(vivo);
 
         // Se unen las dos fuentes en vez de que una pise a la otra. Si un
         // análisis se hizo mientras la app estaba sin conexión a Supabase
@@ -373,6 +382,11 @@ export default function App() {
           orden: result.orden || null,
           uploadedAt: new Date().toISOString(),
         };
+        // Si este documento estaba marcado como eliminado, la marca deja de
+        // valer: volver a subirlo es la forma de recuperarlo, y sin esto
+        // quedaría oculto para siempre.
+        olvidarEliminado(doc);
+
         next = upsertDocument(next, doc);
         nuevos.push(doc);
         hashesEnEstaTanda.push({ hash: contentHash, fileName: doc.fileName, lote: doc.lote, stage: doc.stage });
@@ -437,10 +451,20 @@ export default function App() {
   }
 
   async function handleRemove(doc) {
+    // Se anota antes de tocar nada: si la página se recarga mientras el
+    // borrado remoto está en curso, el documento seguirá oculto y el borrado
+    // se reintentará al arrancar.
+    marcarEliminados([doc]);
+
     const next = documents.filter((d) => docKey(d) !== docKey(doc));
     setDocuments(next);
     saveLocalDocuments(next);
-    if (supabaseEnabled) await deleteDocumentFromSupabase(doc);
+
+    if (!supabaseEnabled) return olvidarEliminado(doc);
+
+    const res = await deleteDocumentFromSupabase(doc);
+    if (res.ok || res.skipped) olvidarEliminado(doc);
+    else pushMessage(`No se pudo borrar de Supabase: ${res.error}. Se reintentará al recargar.`, "error");
   }
 
   async function handleDeleteProduct(familia) {
@@ -453,26 +477,31 @@ export default function App() {
     );
     if (!ok) return;
 
+    // Se anotan todos antes de empezar: el borrado remoto va documento a
+    // documento y tarda, así que si se recarga a mitad estos siguen ocultos
+    // y lo que falte se reintenta al arrancar.
+    marcarEliminados(aBorrar);
+
     const next = documents.filter((d) => !aBorrar.some((x) => docKey(x) === docKey(d)));
     setDocuments(next);
     saveLocalDocuments(next);
 
     if (supabaseEnabled) {
-      // Si algún borrado falla hay que decirlo: al recargar, lo que quedó en
-      // Supabase reaparece, y en silencio parece que la aplicación ignora
-      // las eliminaciones.
       const fallos = [];
       for (const doc of aBorrar) {
         const res = await deleteDocumentFromSupabase(doc);
-        if (!res.ok && !res.skipped) fallos.push(`${doc.stage} lote ${doc.lote}: ${res.error}`);
+        if (res.ok || res.skipped) olvidarEliminado(doc);
+        else fallos.push(`${doc.stage} lote ${doc.lote}: ${res.error}`);
       }
 
       if (fallos.length > 0) {
         pushMessage(
-          `No se pudo borrar todo de Supabase (${fallos.length} documento(s)); al recargar volverán a aparecer. ${fallos[0]}`,
+          `Quedaron ${fallos.length} documento(s) por borrar en Supabase; se reintentará al recargar. ${fallos[0]}`,
           "error"
         );
       }
+    } else {
+      for (const doc of aBorrar) olvidarEliminado(doc);
     }
 
     await handleQuitarImagen(familia);

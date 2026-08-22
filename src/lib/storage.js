@@ -2,6 +2,7 @@ import { supabase, supabaseEnabled } from "./supabaseClient.js";
 import { documentKey, firstWord, slotKey } from "./productIdentity.js";
 
 const LOCAL_KEY = "deteccion-parametros:documentos:v2";
+const LOCAL_ELIMINADOS = "deteccion-parametros:eliminados:v1";
 
 /** Producto (primera palabra) + lote + etapa + tipo de documento. */
 export function docKey(doc) {
@@ -20,6 +21,74 @@ export function loadLocalDocuments() {
 
 export function saveLocalDocuments(documents) {
   localStorage.setItem(LOCAL_KEY, JSON.stringify(documents));
+}
+
+// --- eliminaciones pendientes ------------------------------------------------
+//
+// Borrar en Supabase se hace documento a documento y tarda. Si la página se
+// recarga a mitad, lo que aún no se había borrado vuelve a leerse y reaparece
+// como si nunca se hubiera eliminado. Por eso la intención de borrar se anota
+// aquí: sobrevive a la recarga, oculta esos documentos aunque sigan en la
+// nube, y el borrado se reintenta en el siguiente arranque hasta lograrlo.
+
+export function cargarEliminados() {
+  try {
+    const raw = localStorage.getItem(LOCAL_ELIMINADOS);
+    const lista = raw ? JSON.parse(raw) : [];
+    return Array.isArray(lista) ? lista : [];
+  } catch {
+    return [];
+  }
+}
+
+function guardarEliminados(lista) {
+  try {
+    localStorage.setItem(LOCAL_ELIMINADOS, JSON.stringify(lista));
+  } catch {
+    // Sin espacio en el almacenamiento local no se puede anotar; el borrado
+    // se intenta igual, sólo pierde la garantía de sobrevivir a la recarga.
+  }
+}
+
+/** Anota que estos documentos deben desaparecer, aunque aún no se haya podido. */
+export function marcarEliminados(docs) {
+  const previos = cargarEliminados();
+  const claves = new Set(previos.map(docKey));
+
+  for (const d of docs) {
+    if (claves.has(docKey(d))) continue;
+    claves.add(docKey(d));
+    previos.push({ producto: d.producto, lote: d.lote, stage: d.stage, kind: d.kind || "registro" });
+  }
+
+  guardarEliminados(previos);
+}
+
+/** Quita la anotación: o ya se borró, o el usuario volvió a subir ese documento. */
+export function olvidarEliminado(doc) {
+  const clave = docKey(doc);
+  guardarEliminados(cargarEliminados().filter((d) => docKey(d) !== clave));
+}
+
+/**
+ * Reintenta los borrados pendientes y devuelve las claves que deben seguir
+ * ocultas. Se llama al arrancar, antes de mostrar nada.
+ */
+export async function purgarEliminados() {
+  const pendientes = cargarEliminados();
+  if (pendientes.length === 0) return new Set();
+
+  const ocultas = new Set(pendientes.map(docKey));
+  if (!supabaseEnabled) return ocultas;
+
+  const quedan = [];
+  for (const doc of pendientes) {
+    const res = await deleteDocumentFromSupabase(doc);
+    if (!res.ok && !res.skipped) quedan.push(doc);
+  }
+  guardarEliminados(quedan);
+
+  return ocultas;
 }
 
 /** Inserta o reemplaza un documento dentro de la colección en memoria. */
