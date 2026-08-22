@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Descargar lotes de SAP</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+    />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --soft: #f1f8fc;
+        --tint: #e4f1fa;
+        --border: #d7e7f1;
+        --border-fuerte: #b3d4e8;
+        --tinta: #0a1e2b;
+        --suave: #46606f;
+        --tenue: #75909f;
+        --cielo: #1273b0;
+        --cielo-hondo: #0d5580;
+        --ok: #0f7a4f;
+        --ok-suave: #e6f6ee;
+        --aviso: #9a5b13;
+        --aviso-suave: #fff4e5;
+        --mal: #a4442c;
+        --mal-suave: #fdeeea;
+        --sombra: 0 1px 2px rgba(9, 63, 97, 0.05), 0 4px 12px rgba(9, 63, 97, 0.06);
+        --radio: 12px;
+        color-scheme: light;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, var(--soft) 0%, var(--bg) 320px);
+        color: var(--tinta);
+        font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 100vh;
+      }
+      header {
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--border);
+        padding: 14px 28px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .marca {
+        width: 36px; height: 36px; border-radius: 10px;
+        background: linear-gradient(160deg, var(--cielo), #093f61);
+        display: grid; place-items: center; color: #fff; font-weight: 700;
+      }
+      header h1 { font-size: 15px; margin: 0; letter-spacing: -0.01em; }
+      header p { margin: 0; font-size: 12px; color: var(--tenue); }
+      main { max-width: 1000px; margin: 0 auto; padding: 22px 28px 48px; display: flex; flex-direction: column; gap: 16px; }
+      .tarjeta {
+        background: #fff; border: 1px solid var(--border);
+        border-radius: var(--radio); box-shadow: var(--sombra); padding: 18px;
+      }
+      label.campo { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--tenue); margin-bottom: 8px; }
+      textarea {
+        width: 100%; min-height: 130px; resize: vertical;
+        border: 1px solid var(--border-fuerte); border-radius: 8px; padding: 12px;
+        font-family: "IBM Plex Mono", monospace; font-size: 13px; line-height: 1.7;
+        background: #fff; color: var(--tinta);
+      }
+      textarea:focus-visible { outline: 2px solid var(--cielo); outline-offset: 1px; }
+      .fila { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+      button {
+        font: inherit; font-weight: 600; font-size: 13px; cursor: pointer;
+        border-radius: 8px; padding: 10px 18px; border: 1px solid transparent;
+        transition: background .12s, border-color .12s, transform .12s;
+      }
+      button:active:not(:disabled) { transform: translateY(1px); }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      .primario { background: linear-gradient(180deg, var(--cielo), var(--cielo-hondo)); color: #fff; }
+      .primario:hover:not(:disabled) { background: linear-gradient(180deg, var(--cielo-hondo), #093f61); }
+      .secundario { background: #fff; border-color: var(--border-fuerte); color: var(--tinta); }
+      .secundario:hover:not(:disabled) { background: var(--tint); border-color: var(--cielo); }
+      .contador { font-size: 12px; color: var(--tenue); font-variant-numeric: tabular-nums; }
+      .estado {
+        display: flex; align-items: center; gap: 10px; font-size: 13px;
+        padding: 12px 14px; border-radius: 8px; background: var(--soft);
+        border: 1px solid var(--border); color: var(--suave);
+      }
+      .estado.trabajando { background: var(--tint); border-color: var(--border-fuerte); }
+      .estado.mal { background: var(--mal-suave); border-color: #f5d6cd; color: var(--mal); }
+      .estado.hecho { background: var(--ok-suave); border-color: #c9e9d9; color: var(--ok); }
+      .girador {
+        width: 15px; height: 15px; border-radius: 50%; flex-shrink: 0;
+        border: 2px solid var(--border-fuerte); border-top-color: var(--cielo);
+        animation: girar .8s linear infinite;
+      }
+      @keyframes girar { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .girador { animation-duration: 3s; } }
+      .resumen { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+      .pastilla { display: inline-flex; align-items: baseline; gap: 6px; padding: 8px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; border: 1px solid; }
+      .pastilla b { font-size: 15px; font-variant-numeric: tabular-nums; }
+      .p-ok { background: var(--ok-suave); color: var(--ok); border-color: #c9e9d9; }
+      .p-falta { background: var(--aviso-suave); color: var(--aviso); border-color: #f3ddbc; }
+      .p-mal { background: var(--mal-suave); color: var(--mal); border-color: #f5d6cd; }
+      table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+      th { text-align: left; padding: 9px 10px; background: var(--tint); border-bottom: 1px solid var(--border-fuerte); font-weight: 600; white-space: nowrap; }
+      td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      tbody tr:hover td { background: var(--soft); }
+      .mono { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+      .marca-estado { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; }
+      .m-ok { color: var(--ok); }
+      .m-falta { color: var(--aviso); }
+      .m-mal { color: var(--mal); }
+      .vacio { padding: 40px 20px; text-align: center; color: var(--tenue); }
+      .ayuda { font-size: 12.5px; color: var(--tenue); margin-top: 8px; }
+      .oculto { display: none; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="marca">SAP</span>
+      <div>
+        <h1>Descargar lotes de SAP</h1>
+        <p>Baja las OP y los RMD de cada etapa y los ordena por producto</p>
+      </div>
+    </header>
+
+    <main>
+      <section class="tarjeta">
+        <label class="campo" for="lotes">Lotes que quieres descargar</label>
+        <textarea id="lotes" placeholder="Pega aquí los lotes, uno por línea&#10;&#10;2058836&#10;2018796&#10;2044886"></textarea>
+        <p class="ayuda">Puedes pegarlos desde Excel: acepta uno por línea, o separados por comas o espacios.</p>
+        <div class="fila">
+          <button id="empezar" class="primario">Descargar</button>
+          <button id="abrirCarpeta" class="secundario">Abrir la carpeta</button>
+          <span class="contador" id="contador"></span>
+        </div>
+      </section>
+
+      <section class="tarjeta" id="panelEstado">
+        <div class="estado" id="estado"><span>Escribe o pega los lotes y pulsa Descargar.</span></div>
+      </section>
+
+      <section class="tarjeta" id="panelResultados">
+        <div class="resumen" id="resumen"></div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr><th>Lote</th><th>Producto</th><th>Etapa</th><th>Documento</th><th>Resultado</th></tr>
+            </thead>
+            <tbody id="cuerpo">
+              <tr><td colspan="5" class="vacio">Todavía no hay descargas.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const areaLotes = $("lotes");
+
+      const contarLotes = (t) =>
+        [...new Set(String(t || "").split(/[\s,;]+/).map((l) => l.trim()).filter(Boolean))].length;
+
+      function refrescarContador() {
+        const n = contarLotes(areaLotes.value);
+        $("contador").textContent = n === 0 ? "" : n === 1 ? "1 lote" : `${n} lotes`;
+      }
+      areaLotes.addEventListener("input", refrescarContador);
+
+      $("empezar").addEventListener("click", async () => {
+        const r = await fetch("/api/descargar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lotes: areaLotes.value }),
+        }).then((x) => x.json());
+        if (!r.ok) pintarEstado({ fase: "error", error: r.error });
+      });
+
+      $("abrirCarpeta").addEventListener("click", () => fetch("/api/abrir-carpeta", { method: "POST" }));
+
+      const ETIQUETAS = {
+        ok: ["✓", "Descargado", "m-ok"],
+        falta: ["!", "No está en SAP", "m-falta"],
+        error: ["✗", "Error", "m-mal"],
+      };
+
+      function pintarEstado(e) {
+        const caja = $("estado");
+        const trabajando = e.fase === "descargando" || e.fase === "esperandoLogin";
+        caja.className = "estado" + (trabajando ? " trabajando" : e.fase === "error" ? " mal" : e.fase === "terminado" ? " hecho" : "");
+        const texto = e.fase === "error" ? e.error || "Algo falló." : e.mensaje || "Escribe o pega los lotes y pulsa Descargar.";
+        caja.innerHTML = (trabajando ? '<span class="girador"></span>' : "") + "<span>" + texto + "</span>";
+        $("empezar").disabled = trabajando;
+        $("empezar").textContent = e.fase === "descargando" ? "Descargando…" : "Descargar";
+      }
+
+      function pintarResultados(filas) {
+        const cuerpo = $("cuerpo");
+        const resumen = $("resumen");
+
+        if (!filas.length) {
+          cuerpo.innerHTML = '<tr><td colspan="5" class="vacio">Todavía no hay descargas.</td></tr>';
+          resumen.innerHTML = "";
+          return;
+        }
+
+        const cuenta = (e) => filas.filter((f) => f.estado === e).length;
+        resumen.innerHTML =
+          `<span class="pastilla p-ok"><b>${cuenta("ok")}</b> descargados</span>` +
+          `<span class="pastilla p-falta"><b>${cuenta("falta")}</b> no están en SAP</span>` +
+          `<span class="pastilla p-mal"><b>${cuenta("error")}</b> con error</span>`;
+
+        cuerpo.innerHTML = filas
+          .map((f) => {
+            const [icono, texto, clase] = ETIQUETAS[f.estado] || ["·", f.estado, ""];
+            const detalle = f.detalle ? ` <span style="color:var(--tenue);font-weight:400">(${f.detalle})</span>` : "";
+            return `<tr>
+              <td class="mono">${f.lote}</td>
+              <td>${f.producto}</td>
+              <td>${f.etapa}</td>
+              <td class="mono">${f.tipo}</td>
+              <td><span class="marca-estado ${clase}">${icono} ${texto}</span>${detalle}</td>
+            </tr>`;
+          })
+          .join("");
+      }
+
+      async function sondear() {
+        try {
+          const e = await fetch("/api/estado").then((x) => x.json());
+          pintarEstado(e);
+          pintarResultados(e.resultados || []);
+        } catch {
+          /* la ventana negra se cerró; se reintenta solo */
+        }
+      }
+
+      refrescarContador();
+      sondear();
+      setInterval(sondear, 1000);
+    </script>
+  </body>
+</html>

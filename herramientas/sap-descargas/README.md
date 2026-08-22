@@ -24,18 +24,53 @@ excluida del repositorio. Nada viaja a Supabase ni a ningún servidor.
 
 ## Cómo se usa
 
-No hay que escribir comandos: son dos archivos que se abren con **doble
-clic**, en esta carpeta.
+Doble clic en **`APLICACION.bat`**. Se abre una ventana en el navegador
+donde se pegan los lotes y se pulsa **Descargar**.
+
+La primera vez instala sola lo que necesita (tarda unos minutos) y pide la
+dirección de SAP; si falta Node.js, dice de dónde bajarlo. Después abre SAP
+en una ventana aparte: si pide credenciales, se inicia sesión ahí y queda
+guardada para las siguientes veces.
+
+Mientras se usa hay que dejar abierta la ventana negra, que es la que
+sostiene la aplicación.
+
+### Qué muestra
+
+Una fila por documento, con el lote, el producto, la etapa y si es OP o RMD:
+
+- **Descargado** — el PDF quedó guardado.
+- **No está en SAP** — ese documento no está cargado. Es un dato, no un
+  fallo: se detecta porque la celda del reporte viene sin icono, y se anota
+  sin llegar a pulsarla.
+- **Error** — algo salió mal; el motivo aparece al lado.
+
+### Dónde quedan los archivos
+
+Ordenados por producto, etapa y tipo de documento:
+
+```
+descargas/
+  FLUIBRONCOL ORAL 600mg GRN 3g CJA x20/
+    ACONDICIONADO/
+      OP/   2058856_ACONDICIONADO_OP.pdf
+      RMD/  2058856_ACONDICIONADO_RMD.pdf
+  FLUIBRONCOL ORAL 600mg GRN SAC3g/
+    ENVASE/
+      RMD/  2058856_ENVASE_RMD.pdf
+```
+
+El botón **Abrir la carpeta** lleva directamente ahí.
+
+### Los otros archivos
+
+Siguen estando, para casos sueltos y para diagnóstico:
 
 | Archivo | Cuándo |
 |---|---|
-| `1-APRENDER.bat` | Una sola vez, para enseñarle cómo se descarga en tu SAP |
-| `0-EXPLORAR.bat` | Sólo si el paso 1 dice que la dirección no lleva el lote |
-| `2-DESCARGAR.bat` | Cada vez que quieras bajar una tanda de lotes |
-
-La primera vez, `1-APRENDER.bat` instala solo lo que necesita (tarda unos
-minutos) y te pide la dirección de SAP. Si no tienes Node.js, te lo dice y
-te indica de dónde bajarlo.
+| `1-APRENDER.bat` | Enseñarle cómo se descarga en un SAP distinto |
+| `0-EXPLORAR.bat` | Ver la estructura de una pantalla que no encaje |
+| `2-DESCARGAR.bat` | La versión de consola, con `lotes.txt` |
 
 ## Paso 1 — enseñarle cómo se descarga
 
@@ -52,8 +87,12 @@ guiado, más abajo.
 
 ## Cómo recorre el Reporte Sobre de Lote Digital
 
-Es el modo por defecto. Para cada lote de `lotes.txt`:
+Para cada lote:
 
+0. Abre el reporte. Primero por su dirección directa; si con ella no aparece
+   —porque el enlace lleve a la página de inicio— busca el azulejo
+   **«Reporte Sobre de Lote Digital»** por su nombre y lo pulsa, para que no
+   haya que entrar a mano.
 1. Rellena **N° de Lote** y pulsa **Consulta**.
 2. Lee la rejilla de resultados, que numera sus celdas como
    `grid#C102#fila,columna` — la fila 0 es la cabecera y cada fila siguiente
