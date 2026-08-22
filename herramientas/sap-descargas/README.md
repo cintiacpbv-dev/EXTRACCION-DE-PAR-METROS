@@ -30,6 +30,7 @@ clic**, en esta carpeta.
 | Archivo | Cuándo |
 |---|---|
 | `1-APRENDER.bat` | Una sola vez, para enseñarle cómo se descarga en tu SAP |
+| `0-GRABAR.bat` | Sólo si el paso 1 dice que la dirección no lleva el lote |
 | `2-DESCARGAR.bat` | Cada vez que quieras bajar una tanda de lotes |
 
 La primera vez, `1-APRENDER.bat` instala solo lo que necesita (tarda unos
@@ -46,10 +47,44 @@ lote vas a usar y **descargas ese lote a mano, como siempre**. El script
 observa qué dirección se utilizó, sustituye el lote por un hueco y guarda el
 patrón.
 
-Si la dirección no contiene el lote, te lo dice: significa que SAP identifica
-el documento por el estado de la sesión y no por la URL. En ese caso la
-descarga directa no sirve y hay que guiar la interfaz paso a paso — avísame
-con la URL que imprime y una captura de la pantalla de búsqueda.
+Si la dirección no contiene el lote, te lo dice y hay que pasar al modo
+guiado, más abajo.
+
+## Cuando el PDF no tiene dirección propia
+
+Pasa cuando el launchpad abre una transacción clásica de SAP GUI dibujada en
+el navegador (`/bc/gui/sap/its/webgui/`, con `sap-ui-tech-hint=GUI` en la
+dirección). Ahí el PDF se genera al vuelo en un sitio temporal ligado a la
+sesión, con un código distinto cada vez y sin el lote por ninguna parte: no
+hay URL que construir, así que hay que manejar la transacción igual que una
+persona.
+
+Para eso hace falta saber dónde están tus campos y botones. Doble clic en
+**`0-GRABAR.bat`**: abre SAP con tu sesión ya iniciada y el Inspector de
+Playwright, que va escribiendo el código de cada clic mientras haces una
+descarga. Ese texto es lo que hay que convertir en los pasos de
+`config.json`.
+
+Se reutiliza la sesión del paso 1 a propósito: grabar desde una ventana
+limpia obligaría a teclear la contraseña, y el Inspector la dejaría escrita
+en texto plano dentro del código generado.
+
+Los pasos quedan así en `config.json` — `{LOTE}` se sustituye en cada vuelta:
+
+```json
+"guiado": {
+  "esperaMs": 60000,
+  "pasos": [
+    { "accion": "ir", "url": "https://TU-SAP/sap/bc/ui2/flp#LA-TRANSACCION" },
+    { "accion": "escribir", "marco": "iframe#application", "selector": "input[title='Lote']", "texto": "{LOTE}" },
+    { "accion": "pulsar", "tecla": "Enter" },
+    { "accion": "clic", "marco": "iframe#application", "selector": "text=Imprimir" }
+  ]
+}
+```
+
+`marco` sirve para los campos que viven dentro del iframe del launchpad, que
+es lo habitual en WebGUI.
 
 ## Paso 2 — descargar todos los lotes
 

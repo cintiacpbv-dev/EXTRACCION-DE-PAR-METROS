@@ -236,6 +236,33 @@ async function modoAprender() {
   await contexto.close();
 }
 
+// ----------------------------------------------------------------- grabar ---
+
+/**
+ * Abre SAP con la sesión ya iniciada y el Inspector de Playwright, que va
+ * escribiendo el código de cada clic mientras trabajas.
+ *
+ * Se reutiliza el perfil del paso 1 a propósito: grabar desde una ventana
+ * limpia obligaría a teclear la contraseña, y el Inspector la dejaría
+ * escrita en texto plano dentro del código generado.
+ */
+async function modoGrabar() {
+  const config = await leerConfig();
+  const { contexto } = await abrirNavegador(config);
+  const page = contexto.pages()[0] || (await contexto.newPage());
+
+  await page.goto(config.urlInicio, { waitUntil: "domcontentloaded" }).catch(() => {});
+
+  console.log("\nSe abrió SAP y el Inspector de Playwright.");
+  console.log("Pulsa 'Record' en el Inspector y haz una descarga completa de un lote.");
+  console.log("Al terminar, copia el texto del Inspector y cierra las ventanas.\n");
+
+  // Abre el Inspector adjunto a esta sesión, con el botón de grabar.
+  await page.pause();
+
+  await contexto.close();
+}
+
 // -------------------------------------------------------------- descargar ---
 
 function nombreArchivo(lote, cabeceras) {
@@ -246,10 +273,75 @@ function nombreArchivo(lote, cabeceras) {
   return limpio.toLowerCase().endsWith(".pdf") ? limpio : `${limpio}.pdf`;
 }
 
+/**
+ * Ejecuta, para un lote, la secuencia de pasos grabada en config.guiado.
+ *
+ * Hace falta cuando el PDF no tiene una dirección propia —el caso del SAP
+ * GUI dibujado en el navegador (ITS WebGUI), donde el documento se genera al
+ * vuelo en un sitio temporal ligado a la sesión—. Ahí la única vía es
+ * manejar la transacción igual que una persona.
+ */
+async function ejecutarPasos(page, pasos, lote) {
+  const conLote = (t) => String(t ?? "").split(MARCA_LOTE).join(lote);
+
+  // La transacción suele venir dentro de un iframe del launchpad.
+  const ambito = (paso) => (paso.marco ? page.frameLocator(paso.marco) : page);
+
+  for (const paso of pasos) {
+    switch (paso.accion) {
+      case "ir":
+        await page.goto(conLote(paso.url), { waitUntil: "domcontentloaded" });
+        break;
+      case "escribir":
+        await ambito(paso).locator(paso.selector).fill(conLote(paso.texto));
+        break;
+      case "clic":
+        await ambito(paso).locator(paso.selector).click();
+        break;
+      case "pulsar":
+        await ambito(paso).locator(paso.selector || "body").press(paso.tecla || "Enter");
+        break;
+      case "esperar":
+        await page.waitForTimeout(paso.ms || 1000);
+        break;
+      default:
+        throw new Error(`Paso desconocido: ${paso.accion}`);
+    }
+  }
+}
+
+async function descargarGuiado(config, lotes, contexto, page, descargas) {
+  const pasos = config.guiado?.pasos || [];
+  const resultado = { ok: [], fallos: [] };
+
+  for (const lote of lotes) {
+    try {
+      // La descarga se espera a la vez que se dan los pasos: si se esperara
+      // después, el evento ya habría pasado.
+      const esperaDescarga = page.waitForEvent("download", { timeout: config.guiado?.esperaMs || 60000 });
+      await ejecutarPasos(page, pasos, lote);
+      const descarga = await esperaDescarga;
+
+      const nombre = `${lote}_${descarga.suggestedFilename()}`.replace(/[\\/:*?"<>|]+/g, "_");
+      const destino = path.join(descargas, nombre);
+      await descarga.saveAs(destino);
+
+      resultado.ok.push(lote);
+      console.log(`  ✓ ${lote} — ${nombre}`);
+    } catch (err) {
+      resultado.fallos.push(`${lote}: ${err.message.split("\n")[0]}`);
+      console.log(`  ✗ ${lote} — ${err.message.split("\n")[0]}`);
+    }
+  }
+
+  return resultado;
+}
+
 async function modoDescargar() {
   const config = await leerConfig();
+  const tieneGuiado = (config.guiado?.pasos || []).length > 0;
 
-  if (!config.patronUrl) {
+  if (!config.patronUrl && !tieneGuiado) {
     console.error("Todavía no sé cómo se descarga en tu SAP.");
     console.error("Abre primero 1-APRENDER.bat y hazme una descarga de ejemplo.");
     process.exit(1);
@@ -270,6 +362,22 @@ async function modoDescargar() {
   console.log(`\nDescargando ${lotes.length} lote(s) en ${descargas}\n`);
 
   const resultado = { ok: [], vacios: [], fallos: [] };
+
+  // Cuando el PDF no tiene dirección propia se maneja la transacción paso a
+  // paso; si la tiene, basta pedirla, que es mucho más rápido y estable.
+  if (tieneGuiado && !config.patronUrl) {
+    const r = await descargarGuiado(config, lotes, contexto, page, descargas);
+    resultado.ok = r.ok;
+    resultado.fallos = r.fallos;
+    console.log(`\nListo: ${r.ok.length} descargado(s), ${r.fallos.length} con error.`);
+    if (r.ok.length > 0) console.log(`\nArrastra la carpeta "${path.basename(descargas)}" a la aplicación.`);
+    if (r.fallos.length > 0) {
+      console.log("\nErrores:");
+      for (const f of r.fallos) console.log(`  · ${f}`);
+    }
+    await contexto.close();
+    return;
+  }
 
   for (const lote of lotes) {
     const url = config.patronUrl.split(MARCA_LOTE).join(encodeURIComponent(lote));
@@ -326,11 +434,14 @@ const modo = process.argv[2];
 try {
   if (modo === "aprender") {
     await modoAprender();
+  } else if (modo === "grabar") {
+    await modoGrabar();
   } else if (modo === "descargar") {
     await modoDescargar();
   } else {
     console.log("Uso:");
     console.log("  node descargar.mjs aprender     enseñarle a SAP una vez cómo se descarga");
+    console.log("  node descargar.mjs grabar       grabar los pasos cuando el PDF no tiene dirección propia");
     console.log("  node descargar.mjs descargar    bajar todos los lotes de lotes.txt");
     process.exitCode = 1;
   }
