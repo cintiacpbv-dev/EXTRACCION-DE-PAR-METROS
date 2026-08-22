@@ -50,7 +50,7 @@ export async function processPdfFile(file) {
     };
   }
 
-  const meta = extractMeta(flatText);
+  const meta = extractMeta(flatText, pages);
   const params = detectParameters(pages);
   const personnel = detectPersonnel(pages);
   const insumos = detectInsumos(pages);
