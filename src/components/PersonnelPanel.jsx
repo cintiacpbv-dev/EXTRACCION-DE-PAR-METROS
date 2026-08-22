@@ -1,4 +1,5 @@
 import { IconUser, IconShieldCheck } from "./Icons.jsx";
+import { formatPersonName } from "../lib/personName.js";
 
 function RoleList({ title, icon, people, emptyHint }) {
   return (
@@ -14,7 +15,7 @@ function RoleList({ title, icon, people, emptyHint }) {
         <ul className="personnel-role__list">
           {people.map((p) => (
             <li key={p.name} className="personnel-chip">
-              <span>{p.name}</span>
+              <span>{formatPersonName(p.name)}</span>
               <span className="personnel-chip__count">{p.count}</span>
             </li>
           ))}

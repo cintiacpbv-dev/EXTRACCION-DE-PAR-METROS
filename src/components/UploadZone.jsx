@@ -7,7 +7,15 @@ import { IconUpload } from "./Icons.jsx";
  * domine la pantalla. Sin `compact` se muestra grande e invitante, pensada
  * para el primer PDF de una sesión nueva.
  */
-export default function UploadZone({ onFiles, busy, busyLabel, compact = false }) {
+export default function UploadZone({
+  onFiles,
+  busy,
+  busyLabel,
+  compact = false,
+  title = "Arrastra aquí los PDF",
+  compactTitle = "Agregar otro PDF",
+  hint = "Cualquier producto y cualquier etapa. Los parámetros se detectan solos a partir del documento.",
+}) {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -20,8 +28,6 @@ export default function UploadZone({ onFiles, busy, busyLabel, compact = false }
     },
     [onFiles]
   );
-
-  const hint = "Cualquier producto y cualquier etapa. Los parámetros se detectan solos a partir del documento.";
 
   return (
     <div
@@ -59,7 +65,7 @@ export default function UploadZone({ onFiles, busy, busyLabel, compact = false }
         <IconUpload size={compact ? 15 : 22} />
       </span>
       <span className="upload-zone__title">
-        {busy ? busyLabel || "Procesando…" : compact ? "Agregar otro PDF" : "Arrastra aquí los Registros de Manufactura (PDF)"}
+        {busy ? busyLabel || "Procesando…" : compact ? compactTitle : title}
       </span>
       {!compact && <span className="upload-zone__hint">{hint}</span>}
     </div>

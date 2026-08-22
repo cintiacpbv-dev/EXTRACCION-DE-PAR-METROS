@@ -10,8 +10,10 @@ Recubrimiento, Inspección o cualquier etapa futura.
 
 ## Qué hace
 
-- **Carga múltiple**: arrastra uno o varios PDF a la vez; detecta solo el tipo
-  de documento (registro u orden), el producto, el lote y la etapa.
+- **Carga separada por tipo de documento**: una zona para los RMD (Registros
+  de Manufactura) y otra para las Órdenes de Producción/Envase/Acondicionado.
+  El tipo real se sigue detectando por el contenido, así que un archivo
+  soltado en la zona equivocada no se pierde, sólo se avisa.
 - **Detección automática de parámetros**: encuentra etiqueta, setpoint, unidad y
   valor sin listas predefinidas (ver *Cómo funciona la detección*).
 - **Tabla de validación**: `Parámetros | Setpoint | Lote 1 | Lote 2 … | Mínimo |
@@ -19,9 +21,11 @@ Recubrimiento, Inspección o cualquier etapa futura.
   documento.
 - **Dos alcances de vista**: *Parámetros de proceso* (datos y verificaciones) o
   *Todo lo detectado* (incluye trazabilidad, firmas, códigos y horas).
-- **Exportación a Excel**: una hoja por etapa, con las estadísticas escritas como
-  fórmulas reales (`MIN`, `MAX`, `AVERAGE`, `STDEV`) para que recalculen solas.
-- **Macro de formato**: deja el exportado idéntico a la sábana de validación.
+- **Exportación a Excel ya formateada**: una hoja por etapa, con las
+  estadísticas como fórmulas reales (`MIN`, `MAX`, `AVERAGE`, `STDEV`) para que
+  recalculen solas. El formato (Arial 8, cabecera gris, bordes, estadísticas en
+  verde, vistos buenos en Wingdings) sale ya aplicado — no hace falta ninguna
+  macro después.
 - **Copiar tabla**: al portapapeles en formato TSV, para pegar directo en Excel.
 - **Persistencia**: en el navegador siempre, y en Supabase si está configurado.
 
@@ -91,47 +95,56 @@ VITE_SUPABASE_ANON_KEY=tu-anon-public-key
 En el **SQL Editor** del proyecto:
 
 - Instalación nueva → ejecuta [`supabase_schema.sql`](./supabase_schema.sql)
-  y después las migraciones v2, v3 y v4.
+  y después las migraciones v2 a v5.
 - Instalación existente → ejecuta las migraciones que falten, en orden:
   [`v2`](./supabase_migration_v2.sql) (parámetros genéricos),
-  [`v3`](./supabase_migration_v3.sql) (participantes) y
-  [`v4`](./supabase_migration_v4.sql) (órdenes de producción).
+  [`v3`](./supabase_migration_v3.sql) (participantes),
+  [`v4`](./supabase_migration_v4.sql) (órdenes de producción) y
+  [`v5`](./supabase_migration_v5.sql) (receta del lote).
 
 Sin Supabase configurado la app funciona igual, guardando en el `localStorage`.
 
-## Los dos documentos que lee
+## Los documentos que lee
 
-| | Registro de Manufactura | Orden de Producción |
+| | RMD (Registro de Manufactura) | Orden de Producción |
 |---|---|---|
 | Parámetros de proceso | ✅ | — |
 | Personal de planta (Realizado / VB) | ✅ | — |
+| Materiales usados en la etapa (sección INSUMOS) | ✅ | — |
+| Receta (código de producto, 10 dígitos) | ✅ | — |
 | Lote de cada material (**Lote ME**) | — | ✅ |
-| Consumos y mermas por insumo | parcial | ✅ |
+| Consumos y mermas por insumo | — | ✅ |
 | Rendimiento oficial | calculado en el registro | ✅ declarado |
 | Fechas de proceso | deducidas | ✅ exactas |
 | Firmas de almacén | — | ✅ |
 
 Se complementan: para un mismo lote y etapa conviven como dos documentos
-distintos, y ninguno reemplaza al otro. Cuando hay orden, sus fechas y su lote
-de material mandan sobre lo deducido del registro.
+distintos, y ninguno reemplaza al otro. La lista de materiales (nombre y
+cantidad) sale del RMD, que es el que de verdad declara lo usado en cada
+etapa — cajas, etiquetas y folletos en Acondicionado; alupol, palupol y PVC en
+Envase; materias primas y principios activos en Fabricación. La orden del
+mismo lote y etapa se cruza por código de material sólo para aportar el
+**Lote ME**; si para un lote y etapa no se cargó el RMD pero sí la orden, se
+usa la lista de la orden para no perder esos insumos. Las fechas de proceso y
+el rendimiento, en cambio, mandan desde la orden cuando está disponible.
 
-**Proveedor, fabricante y fecha de vencimiento** no están en ninguno de los dos
-y deben completarse desde el sistema de almacén.
+**Proveedor, fabricante y fecha de vencimiento** no están en ninguno de los
+dos: quedan pendientes de un tercer tipo de documento, el **Certificado de
+Insumo**, todavía no incorporado.
 
-## Alcance del informe: una etapa o todas
+## Alcance del FORMATO A09: una etapa o todas
 
-**Copiar informe**, **Cuadros 1-2-3** e **Informe Word** comparten un
-selector, "Word: solo &lt;etapa&gt;" / "Todas las etapas" (visible cuando el
-producto tiene más de una etapa cargada). Por defecto sale enfocado sólo a la
-etapa activa: si de un lote únicamente se cargó Acondicionado, el Word no
-muestra columnas vacías de Fabricación o Envase sólo porque otro lote de la
-misma familia sí las tenga. "Todas las etapas" arma el informe combinado de
-siempre.
+El botón **FORMATO A09** comparte un selector, "FORMATO A09: solo &lt;etapa&gt;"
+/ "Todas las etapas" (visible cuando el producto tiene más de una etapa
+cargada). Por defecto sale enfocado sólo a la etapa activa: si de un lote
+únicamente se cargó Acondicionado, el documento no muestra columnas vacías de
+Fabricación o Envase sólo porque otro lote de la misma familia sí las tenga.
+"Todas las etapas" arma el documento combinado de siempre.
 
-## Cuadros 1-2-3 con el formato del reporte de referencia
+## FORMATO A09 con el formato del reporte de referencia
 
-El botón **Cuadros 1-2-3** entrega en Word, con el formato exacto del reporte
-de validación de referencia, los tres cuadros de recolección de datos:
+El botón **FORMATO A09** entrega en Word, con el formato exacto del reporte de
+validación de referencia, los tres cuadros de recolección de datos:
 
 1. Lotes controlados en la validación y fechas de proceso
 2. Materiales utilizados en los lotes
@@ -145,52 +158,16 @@ repetición de la cabecera al continuar en la página siguiente.
 Se adapta a los datos: el cuadro 1 abre dos columnas por etapa, el 2 agrupa
 los materiales por presentación combinando el nombre repetido, y el 3 arma una
 tabla por cada bloque de 10 lotes, como hace el original con sus dos
-presentaciones.
+presentaciones. Los nombres de operarios y supervisores se muestran en el
+formato "A. Lacho" (inicial del nombre + apellido, sin la inicial final del
+código del RMD) y, cuando hay más de uno por lote y rol, cada uno en su
+propia línea dentro de la celda.
 
-Las columnas **RECETA** y **Lote ME** se llenan desde la orden de producción;
-**Proveedor**, **Fabricante** y **Fecha de vencimiento** quedan en blanco
-porque no figuran en ninguno de los dos documentos.
-
-## Informe de validación en Word (RVP)
-
-El botón **Informe Word** genera un `.docx` con la estructura del reporte de
-validación de proceso, relleno con los datos ya extraídos:
-
-| Sección | Origen |
-|---|---|
-| Lotes controlados y fechas de proceso | Fechas de inicio/término de cada etapa |
-| Materiales utilizados | Sección de insumos del registro |
-| Personal que intervino | Operarios ("Realizado / Por") y supervisores ("VB") |
-| Verificaciones de parámetros | La misma tabla de la app, con el setpoint como rango de operación |
-
-Igual que el reporte de referencia, alterna páginas verticales (datos
-generales) y horizontales (tablas que crecen una columna por lote), y parte la
-tabla de parámetros en bloques de 10 lotes para que las columnas sigan siendo
-legibles.
-
-**Proveedor y fecha de vencimiento** de los materiales quedan en blanco: no
-figuran en el registro de manufactura y deben completarse desde el sistema de
-almacén.
-
-El botón **Copiar informe** pone el mismo contenido en el portapapeles con
-formato, de modo que al pegar en Word llegan como tablas reales y no como
-texto separado por tabulaciones.
-
-## Macro de formato para Excel
-
-El botón **Macro de formato** de la app explica el proceso y descarga
-`FormatoValidacion.bas`. En resumen:
-
-1. Exporta la tabla a Excel y abre el archivo.
-2. `Alt + F11` → Archivo → Importar archivo… → elige el `.bas`.
-3. `Alt + F8` → `FormatearTablasValidacion` → Ejecutar.
-
-Aplica a todas las hojas: Arial 8 (cabecera 7.5 negrita), bordes finos, cabecera
-gris, filas de sección sombreadas, columnas de estadística en verde, vistos
-buenos en Wingdings, anchos de columna y paneles inmovilizados.
-
-Las constantes del inicio del módulo (`FUENTE`, `TAM_DATOS`, `ANCHO_PARAMETRO`,
-`FORMATO_ESTADIS`…) permiten ajustar el resultado sin tocar el resto del código.
+La columna **RECETA** se llena con el código de producto de 10 dígitos del
+encabezado del RMD; **Lote ME** se cruza desde la orden de producción por
+código de material. **Proveedor**, **Fabricante** y **Fecha de vencimiento**
+quedan en blanco hasta incorporar el Certificado de Insumo (ver *Los
+documentos que lee*).
 
 ## Cómo funciona la detección
 
@@ -231,22 +208,29 @@ src/
   lib/
     pdfText.js            Extracción de texto con coordenadas (pdfjs-dist)
     parsers/
-      index.js              Orquesta el procesado de un PDF
-      meta.js               Cabecera: producto, lote, etapa, orden, fechas
+      index.js              Orquesta el procesado de un PDF (registro u orden)
+      meta.js                Cabecera del RMD: producto, lote, etapa, receta, fechas
       genericParser.js      Detector genérico de parámetros
-      utils.js              Normalización de texto
+      personnel.js           Operarios y supervisores (Realizado / VB)
+      orden.js               Lector de Órdenes de Producción
+      utils.js               Normalización de texto
     model.js              Une los documentos en la tabla maestra
     stats.js              Mínimo / Máximo / Promedio / Desv. estándar
-    exportExcel.js        Libro .xlsx y texto TSV
-    macro.js              Generador de la macro VBA
+    rvpData.js            Prepara lotes, materiales, receta y personal para los exports
+    exportExcel.js        Libro .xlsx ya formateado (ExcelJS) y texto TSV
+    exportCuadros.js      FORMATO A09 en Word, formato exacto del original
+    personName.js         Nombre legible a partir del código del RMD ("A. Lacho")
+    dedupe.js              Huella de contenido para no procesar el mismo PDF dos veces
+    productIdentity.js    Agrupa presentaciones de un mismo producto
     storage.js            Persistencia local y en Supabase
     supabaseClient.js     Cliente (o null si no hay credenciales)
   components/
-    UploadZone.jsx        Zona de carga
-    ParamTable.jsx        Tabla de validación
-    DocumentChips.jsx     Documentos cargados
-    MacroPanel.jsx        Instrucciones y descarga de la macro
-    Icons.jsx             Iconografía de trazo
+    UploadZone.jsx         Zona de carga (una por tipo de documento)
+    ParamTable.jsx         Tabla de validación
+    LoadedBatches.jsx      Resumen de lotes cargados
+    PersonnelPanel.jsx     Participantes de la etapa activa
+    ProductLibrary.jsx     Pantalla de inicio con los productos guardados
+    Icons.jsx              Iconografía de trazo
   App.jsx                 Orquestación e interfaz
 ```
 
@@ -266,6 +250,9 @@ Casi todo el comportamiento se controla con las constantes del inicio de
 
 ## Próximos pasos
 
+- **Certificado de Insumo**: tercer tipo de documento, todavía sin lector.
+  Aportará Proveedor, Fabricante y Fecha de vencimiento de cada material del
+  cuadro 2 del FORMATO A09, cruzado por Lote ME.
 - Edición manual de un valor mal detectado desde la propia tabla.
 - Gráficos de control por parámetro a lo largo de los lotes.
 - Autenticación de usuarios en Supabase (hoy las políticas RLS son abiertas).

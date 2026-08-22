@@ -79,39 +79,37 @@ const INSUMO_RE = /^(\d{6,})\s+(.*)$/;
 /**
  * Materiales e insumos usados en cada lote.
  *
- * La orden de producción es la fuente buena: declara el lote de cada material
- * ("Lote ME"), que el registro de manufactura no trae. Cuando para un lote hay
- * orden se usa ésa; si sólo hay registro, se cae a lo que él declare, con el
- * lote de material en blanco para completarlo a mano.
+ * La lista de materiales de cada lote y etapa sale del propio registro de
+ * manufactura (sección INSUMOS): es la que nombra lo que de verdad se usó en
+ * esa etapa concreta (cajas, etiquetas y folletos en Acondicionado; alupol,
+ * palupol y PVC en Envase; materias primas y principios activos en
+ * Fabricación). La orden de producción/envase/acondicionado del mismo lote y
+ * etapa se cruza por código de material sólo para aportar el lote de material
+ * ("Lote ME"), que el registro no trae. Si para un lote y etapa no se cargó
+ * el registro pero sí la orden, se usa la lista de la orden para no perder
+ * esos insumos.
  */
 export function materialesPorLote(documents, familia) {
   const filas = [];
-  const lotesConOrden = new Set(
-    documents.filter((d) => d.familia === familia && d.orden).map((d) => `${d.lote}::${d.stage}`)
-  );
+
+  // Insumos declarados en la orden de cada lote y etapa, indexados por código
+  // de material, para cruzarlos con la lista que trae el registro.
+  const ordenPorLoteEtapa = new Map();
+  for (const doc of documents) {
+    if (doc.familia !== familia || !doc.orden) continue;
+    const porCodigo = new Map();
+    for (const ins of doc.orden.insumos) porCodigo.set(ins.codigo, ins);
+    ordenPorLoteEtapa.set(`${doc.lote}::${doc.stage}`, porCodigo);
+  }
+
+  const registrosCubiertos = new Set();
 
   for (const doc of documents) {
-    if (doc.familia !== familia) continue;
+    if (doc.familia !== familia || doc.kind === "orden") continue;
 
-    if (doc.orden) {
-      for (const ins of doc.orden.insumos) {
-        filas.push({
-          nombre: ins.descripcion,
-          codigo: ins.codigo,
-          loteMaterial: ins.loteMaterial,
-          cantidad: `${ins.cantidadEntregada ?? ""} ${ins.unidad}`.trim(),
-          consumo: ins.consumo,
-          merma: ins.mermaProceso,
-          lote: doc.lote,
-          stage: doc.stage,
-          producto: doc.producto,
-        });
-      }
-      continue;
-    }
-
-    // Sin orden para este lote y etapa: se aprovecha lo del registro.
-    if (lotesConOrden.has(`${doc.lote}::${doc.stage}`)) continue;
+    const claveLoteEtapa = `${doc.lote}::${doc.stage}`;
+    registrosCubiertos.add(claveLoteEtapa);
+    const enOrden = ordenPorLoteEtapa.get(claveLoteEtapa);
 
     for (const p of doc.params) {
       if (p.section !== "INSUMOS") continue;
@@ -120,13 +118,41 @@ export function materialesPorLote(documents, familia) {
       const m = p.value.match(INSUMO_RE);
       if (!m) continue; // firmas y verificaciones de la misma sección
 
+      const insOrden = enOrden?.get(m[1]);
       filas.push({
         nombre: p.label,
         codigo: m[1],
-        loteMaterial: "",
-        cantidad: m[2].trim(),
-        consumo: null,
-        merma: null,
+        loteMaterial: insOrden?.loteMaterial || "",
+        proveedor: "",
+        fabricante: "",
+        fechaVencimiento: "",
+        cantidad: insOrden ? `${insOrden.cantidadEntregada ?? ""} ${insOrden.unidad}`.trim() : m[2].trim(),
+        consumo: insOrden?.consumo ?? null,
+        merma: insOrden?.mermaProceso ?? null,
+        lote: doc.lote,
+        stage: doc.stage,
+        producto: doc.producto,
+      });
+    }
+  }
+
+  // Lote y etapa donde sólo se cargó la orden (no el registro): sin esto,
+  // esos insumos no aparecerían en absoluto.
+  for (const doc of documents) {
+    if (doc.familia !== familia || !doc.orden) continue;
+    if (registrosCubiertos.has(`${doc.lote}::${doc.stage}`)) continue;
+
+    for (const ins of doc.orden.insumos) {
+      filas.push({
+        nombre: ins.descripcion,
+        codigo: ins.codigo,
+        loteMaterial: ins.loteMaterial,
+        proveedor: "",
+        fabricante: "",
+        fechaVencimiento: "",
+        cantidad: `${ins.cantidadEntregada ?? ""} ${ins.unidad}`.trim(),
+        consumo: ins.consumo,
+        merma: ins.mermaProceso,
         lote: doc.lote,
         stage: doc.stage,
         producto: doc.producto,
@@ -181,12 +207,16 @@ export function personalPorLote(documents, familia) {
   });
 }
 
-/** Receta (código de producto) declarada para cada lote. */
+/**
+ * Receta (código de producto de 10 dígitos) declarada para cada lote. Sale
+ * del propio encabezado del registro; la orden sólo se usa si para ese lote
+ * no se cargó ningún registro.
+ */
 export function recetaPorLote(documents, familia) {
   const mapa = {};
   for (const doc of documents) {
     if (doc.familia !== familia) continue;
-    const receta = doc.orden?.cabecera?.productoCodigo || doc.meta?.receta;
+    const receta = doc.meta?.receta || doc.orden?.cabecera?.productoCodigo;
     if (receta && !mapa[doc.lote]) mapa[doc.lote] = receta;
   }
   return mapa;

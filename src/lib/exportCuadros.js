@@ -26,6 +26,7 @@ import {
   WidthType,
 } from "docx";
 import { buildRvpModel } from "./rvpData.js";
+import { formatPersonName } from "./personName.js";
 
 // --- constantes tomadas del documento de referencia -------------------------
 
@@ -86,6 +87,19 @@ function celda(texto, { bold, align, fill, width, colSpan, rowSpan } = {}) {
     shading: fill ? { type: ShadingType.CLEAR, color: "auto", fill } : undefined,
     verticalAlign: VerticalAlign.CENTER,
     children: [parrafo(texto, { bold, align })],
+  });
+}
+
+/** Celda con varias líneas (un párrafo por nombre), en vez de un texto unido por separadores. */
+function celdaLineas(lineas, { align, fill, width, colSpan, rowSpan } = {}) {
+  const filas = lineas.length > 0 ? lineas : [""];
+  return new TableCell({
+    width: width ? { size: width, type: WidthType.DXA } : undefined,
+    columnSpan: colSpan,
+    rowSpan,
+    shading: fill ? { type: ShadingType.CLEAR, color: "auto", fill } : undefined,
+    verticalAlign: VerticalAlign.CENTER,
+    children: filas.map((linea) => parrafo(linea, { align })),
   });
 }
 
@@ -230,9 +244,9 @@ function cuadroMateriales(model) {
 
         celdas.push(celda(m.loteMaterial || "", { align: AlignmentType.CENTER, width: anchos[1] }));
         celdas.push(celda(m.lote, { align: AlignmentType.CENTER, width: anchos[2] }));
-        celdas.push(celda("", { align: AlignmentType.CENTER, width: anchos[3] }));
-        celdas.push(celda("", { align: AlignmentType.CENTER, width: anchos[4] }));
-        celdas.push(celda("", { align: AlignmentType.CENTER, width: anchos[5] }));
+        celdas.push(celda(m.proveedor || "", { align: AlignmentType.CENTER, width: anchos[3] }));
+        celdas.push(celda(m.fabricante || "", { align: AlignmentType.CENTER, width: anchos[4] }));
+        celdas.push(celda(m.fechaVencimiento || "", { align: AlignmentType.CENTER, width: anchos[5] }));
 
         filas.push(fila(celdas, { alto: ALTO_MAT_DATO }));
       }
@@ -252,7 +266,7 @@ function tablaPersonalBloque(entrada, lotes) {
   const anchos = Array(n).fill(ancho);
   const total = anchos.reduce((a, b) => a + b, 0);
 
-  const nombres = (lote, rol) => (entrada.porLote[lote]?.[rol] || []).join(" / ");
+  const nombres = (lote, rol) => (entrada.porLote[lote]?.[rol] || []).map((n) => formatPersonName(n));
 
   return tabla(
     anchos,
@@ -266,12 +280,12 @@ function tablaPersonalBloque(entrada, lotes) {
       fila([celda("FUNCIÓN: OPERADOR", { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_FUNCION }),
       fila([celda(entrada.stage, { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_FUNCION }),
       fila(
-        lotes.map((l) => celda(nombres(l, "operarios"), { align: AlignmentType.CENTER, width: ancho })),
+        lotes.map((l) => celdaLineas(nombres(l, "operarios"), { align: AlignmentType.CENTER, width: ancho })),
         { alto: ALTO_PERS_NOMBRES }
       ),
       fila([celda("FUNCIÓN: SUPERVISOR (Q.F.)", { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_FUNCION }),
       fila(
-        lotes.map((l) => celda(nombres(l, "supervisores"), { align: AlignmentType.CENTER, width: ancho })),
+        lotes.map((l) => celdaLineas(nombres(l, "supervisores"), { align: AlignmentType.CENTER, width: ancho })),
         { alto: ALTO_PERS_NOMBRES }
       ),
     ],
@@ -338,7 +352,7 @@ export async function exportCuadrosToWord(documents, familia, options) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${familia.replace(/[^\w.-]+/g, "_").slice(0, 60)}${sufijoEtapa}_cuadros.docx`;
+  a.download = `${familia.replace(/[^\w.-]+/g, "_").slice(0, 60)}${sufijoEtapa}_FORMATO_A09.docx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

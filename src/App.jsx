@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import UploadZone from "./components/UploadZone.jsx";
 import ParamTable from "./components/ParamTable.jsx";
 import LoadedBatches from "./components/LoadedBatches.jsx";
-import MacroPanel from "./components/MacroPanel.jsx";
 import ProductLibrary from "./components/ProductLibrary.jsx";
 import PersonnelPanel from "./components/PersonnelPanel.jsx";
 import {
@@ -11,7 +10,6 @@ import {
   IconCopy,
   IconCheck,
   IconDownload,
-  IconCode,
   IconFlask,
   IconLayers,
   IconAlert,
@@ -32,9 +30,7 @@ import {
 } from "./lib/storage.js";
 import { supabaseEnabled } from "./lib/supabaseClient.js";
 import { exportProductToExcel, tableToClipboardText } from "./lib/exportExcel.js";
-import { exportRvpToWord } from "./lib/exportWord.js";
 import { exportCuadrosToWord } from "./lib/exportCuadros.js";
-import { copyRvpToClipboard } from "./lib/rvpHtml.js";
 import {
   aggregatePersonnel,
   buildTable,
@@ -77,8 +73,6 @@ export default function App() {
   const [busyLabel, setBusyLabel] = useState("");
   const [messages, setMessages] = useState([]);
   const [copyState, setCopyState] = useState("idle");
-  const [rvpCopyState, setRvpCopyState] = useState("idle");
-  const [macroOpen, setMacroOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -210,7 +204,7 @@ export default function App() {
     writeRoute("library", null);
   }
 
-  async function handleFiles(files) {
+  async function handleFiles(files, expectedKind) {
     setBusy(true);
     let next = documents;
     const nuevos = [];
@@ -222,6 +216,19 @@ export default function App() {
       setBusyLabel(`Analizando ${file.name}…`);
       try {
         const result = await processPdfFile(file);
+
+        // La zona de carga es sólo una guía: el tipo real se sigue detectando
+        // por el contenido, así que un archivo en la zona equivocada no se
+        // pierde, sólo se avisa.
+        if (expectedKind && result.kind !== expectedKind) {
+          pushMessage(
+            `${file.name} es ${result.kind === "orden" ? "una Orden de Producción" : "un RMD"}, no ${
+              expectedKind === "orden" ? "una Orden de Producción" : "un RMD"
+            } — se procesó igual, según lo que es.`,
+            "info"
+          );
+        }
+
         // Una orden no tiene parámetros: su huella se calcula sobre lo que sí
         // la identifica, que son sus insumos y el número de orden.
         const contentHash = await computeContentHash(
@@ -307,6 +314,7 @@ export default function App() {
 
     if (supabaseEnabled) {
       let avisoMigracion = false;
+      let avisoReceta = false;
       for (const doc of nuevos) {
         const res = await syncDocumentToSupabase(doc);
         if (!res.ok && !res.skipped) {
@@ -315,6 +323,12 @@ export default function App() {
           avisoMigracion = true;
           pushMessage(
             "Los parámetros se guardaron en Supabase, pero falta ejecutar supabase_migration_v3.sql para guardar también los participantes (operarios/supervisores).",
+            "info"
+          );
+        } else if (res.recetaWarning && !avisoReceta) {
+          avisoReceta = true;
+          pushMessage(
+            "Se guardó todo, pero falta ejecutar supabase_migration_v5.sql para que la receta no se pierda al recargar la página.",
             "info"
           );
         }
@@ -349,42 +363,25 @@ export default function App() {
     if (productoActivo === familia) backToLibrary();
   }
 
-  function handleExport() {
+  async function handleExport() {
     if (!productoActivo) return;
-    const ok = exportProductToExcel(docs, productoActivo, { onlyCritical });
+    const ok = await exportProductToExcel(docs, productoActivo, { onlyCritical });
     if (!ok) pushMessage("No hay datos para exportar en este producto.", "error");
   }
 
-  // Con "etapa" el informe sale enfocado sólo a la etapa activa: si de este
-  // producto sólo se cargó Acondicionado, el Word no debe mostrar columnas
+  // Con "etapa" el FORMATO A09 sale enfocado sólo a la etapa activa: si de
+  // este producto sólo se cargó Acondicionado, no debe mostrar columnas
   // vacías de Fabricación o Envase.
   const stageParaInforme = reportScope === "etapa" ? stageActiva : null;
 
-  async function handleExportWord() {
-    if (!productoActivo) return;
-    try {
-      await exportRvpToWord(docs, productoActivo, { onlyCritical, stage: stageParaInforme });
-      pushMessage("Informe Word generado. Revisa las columnas marcadas para completar a mano.", "success");
-    } catch (err) {
-      pushMessage(`No se pudo generar el informe: ${err.message}`, "error");
-    }
-  }
-
-  async function handleExportCuadros() {
+  async function handleExportFormatoA09() {
     if (!productoActivo) return;
     try {
       await exportCuadrosToWord(docs, productoActivo, { onlyCritical, stage: stageParaInforme });
-      pushMessage("Cuadros generados con el formato del reporte de referencia.", "success");
+      pushMessage("FORMATO A09 generado con el formato del reporte de referencia.", "success");
     } catch (err) {
-      pushMessage(`No se pudieron generar los cuadros: ${err.message}`, "error");
+      pushMessage(`No se pudo generar el FORMATO A09: ${err.message}`, "error");
     }
-  }
-
-  async function handleCopyRvp() {
-    if (!productoActivo) return;
-    const ok = await copyRvpToClipboard(docs, productoActivo, { onlyCritical, stage: stageParaInforme });
-    setRvpCopyState(ok ? "copied" : "error");
-    setTimeout(() => setRvpCopyState("idle"), 2500);
   }
 
   async function handleCopy() {
@@ -450,12 +447,26 @@ export default function App() {
             </button>
 
             <section className="card">
-              <UploadZone
-                onFiles={handleFiles}
-                busy={busy}
-                busyLabel={busyLabel}
-                compact={!blank && productDocs.length > 0}
-              />
+              <div className="upload-row">
+                <UploadZone
+                  onFiles={(files) => handleFiles(files, "registro")}
+                  busy={busy}
+                  busyLabel={busyLabel}
+                  compact={!blank && productDocs.length > 0}
+                  title="Arrastra aquí los RMD (Registros de Manufactura)"
+                  compactTitle="Agregar otro RMD"
+                  hint="Cualquier producto y cualquier etapa: Fabricación, Envase, Acondicionado…"
+                />
+                <UploadZone
+                  onFiles={(files) => handleFiles(files, "orden")}
+                  busy={busy}
+                  busyLabel={busyLabel}
+                  compact={!blank && productDocs.length > 0}
+                  title="Arrastra aquí las Órdenes de Producción / Envase / Acondicionado"
+                  compactTitle="Agregar otra orden"
+                  hint="Aportan el Lote ME de cada material, el rendimiento oficial y las fechas exactas."
+                />
+              </div>
 
               {messages.length > 0 && (
                 <div className="toasts">
@@ -540,49 +551,33 @@ export default function App() {
 
                   <div className="toolbar__spacer" />
 
-                  <button className="btn btn--ghost" onClick={() => setMacroOpen(true)}>
-                    <IconCode size={16} />
-                    Macro de formato
-                  </button>
                   <button className="btn btn--ghost" onClick={handleCopy} disabled={!table}>
                     {copyState === "copied" ? <IconCheck size={16} /> : <IconCopy size={16} />}
                     {copyState === "copied" ? "Copiado" : copyState === "error" ? "No se pudo copiar" : "Copiar tabla"}
                   </button>
 
                   {stages.length > 1 && (
-                    <div className="switch" role="group" aria-label="Alcance del informe en Word">
+                    <div className="switch" role="group" aria-label="Alcance del FORMATO A09">
                       <button
                         className={`switch__opt ${reportScope === "etapa" ? "is-active" : ""}`}
                         onClick={() => setReportScope("etapa")}
-                        title="Copiar informe, Cuadros 1-2-3 e Informe Word salen enfocados sólo a esta etapa"
+                        title="El FORMATO A09 sale enfocado sólo a esta etapa"
                       >
-                        Word: solo {stageActiva}
+                        FORMATO A09: solo {stageActiva}
                       </button>
                       <button
                         className={`switch__opt ${reportScope === "todas" ? "is-active" : ""}`}
                         onClick={() => setReportScope("todas")}
-                        title="Copiar informe, Cuadros 1-2-3 e Informe Word combinan todas las etapas cargadas"
+                        title="El FORMATO A09 combina todas las etapas cargadas"
                       >
                         Todas las etapas
                       </button>
                     </div>
                   )}
 
-                  <button className="btn btn--ghost" onClick={handleCopyRvp} disabled={!productoActivo}>
-                    {rvpCopyState === "copied" ? <IconCheck size={16} /> : <IconFileText size={16} />}
-                    {rvpCopyState === "copied"
-                      ? "Informe copiado"
-                      : rvpCopyState === "error"
-                        ? "No se pudo copiar"
-                        : "Copiar informe"}
-                  </button>
-                  <button className="btn btn--ghost" onClick={handleExportCuadros} disabled={!productoActivo}>
+                  <button className="btn btn--ghost" onClick={handleExportFormatoA09} disabled={!productoActivo}>
                     <IconFileText size={16} />
-                    Cuadros 1-2-3
-                  </button>
-                  <button className="btn btn--ghost" onClick={handleExportWord} disabled={!productoActivo}>
-                    <IconFileText size={16} />
-                    Informe Word
+                    FORMATO A09
                   </button>
                   <button className="btn btn--primary" onClick={handleExport} disabled={!productoActivo}>
                     <IconDownload size={16} />
@@ -606,8 +601,6 @@ export default function App() {
           "El detector lee la estructura del propio registro, así que admite nuevos productos, etapas y parámetros sin tocar el código."
         )}
       </footer>
-
-      <MacroPanel open={macroOpen} onClose={() => setMacroOpen(false)} />
     </div>
   );
 }

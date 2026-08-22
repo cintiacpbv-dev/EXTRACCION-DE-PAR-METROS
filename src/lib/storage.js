@@ -79,15 +79,42 @@ export async function syncDocumentToSupabase(doc) {
   const { row: existing, error: findErr } = await findBatchRow(doc.producto, doc.lote);
   if (findErr) return { ok: false, error: findErr.message };
 
+  const receta = doc.meta?.receta || null;
+  // La columna "receta" es de la migración v5: si un proyecto todavía no la
+  // corrió, no debe bloquear la creación del lote, que es lo esencial.
+  let recetaWarning = null;
+
   let batchRow = existing;
   if (!batchRow) {
     const { data, error } = await supabase
       .from("batches")
-      .insert({ producto: doc.producto, lote: doc.lote })
+      .insert({ producto: doc.producto, lote: doc.lote, receta })
       .select()
       .single();
-    if (error) return { ok: false, error: error.message };
-    batchRow = data;
+    if (!error) {
+      batchRow = data;
+    } else {
+      const { data: data2, error: error2 } = await supabase
+        .from("batches")
+        .insert({ producto: doc.producto, lote: doc.lote })
+        .select()
+        .single();
+      if (error2) return { ok: false, error: error2.message };
+      batchRow = data2;
+      recetaWarning = "falta columna";
+    }
+  } else if (receta && batchRow.receta !== receta) {
+    // La primera etapa cargada de un lote puede no haber traído la receta
+    // (por ejemplo, si sólo se subió una orden); se completa en cuanto un
+    // documento posterior sí la aporta.
+    const { data, error } = await supabase
+      .from("batches")
+      .update({ receta })
+      .eq("id", batchRow.id)
+      .select()
+      .single();
+    if (!error) batchRow = data;
+    else if (batchRow.receta === undefined) recetaWarning = "falta columna";
   }
 
   // Una orden de producción no aporta parámetros ni personal de planta: su
@@ -105,7 +132,7 @@ export async function syncDocumentToSupabase(doc) {
       { onConflict: "batch_id,stage" }
     );
     if (error) return { ok: false, error: error.message };
-    return { ok: true, batchId: batchRow.id };
+    return { ok: true, batchId: batchRow.id, recetaWarning };
   }
 
   // Se reemplazan los valores de esta etapa: al volver a procesar un PDF, los
@@ -168,7 +195,7 @@ export async function syncDocumentToSupabase(doc) {
     }
   }
 
-  return { ok: true, batchId: batchRow.id, personnelWarning };
+  return { ok: true, batchId: batchRow.id, personnelWarning, recetaWarning };
 }
 
 export async function deleteDocumentFromSupabase(doc) {
@@ -227,7 +254,7 @@ export async function loadDocumentsFromSupabase() {
         lote: batch.lote,
         stage,
         fileName,
-        meta: { producto: batch.producto, lote: batch.lote, stage },
+        meta: { producto: batch.producto, lote: batch.lote, stage, receta: batch.receta || null },
         params: [],
         paramIds: new Set(),
         personnel: { operarios: [], supervisores: [] },

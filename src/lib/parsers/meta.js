@@ -20,10 +20,12 @@ export function extractMeta(flatTextRaw) {
   }
   if (stage) stage = stage.replace(/\s+/g, " ").toUpperCase();
 
-  // "Código  Version Fab. / Alt. … 5000000855  1001/ 1  5  Autorizado/…"
-  // Es la receta del producto, que el informe de validación pide en su tabla
-  // de lotes controlados.
-  const recetaMatch = text.match(/(\d{10})\s+\d{3,4}\s*\/\s*\d+\s+\d+\s+Autorizado/i);
+  // La receta es el código de producto de 10 dígitos del encabezado
+  // ("6000003270"): siempre empieza en 6, igual que en la orden de
+  // producción. Si por algún motivo no aparece suelto, se cae al de la línea
+  // "Código  Version Fab. / Alt. … 5000000855  1001/ 1  5  Autorizado/…".
+  const codigoMatch = text.match(/\b(6\d{9})\b/);
+  const recetaMatch = codigoMatch || text.match(/(\d{10})\s+\d{3,4}\s*\/\s*\d+\s+\d+\s+Autorizado/i);
 
   const loteMatch = text.match(/Lote:\s*([\w-]+)/i);
   const ordenMatch = text.match(/Orden\s*N[ºo°]:\s*(\d+)/i);

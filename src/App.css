@@ -113,6 +113,21 @@
 }
 
 /* ---------- Zona de carga ---------- */
+.upload-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.upload-row .upload-zone {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.upload-row .upload-zone--compact {
+  flex-basis: 220px;
+}
+
 .upload-zone {
   display: flex;
   flex-direction: column;
