@@ -107,6 +107,19 @@ export default function SapPanel({ onArchivos, ocupado }) {
   const resultados = estado?.resultados || [];
   const cuenta = (e) => resultados.filter((r) => r.estado === e).length;
 
+  // El fallo del trabajo llega por el estado, no por la petición: sin
+  // mostrarlo, una tanda que falla se veía exactamente igual que una que no
+  // había empezado.
+  const fallo = error || (estado?.fase === "error" ? estado.error : null);
+
+  const subtitulo = trabajando
+    ? estado.mensaje || "Trabajando…"
+    : estado?.fase === "error"
+      ? "La última tanda no pudo completarse."
+      : estado?.fase === "terminado"
+        ? estado.mensaje
+        : "Conectado con el ayudante de descargas.";
+
   if (buscando) return null;
 
   // Sin ayudante abierto se explica cómo abrirlo, sin ocupar sitio.
@@ -139,10 +152,9 @@ export default function SapPanel({ onArchivos, ocupado }) {
         </span>
         <div>
           <strong>Traer lotes desde SAP</strong>
-          <p className="muted">
-            {trabajando ? estado.mensaje : "Conectado con el ayudante de descargas."}
-          </p>
+          <p className="muted">{subtitulo}</p>
         </div>
+        {trabajando && <span className="sap-girador" aria-hidden="true" />}
         <IconChevronDown size={16} className={`sap-chevron ${abierto ? "is-open" : ""}`} />
       </button>
 
@@ -175,9 +187,24 @@ export default function SapPanel({ onArchivos, ocupado }) {
             {nLotes > 0 && <span className="counter">{nLotes === 1 ? "1 lote" : `${nLotes} lotes`}</span>}
           </div>
 
-          {error && (
+          {trabajando && (
+            <div className="sap-progreso">
+              <span className="sap-girador" aria-hidden="true" />
+              <div>
+                <strong>{estado.mensaje || "Trabajando…"}</strong>
+                <p className="muted">
+                  {estado.lotes?.length > 1
+                    ? `Lote ${estado.indice || 1} de ${estado.lotes.length}. `
+                    : ""}
+                  Cada lote tarda alrededor de un minuto: se abren seis documentos en SAP, uno por uno.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {fallo && (
             <p className="sap-error">
-              <IconAlert size={14} /> {error}
+              <IconAlert size={14} /> {fallo}
             </p>
           )}
 

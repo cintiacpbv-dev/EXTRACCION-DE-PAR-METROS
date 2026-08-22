@@ -28,6 +28,7 @@ const estado = {
   mensaje: "",
   lotes: [],
   actual: null,
+  indice: 0, // qué lote se está haciendo, para poder decir "3 de 10"
   resultados: [],
   carpeta: "",
   error: null,
@@ -78,6 +79,7 @@ async function prepararSesion() {
 async function ejecutarTanda(lotes) {
   estado.resultados = [];
   estado.lotes = lotes;
+  estado.indice = 0;
   estado.error = null;
 
   try {
@@ -87,12 +89,16 @@ async function ejecutarTanda(lotes) {
     avisar("Abriendo el reporte…");
     await irAlReporte(page, config, avisar);
 
-    for (const lote of lotes) {
+    for (const [i, lote] of lotes.entries()) {
       estado.actual = lote;
-      avisar(`Buscando el lote ${lote}…`);
+      estado.indice = i + 1;
+      avisar(`Lote ${i + 1} de ${lotes.length}: buscando ${lote}…`);
       try {
-        const filas = await descargarLote(page, contexto, lote, descargas, config, avisar);
-        estado.resultados.push(...filas);
+        // Cada documento se añade en cuanto se resuelve, para que la
+        // pantalla tenga novedades durante el minuto que tarda cada lote.
+        await descargarLote(page, contexto, lote, descargas, config, avisar, (fila) =>
+          estado.resultados.push(fila)
+        );
       } catch (err) {
         estado.resultados.push({
           lote,

@@ -1436,3 +1436,42 @@
 .sap-marca--ok { color: var(--ok); }
 .sap-marca--falta { color: #9a5b13; }
 .sap-marca--mal { color: var(--warn); }
+
+.sap-girador {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--sky);
+  animation: sap-girar 0.8s linear infinite;
+}
+
+@keyframes sap-girar {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sap-girador { animation-duration: 3s; }
+}
+
+.sap-progreso {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-tint);
+  border: 1px solid var(--border-strong);
+}
+
+.sap-progreso strong {
+  font-size: 13px;
+  display: block;
+}
+
+.sap-progreso p {
+  font-size: 12px;
+  margin-top: 3px;
+}

@@ -10,4 +10,13 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   base: process.env.VITE_BASE_PATH || "/",
   plugins: [react()],
+  server: {
+    watch: {
+      // El ayudante de descargas guarda ahí dentro el perfil de Chrome, y
+      // Windows mantiene bloqueados sus archivos mientras el navegador está
+      // abierto: al intentar vigilarlos, el servidor de desarrollo se caía
+      // con EBUSY. Nada de esa carpeta forma parte del sitio.
+      ignored: ["**/herramientas/**"],
+    },
+  },
 });

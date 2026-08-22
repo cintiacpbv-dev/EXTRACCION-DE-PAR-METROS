@@ -231,8 +231,17 @@ async function cerrarVisor(marco, page) {
  * se consultan después. Devuelve una lista de resultados con el estado de
  * cada documento: descargado, no cargado en SAP, o con error.
  */
-export async function descargarLote(page, contexto, lote, raiz, config, avisar = () => {}) {
-  const resultados = [];
+export async function descargarLote(page, contexto, lote, raiz, config, avisar = () => {}, alResultado = () => {}) {
+  // Cada documento se anuncia en cuanto se resuelve, no al final del lote:
+  // una tanda tarda cerca de un minuto por lote y, sin esto, la pantalla se
+  // queda sin novedades el tiempo suficiente para parecer colgada.
+  const resultados = {
+    lista: [],
+    push(fila) {
+      this.lista.push(fila);
+      alResultado(fila);
+    },
+  };
   let marco = marcoWebGui(page);
   if (!marco) throw new Error("la transacción no está abierta");
 
@@ -334,7 +343,7 @@ export async function descargarLote(page, contexto, lote, raiz, config, avisar =
     }
   }
 
-  return resultados;
+  return resultados.lista;
 }
 
 /** Separa el texto pegado por el usuario en una lista de lotes. */
