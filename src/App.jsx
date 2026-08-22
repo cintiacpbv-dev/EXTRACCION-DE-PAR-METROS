@@ -18,6 +18,7 @@ import {
   IconArrowLeft,
   IconGrid,
   IconFileText,
+  IconFilter,
 } from "./components/Icons.jsx";
 import { processPdfFile } from "./lib/parsers/index.js";
 import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
@@ -34,6 +35,7 @@ import {
   purgarEliminados,
 } from "./lib/storage.js";
 import { supabaseEnabled } from "./lib/supabaseClient.js";
+import { documentoEsMuestraMedica } from "./lib/muestraMedica.js";
 import {
   cargarImagenesLocales,
   guardarImagenesLocales,
@@ -98,6 +100,9 @@ export default function App() {
   // "etapa": los informes en Word salen enfocados sólo a la etapa activa, sin
   // columnas vacías de las demás. "todas": el informe combinado de siempre.
   const [reportScope, setReportScope] = useState("etapa");
+  // Las muestras médicas (descripción con "MM") suelen quedar fuera del
+  // estudio; la preferencia se recuerda entre sesiones.
+  const [omitirMM, setOmitirMM] = useState(() => localStorage.getItem("deteccion-parametros:omitirMM") === "1");
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
   // Qué zona de carga está trabajando, para no anunciar el mismo archivo en
@@ -309,6 +314,13 @@ export default function App() {
       setBusyLabel(`Analizando ${file.name}…`);
       try {
         const result = await processPdfFile(file);
+
+        // Muestra médica: se descarta antes de analizarla, que es lo que
+        // ahorra el trabajo, no sólo ocultarla después.
+        if (omitirMM && documentoEsMuestraMedica({ producto: result.meta.producto, meta: result.meta, orden: result.orden })) {
+          pushMessage(`${file.name}: es muestra médica (MM) — omitida.`, "info");
+          continue;
+        }
 
         // La zona de carga es sólo una guía: el tipo real se sigue detectando
         // por el contenido, así que un archivo en la zona equivocada no se
@@ -665,6 +677,7 @@ export default function App() {
                 onArchivos={(archivos) => handleFiles(archivos)}
                 ocupado={busy}
                 analizados={analizados}
+                omitirMM={omitirMM}
               />
 
               {!blank && productos.length > 0 && (
@@ -723,6 +736,26 @@ export default function App() {
                       Todo lo detectado
                     </button>
                   </div>
+
+                  <button
+                    className={`btn btn--ghost ${omitirMM ? "btn--activo" : ""}`}
+                    onClick={() => {
+                      const v = !omitirMM;
+                      setOmitirMM(v);
+                      localStorage.setItem("deteccion-parametros:omitirMM", v ? "1" : "0");
+                      pushMessage(
+                        v
+                          ? "Las muestras médicas (MM) quedarán fuera del análisis y de las descargas."
+                          : "Las muestras médicas (MM) vuelven a incluirse.",
+                        "info"
+                      );
+                    }}
+                    title="Las muestras médicas se reconocen por las dos emes mayúsculas de su descripción"
+                    aria-pressed={omitirMM}
+                  >
+                    {omitirMM ? <IconCheck size={16} /> : <IconFilter size={16} />}
+                    Omitir muestras médicas
+                  </button>
 
                   {table && (
                     <span className="counter">

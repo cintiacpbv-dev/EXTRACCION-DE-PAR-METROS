@@ -1486,3 +1486,14 @@
   background: var(--sky-soft);
   color: var(--sky-dark);
 }
+
+/* Botón de dos estados (activo / inactivo) en la barra de acciones. */
+.btn--activo {
+  background: var(--sky-soft);
+  border-color: var(--border-strong);
+  color: var(--sky-dark);
+}
+
+.btn--activo:not(:disabled):hover {
+  background: var(--surface-tint);
+}

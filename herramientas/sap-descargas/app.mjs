@@ -76,7 +76,7 @@ async function prepararSesion() {
 
 // --- tanda de descargas ------------------------------------------------------
 
-async function ejecutarTanda(lotes) {
+async function ejecutarTanda(lotes, opciones = {}) {
   estado.resultados = [];
   estado.lotes = lotes;
   estado.indice = 0;
@@ -96,8 +96,10 @@ async function ejecutarTanda(lotes) {
       try {
         // Cada documento se añade en cuanto se resuelve, para que la
         // pantalla tenga novedades durante el minuto que tarda cada lote.
-        await descargarLote(page, contexto, lote, descargas, config, avisar, (fila) =>
-          estado.resultados.push(fila)
+        await descargarLote(
+          page, contexto, lote, descargas, config, avisar,
+          (fila) => estado.resultados.push(fila),
+          { omitirMM: opciones.omitirMM }
         );
       } catch (err) {
         estado.resultados.push({
@@ -241,11 +243,11 @@ const servidor = http.createServer(async (req, res) => {
     if (url.pathname === "/api/descargar" && req.method === "POST") {
       if (estado.fase === "descargando") return json(res, { ok: false, error: "Ya hay una descarga en curso." }, 409);
 
-      const { lotes: texto } = await leerCuerpo(req);
+      const { lotes: texto, omitirMM } = await leerCuerpo(req);
       const lotes = parsearLotes(texto);
       if (lotes.length === 0) return json(res, { ok: false, error: "No hay ningún lote que descargar." }, 400);
 
-      ejecutarTanda(lotes); // en segundo plano; el avance se consulta aparte
+      ejecutarTanda(lotes, { omitirMM: !!omitirMM }); // en segundo plano; el avance se consulta aparte
       return json(res, { ok: true, lotes });
     }
 

@@ -45,11 +45,11 @@ export async function pedirEstado(base) {
   return res.json();
 }
 
-export async function pedirDescarga(base, lotes) {
+export async function pedirDescarga(base, lotes, omitirMM = false) {
   const res = await fetch(`${base}/api/descargar`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ lotes }),
+    body: JSON.stringify({ lotes, omitirMM }),
   });
   const datos = await res.json();
   if (!datos.ok) throw new Error(datos.error || "No se pudo iniciar la descarga.");

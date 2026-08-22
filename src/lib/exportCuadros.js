@@ -71,6 +71,18 @@ const MARGEN = 1000;
 
 const LOTES_POR_TABLA = 10; // como el original, una tabla por bloque de lotes
 
+// El cuadro de personal aprovecha el ancho entero de la hoja horizontal en
+// vez de cortar cada diez lotes: se meten todas las columnas que quepan y,
+// sólo si sobran, continúan en la hoja siguiente. Por debajo de este ancho
+// los nombres dejan de leerse.
+const ANCHO_UTIL_HORIZONTAL = A4_ALTO - MARGEN * 2;
+const ANCHO_MIN_COL_PERSONAL = 650;
+
+function lotesPorHoja(total) {
+  const caben = Math.max(1, Math.floor(ANCHO_UTIL_HORIZONTAL / ANCHO_MIN_COL_PERSONAL));
+  return Math.min(total, caben);
+}
+
 // --- utilidades -------------------------------------------------------------
 
 function parrafo(texto, { bold = false, align } = {}) {
@@ -264,7 +276,10 @@ function cuadroMateriales(model) {
 
 function tablaPersonalBloque(entrada, lotes) {
   const n = lotes.length;
-  const ancho = Math.floor(ANCHO_TABLA_PERSONAL / n);
+  // Con pocos lotes se conserva el ancho del original; con muchos se estira
+  // hasta el borde de la hoja para que quepan todos.
+  const disponible = Math.max(ANCHO_TABLA_PERSONAL, Math.min(ANCHO_UTIL_HORIZONTAL, n * ANCHO_MIN_COL_PERSONAL));
+  const ancho = Math.floor(disponible / n);
   const anchos = Array(n).fill(ancho);
   const total = anchos.reduce((a, b) => a + b, 0);
 
@@ -472,8 +487,9 @@ export function buildCuadrosDocument(documents, familia, options) {
   const personal = [titulo("3. PERSONAL QUE INTERVINO EN EL PROCESO")];
   for (const entrada of model.personalPorLote) {
     if (entrada.lotes.length === 0) continue;
-    for (let i = 0; i < entrada.lotes.length; i += LOTES_POR_TABLA) {
-      personal.push(tablaPersonalBloque(entrada, entrada.lotes.slice(i, i + LOTES_POR_TABLA)));
+    const porHoja = lotesPorHoja(entrada.lotes.length);
+    for (let i = 0; i < entrada.lotes.length; i += porHoja) {
+      personal.push(tablaPersonalBloque(entrada, entrada.lotes.slice(i, i + porHoja)));
       personal.push(new Paragraph({ children: [] }));
     }
   }

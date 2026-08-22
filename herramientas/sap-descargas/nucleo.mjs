@@ -231,7 +231,25 @@ async function cerrarVisor(marco, page) {
  * se consultan después. Devuelve una lista de resultados con el estado de
  * cada documento: descargado, no cargado en SAP, o con error.
  */
-export async function descargarLote(page, contexto, lote, raiz, config, avisar = () => {}, alResultado = () => {}) {
+/**
+ * Las muestras médicas se reconocen por las dos emes mayúsculas seguidas de
+ * su descripción ("CJA FLUIBRONCOL ORAL 600 GRNx2MM LTM"). Se compara
+ * respetando mayúsculas: "48mm" y "200 mm/s" son medidas, no muestras.
+ */
+export function esMuestraMedica(texto) {
+  return /MM/.test(String(texto || ""));
+}
+
+export async function descargarLote(
+  page,
+  contexto,
+  lote,
+  raiz,
+  config,
+  avisar = () => {},
+  alResultado = () => {},
+  { omitirMM = false } = {}
+) {
   // Cada documento se anuncia en cuanto se resuelve, no al final del lote:
   // una tanda tarda cerca de un minuto por lote y, sin esto, la pantalla se
   // queda sin novedades el tiempo suficiente para parecer colgada.
@@ -262,6 +280,13 @@ export async function descargarLote(page, contexto, lote, raiz, config, avisar =
   for (const fila of rejilla.datos) {
     const producto = nombreSeguro(fila.producto, "PRODUCTO SIN NOMBRE");
     const etapa = nombreSeguro(ETAPAS[fila.clOrden] || fila.clOrden || fila.seccion, "SIN ETAPA");
+
+    // Se descarta antes de abrir ningún PDF, que es donde está el tiempo.
+    if (omitirMM && esMuestraMedica(fila.producto)) {
+      avisar(`${lote} · ${etapa}: muestra médica (MM), omitida`);
+      resultados.push({ lote, producto, etapa, tipo: "—", estado: "omitido", detalle: "muestra médica (MM)" });
+      continue;
+    }
 
     for (const tipo of TIPOS) {
       const col = rejilla.cabecera[tipo.nombre];

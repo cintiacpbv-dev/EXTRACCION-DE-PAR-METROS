@@ -13,6 +13,7 @@ const ETIQUETAS = {
   ok: { texto: "Descargado", clase: "sap-marca--ok" },
   falta: { texto: "No está en SAP", clase: "sap-marca--falta" },
   error: { texto: "Error", clase: "sap-marca--mal" },
+  omitido: { texto: "Omitido (MM)", clase: "sap-marca--falta" },
 };
 
 /**
@@ -26,7 +27,7 @@ const ETIQUETAS = {
 /** Misma clave que usa la aplicación para saber si un documento ya se analizó. */
 const claveDe = (a) => `${a.lote}::${a.etapa}::${a.tipo === "OP" ? "orden" : "registro"}`;
 
-export default function SapPanel({ onArchivos, ocupado, analizados = new Set() }) {
+export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), omitirMM = false }) {
   const [base, setBase] = useState(null);
   const [buscando, setBuscando] = useState(true);
   const [abierto, setAbierto] = useState(false);
@@ -89,7 +90,7 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set() }
   async function descargar() {
     setError(null);
     try {
-      await pedirDescarga(base, lotes);
+      await pedirDescarga(base, lotes, omitirMM);
     } catch (err) {
       setError(err.message);
     }
