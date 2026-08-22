@@ -258,7 +258,8 @@ export default function App() {
             (d?.personnel?.operarios?.length || 0) + (d?.personnel?.supervisores?.length || 0);
           const sumaParticipantes = cuenta(result) > 0 && cuenta(yaVisto) === 0;
           const sumaReceta = !!result.meta?.receta && !yaVisto.meta?.receta;
-          const aporta = sumaParticipantes || sumaReceta;
+          const sumaInsumos = (result.insumos?.length || 0) > 0 && (yaVisto.insumos?.length || 0) === 0;
+          const aporta = sumaParticipantes || sumaReceta || sumaInsumos;
 
           if (!aporta) {
             pushMessage(
@@ -271,6 +272,7 @@ export default function App() {
           const aportes = [];
           if (sumaParticipantes) aportes.push(`${cuenta(result)} nombres`);
           if (sumaReceta) aportes.push("la receta");
+          if (sumaInsumos) aportes.push(`${result.insumos.length} materiales`);
           pushMessage(`${file.name}: ya estaba cargado, pero se actualizó con ${aportes.join(" y ")}.`, "success");
         }
 
@@ -283,6 +285,7 @@ export default function App() {
           meta: result.meta,
           params: result.params,
           personnel: result.personnel,
+          insumos: result.insumos || [],
           orden: result.orden || null,
           uploadedAt: new Date().toISOString(),
         };

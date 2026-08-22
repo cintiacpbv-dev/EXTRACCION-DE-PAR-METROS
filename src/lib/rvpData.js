@@ -72,22 +72,26 @@ export function lotesConFechas(documents, familia) {
   };
 }
 
-// En la sección de insumos del registro, el valor concentra código, cantidad
-// ordenada y cantidad recibida: "1000000510 41.380 KGP 41.714 kg 2".
+// Registros de antes de que existiera el lector dedicado de la sección
+// INSUMOS (parsers/insumos.js) sólo llegaron a capturar, en el mejor de los
+// casos, una fila suelta con esta forma: código + cantidad pegados en el
+// valor. Se mantiene como último respaldo para no perder esos documentos
+// mientras no se vuelvan a subir.
 const INSUMO_RE = /^(\d{6,})\s+(.*)$/;
 
 /**
  * Materiales e insumos usados en cada lote.
  *
  * La lista de materiales de cada lote y etapa sale del propio registro de
- * manufactura (sección INSUMOS): es la que nombra lo que de verdad se usó en
- * esa etapa concreta (cajas, etiquetas y folletos en Acondicionado; alupol,
- * palupol y PVC en Envase; materias primas y principios activos en
- * Fabricación). La orden de producción/envase/acondicionado del mismo lote y
- * etapa se cruza por código de material sólo para aportar el lote de material
- * ("Lote ME"), que el registro no trae. Si para un lote y etapa no se cargó
- * el registro pero sí la orden, se usa la lista de la orden para no perder
- * esos insumos.
+ * manufactura (sección INSUMOS, leída por parsers/insumos.js): es la que
+ * nombra lo que de verdad se usó en esa etapa concreta (cajas, etiquetas y
+ * folletos en Acondicionado; alupol, palupol y PVC en Envase; materias
+ * primas y principios activos en Fabricación). La orden de producción del
+ * mismo lote y etapa se cruza por código de material sólo para aportar el
+ * lote de material ("Lote ME"), que el registro no trae. Si para un lote y
+ * etapa el registro no aportó ningún material —porque no se cargó, o porque
+ * el detector no encontró nada ahí— se usa la lista de la orden para no
+ * dejar el cuadro vacío.
  */
 export function materialesPorLote(documents, familia) {
   const filas = [];
@@ -102,10 +106,6 @@ export function materialesPorLote(documents, familia) {
     ordenPorLoteEtapa.set(`${doc.lote}::${doc.stage}`, porCodigo);
   }
 
-  // Un lote y etapa cuenta como "cubierto por el registro" sólo si su
-  // sección INSUMOS de verdad aportó alguna fila de material — no basta con
-  // que exista el documento: si el detector no encontró nada ahí (como pasa
-  // hoy con el detalle de Acondicionado), la orden debe poder rellenarlo.
   const registrosCubiertos = new Set();
 
   for (const doc of documents) {
@@ -114,6 +114,32 @@ export function materialesPorLote(documents, familia) {
     const claveLoteEtapa = `${doc.lote}::${doc.stage}`;
     const enOrden = ordenPorLoteEtapa.get(claveLoteEtapa);
 
+    if (doc.insumos?.length > 0) {
+      for (const ins of doc.insumos) {
+        registrosCubiertos.add(claveLoteEtapa);
+        const insOrden = enOrden?.get(ins.codigo);
+        filas.push({
+          nombre: ins.descripcion,
+          codigo: ins.codigo,
+          loteMaterial: insOrden?.loteMaterial || "",
+          proveedor: "",
+          fabricante: "",
+          fechaVencimiento: "",
+          cantidad: insOrden
+            ? `${insOrden.cantidadEntregada ?? ""} ${insOrden.unidad}`.trim()
+            : `${ins.cantidadRecibida ?? ins.cantidad ?? ""} ${ins.unidadRecibida || ins.unidad || ""}`.trim(),
+          consumo: insOrden?.consumo ?? null,
+          merma: insOrden?.mermaProceso ?? null,
+          lote: doc.lote,
+          stage: doc.stage,
+          producto: doc.producto,
+        });
+      }
+      continue;
+    }
+
+    // Documento de antes del lector dedicado: se aprovecha lo poco que el
+    // detector genérico haya podido capturar bajo la sección INSUMOS.
     for (const p of doc.params) {
       if (p.section !== "INSUMOS") continue;
       if (typeof p.value !== "string") continue;
@@ -140,9 +166,8 @@ export function materialesPorLote(documents, familia) {
     }
   }
 
-  // Lote y etapa donde el registro no aportó ningún material —porque no se
-  // cargó, o porque el detector no encontró nada en su sección INSUMOS— pero
-  // sí hay orden: se usa su lista para no dejar el cuadro vacío.
+  // Lote y etapa donde el registro no aportó ningún material pero sí hay
+  // orden: se usa su lista para no dejar el cuadro vacío.
   for (const doc of documents) {
     if (doc.familia !== familia || !doc.orden) continue;
     if (registrosCubiertos.has(`${doc.lote}::${doc.stage}`)) continue;

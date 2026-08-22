@@ -2,6 +2,7 @@ import { extractPdfText } from "../pdfText.js";
 import { extractMeta } from "./meta.js";
 import { detectParameters } from "./genericParser.js";
 import { detectPersonnel } from "./personnel.js";
+import { detectInsumos } from "./insumos.js";
 import { esOrdenDeProduccion, parseOrden } from "./orden.js";
 
 /**
@@ -52,6 +53,7 @@ export async function processPdfFile(file) {
   const meta = extractMeta(flatText);
   const params = detectParameters(pages);
   const personnel = detectPersonnel(pages);
+  const insumos = detectInsumos(pages);
 
   if (params.length === 0) {
     throw new Error(
@@ -65,6 +67,7 @@ export async function processPdfFile(file) {
     meta,
     params,
     personnel,
+    insumos,
     fileName: file.name,
     numPages,
     parsedAt: new Date().toISOString(),

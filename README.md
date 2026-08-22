@@ -95,12 +95,13 @@ VITE_SUPABASE_ANON_KEY=tu-anon-public-key
 En el **SQL Editor** del proyecto:
 
 - Instalación nueva → ejecuta [`supabase_schema.sql`](./supabase_schema.sql)
-  y después las migraciones v2 a v5.
+  y después las migraciones v2 a v6.
 - Instalación existente → ejecuta las migraciones que falten, en orden:
   [`v2`](./supabase_migration_v2.sql) (parámetros genéricos),
   [`v3`](./supabase_migration_v3.sql) (participantes),
-  [`v4`](./supabase_migration_v4.sql) (órdenes de producción) y
-  [`v5`](./supabase_migration_v5.sql) (receta del lote).
+  [`v4`](./supabase_migration_v4.sql) (órdenes de producción),
+  [`v5`](./supabase_migration_v5.sql) (receta del lote) y
+  [`v6`](./supabase_migration_v6.sql) (materiales de la sección INSUMOS).
 
 Sin Supabase configurado la app funciona igual, guardando en el `localStorage`.
 
@@ -127,6 +128,11 @@ mismo lote y etapa se cruza por código de material sólo para aportar el
 **Lote ME**; si para un lote y etapa no se cargó el RMD pero sí la orden, se
 usa la lista de la orden para no perder esos insumos. Las fechas de proceso y
 el rendimiento, en cambio, mandan desde la orden cuando está disponible.
+
+La sección INSUMOS del RMD es una tabla de columnas reales (Descripción,
+Código, Cantidad, UM, Cantidad recibida, UM, Bulto), no el patrón "etiqueta +
+valor" que usa el detector genérico: la lee `parsers/insumos.js`, un lector
+dedicado como el de la orden.
 
 **Proveedor, fabricante y fecha de vencimiento** no están en ninguno de los
 dos: quedan pendientes de un tercer tipo de documento, el **Certificado de
@@ -212,6 +218,7 @@ src/
       meta.js                Cabecera del RMD: producto, lote, etapa, receta, fechas
       genericParser.js      Detector genérico de parámetros
       personnel.js           Operarios y supervisores (Realizado / VB)
+      insumos.js              Tabla de materiales de la sección INSUMOS
       orden.js               Lector de Órdenes de Producción
       utils.js               Normalización de texto
     model.js              Une los documentos en la tabla maestra

@@ -195,7 +195,21 @@ export async function syncDocumentToSupabase(doc) {
     }
   }
 
-  return { ok: true, batchId: batchRow.id, personnelWarning, recetaWarning };
+  // Los materiales de la sección INSUMOS se guardan en su propia tabla,
+  // añadida después de la primera versión del esquema
+  // (supabase_migration_v6.sql). Si un proyecto todavía no corrió esa
+  // migración la tabla no existe: se avisa pero no se hace fallar el
+  // guardado de los parámetros, que es lo esencial.
+  let insumosWarning = null;
+  if ((doc.insumos?.length || 0) > 0) {
+    const { error } = await supabase.from("batch_insumos").upsert(
+      { batch_id: batchRow.id, stage: doc.stage, data: doc.insumos, file_name: doc.fileName || null },
+      { onConflict: "batch_id,stage" }
+    );
+    if (error) insumosWarning = error.message;
+  }
+
+  return { ok: true, batchId: batchRow.id, personnelWarning, recetaWarning, insumosWarning };
 }
 
 export async function deleteDocumentFromSupabase(doc) {
@@ -221,9 +235,11 @@ export async function deleteDocumentFromSupabase(doc) {
     .eq("stage", doc.stage);
   if (delErr) return { ok: false, error: delErr.message };
 
-  // Best-effort: si batch_personnel no existe todavía (falta correr la
-  // migración v3), no hace fallar el borrado de los parámetros.
+  // Best-effort: si batch_personnel o batch_insumos no existen todavía
+  // (faltan las migraciones v3 / v6), no hace fallar el borrado de los
+  // parámetros.
   await supabase.from("batch_personnel").delete().eq("batch_id", batchRow.id).eq("stage", doc.stage);
+  await supabase.from("batch_insumos").delete().eq("batch_id", batchRow.id).eq("stage", doc.stage);
 
   return { ok: true };
 }
@@ -238,10 +254,12 @@ export async function loadDocumentsFromSupabase() {
   const { data: valueRows, error: valErr } = await selectAll("batch_values", "sort_order");
   if (valErr) return [];
 
-  // batch_personnel y batch_orders son best-effort: si el proyecto todavía no
-  // corrió las migraciones v3 / v4, se sigue cargando todo lo demás.
+  // batch_personnel, batch_orders y batch_insumos son best-effort: si el
+  // proyecto todavía no corrió las migraciones v3 / v4 / v6, se sigue
+  // cargando todo lo demás.
   const { data: personnelRows } = await selectAll("batch_personnel");
   const { data: orderRows } = await selectAll("batch_orders");
+  const { data: insumosRows } = await selectAll("batch_insumos");
 
   const byId = new Map(batchRows.map((b) => [b.id, b]));
   const docs = new Map();
@@ -258,6 +276,7 @@ export async function loadDocumentsFromSupabase() {
         params: [],
         paramIds: new Set(),
         personnel: { operarios: [], supervisores: [] },
+        insumos: [],
         uploadedAt: batch.updated_at || batch.created_at || null,
       });
     }
@@ -297,6 +316,12 @@ export async function loadDocumentsFromSupabase() {
     const yaEsta = list.find((p) => p.name === row.name);
     if (yaEsta) yaEsta.count = Math.max(yaEsta.count, row.count);
     else list.push({ name: row.name, count: row.count });
+  }
+
+  for (const row of insumosRows || []) {
+    const batch = byId.get(row.batch_id);
+    if (!batch) continue;
+    ensureDoc(batch, row.stage, row.file_name).insumos = row.data || [];
   }
 
   // Las órdenes viven en su propio documento, complementario al registro del
