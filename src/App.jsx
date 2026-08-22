@@ -456,9 +456,26 @@ export default function App() {
     const next = documents.filter((d) => !aBorrar.some((x) => docKey(x) === docKey(d)));
     setDocuments(next);
     saveLocalDocuments(next);
+
     if (supabaseEnabled) {
-      for (const doc of aBorrar) await deleteDocumentFromSupabase(doc);
+      // Si algún borrado falla hay que decirlo: al recargar, lo que quedó en
+      // Supabase reaparece, y en silencio parece que la aplicación ignora
+      // las eliminaciones.
+      const fallos = [];
+      for (const doc of aBorrar) {
+        const res = await deleteDocumentFromSupabase(doc);
+        if (!res.ok && !res.skipped) fallos.push(`${doc.stage} lote ${doc.lote}: ${res.error}`);
+      }
+
+      if (fallos.length > 0) {
+        pushMessage(
+          `No se pudo borrar todo de Supabase (${fallos.length} documento(s)); al recargar volverán a aparecer. ${fallos[0]}`,
+          "error"
+        );
+      }
     }
+
+    await handleQuitarImagen(familia);
     pushMessage(`Se eliminó "${familia}".`, "info");
     if (productoActivo === familia) backToLibrary();
   }

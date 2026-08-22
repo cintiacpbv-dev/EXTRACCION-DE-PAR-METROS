@@ -35,20 +35,57 @@ export function upsertDocument(documents, doc) {
  * comparando por primera palabra del producto y lote (no por el nombre
  * completo: el mismo lote puede traer texto adicional según la presentación).
  */
-async function findBatchRow(producto, lote) {
+/**
+ * Todas las filas de "batches" de ese lote que pertenecen a la misma familia
+ * de producto.
+ *
+ * Son varias a propósito: cada presentación del mismo lote se guardó con su
+ * propio nombre ("… GRN", "… GRN SAC3g", "… GRN 3g CJA x20"), así que un
+ * lote puede tener tres filas. Al borrar hay que recorrerlas todas — mirar
+ * sólo la primera dejaba datos vivos en las otras y el producto reaparecía
+ * en cuanto se recargaba la página.
+ */
+async function findBatchRows(producto, lote) {
   const { data, error } = await supabase
     .from("batches")
     .select("*")
     .eq("lote", lote)
     .order("created_at", { ascending: true });
-  if (error || !data) return { row: null, error };
+  if (error || !data) return { rows: [], error };
 
-  // Se prefiere el nombre exacto; si no está, cualquiera de la misma familia.
-  // El orden por fecha de creación hace la elección estable entre llamadas,
-  // para no repartir las etapas de un mismo lote en filas distintas.
-  const mismos = data.filter((b) => firstWord(b.producto) === firstWord(producto));
-  const exacto = mismos.find((b) => b.producto === producto);
-  return { row: exacto || mismos[0] || null, error: null };
+  return { rows: data.filter((b) => firstWord(b.producto) === firstWord(producto)), error: null };
+}
+
+/** La fila donde escribir: se prefiere el nombre exacto, si no la más antigua. */
+async function findBatchRow(producto, lote) {
+  const { rows, error } = await findBatchRows(producto, lote);
+  if (error) return { row: null, error };
+  const exacto = rows.find((b) => b.producto === producto);
+  return { row: exacto || rows[0] || null, error: null };
+}
+
+/**
+ * Quita las filas de "batches" que ya no tienen nada colgando. Si no, queda
+ * el lote registrado sin contenido y estorba a las búsquedas posteriores.
+ */
+async function limpiarBatchesVacios(ids) {
+  for (const id of ids) {
+    const cuentas = await Promise.all(
+      ["batch_values", "batch_orders", "batch_personnel", "batch_insumos"].map(async (tabla) => {
+        const { count, error } = await supabase
+          .from(tabla)
+          .select("id", { count: "exact", head: true })
+          .eq("batch_id", id);
+        // Una tabla que aún no existe (migración sin correr) no debe impedir
+        // la limpieza, pero tampoco contar como contenido.
+        return error ? 0 : count || 0;
+      })
+    );
+
+    if (cuentas.reduce((a, b) => a + b, 0) === 0) {
+      await supabase.from("batches").delete().eq("id", id);
+    }
+  }
 }
 
 // PostgREST devuelve como máximo 1000 filas por consulta. Con varios lotes se
@@ -215,32 +252,38 @@ export async function syncDocumentToSupabase(doc) {
 export async function deleteDocumentFromSupabase(doc) {
   if (!supabaseEnabled) return { ok: true, skipped: true };
 
-  const { row: batchRow, error } = await findBatchRow(doc.producto, doc.lote);
+  // Se borra en TODAS las filas del lote de esa familia, no sólo en la
+  // primera: un mismo lote tiene una fila por presentación, y dejar una sin
+  // tocar hacía que el producto volviera a aparecer al recargar.
+  const { rows, error } = await findBatchRows(doc.producto, doc.lote);
   if (error) return { ok: false, error: error.message };
-  if (!batchRow) return { ok: true };
+
+  const ids = rows.map((r) => r.id);
+  if (ids.length === 0) return { ok: true };
 
   if (doc.kind === "orden") {
     const { error: e } = await supabase
       .from("batch_orders")
       .delete()
-      .eq("batch_id", batchRow.id)
+      .in("batch_id", ids)
       .eq("stage", doc.stage);
-    return e ? { ok: false, error: e.message } : { ok: true };
+    if (e) return { ok: false, error: e.message };
+  } else {
+    const { error: delErr } = await supabase
+      .from("batch_values")
+      .delete()
+      .in("batch_id", ids)
+      .eq("stage", doc.stage);
+    if (delErr) return { ok: false, error: delErr.message };
+
+    // Best-effort: si batch_personnel o batch_insumos no existen todavía
+    // (faltan las migraciones v3 / v6), no hace fallar el borrado de los
+    // parámetros.
+    await supabase.from("batch_personnel").delete().in("batch_id", ids).eq("stage", doc.stage);
+    await supabase.from("batch_insumos").delete().in("batch_id", ids).eq("stage", doc.stage);
   }
 
-  const { error: delErr } = await supabase
-    .from("batch_values")
-    .delete()
-    .eq("batch_id", batchRow.id)
-    .eq("stage", doc.stage);
-  if (delErr) return { ok: false, error: delErr.message };
-
-  // Best-effort: si batch_personnel o batch_insumos no existen todavía
-  // (faltan las migraciones v3 / v6), no hace fallar el borrado de los
-  // parámetros.
-  await supabase.from("batch_personnel").delete().eq("batch_id", batchRow.id).eq("stage", doc.stage);
-  await supabase.from("batch_insumos").delete().eq("batch_id", batchRow.id).eq("stage", doc.stage);
-
+  await limpiarBatchesVacios(ids);
   return { ok: true };
 }
 
