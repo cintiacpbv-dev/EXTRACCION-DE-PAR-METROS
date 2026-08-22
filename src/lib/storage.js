@@ -36,9 +36,41 @@ export function upsertDocument(documents, doc) {
  * completo: el mismo lote puede traer texto adicional según la presentación).
  */
 async function findBatchRow(producto, lote) {
-  const { data, error } = await supabase.from("batches").select("*").eq("lote", lote);
+  const { data, error } = await supabase
+    .from("batches")
+    .select("*")
+    .eq("lote", lote)
+    .order("created_at", { ascending: true });
   if (error || !data) return { row: null, error };
-  return { row: data.find((b) => firstWord(b.producto) === firstWord(producto)) || null, error: null };
+
+  // Se prefiere el nombre exacto; si no está, cualquiera de la misma familia.
+  // El orden por fecha de creación hace la elección estable entre llamadas,
+  // para no repartir las etapas de un mismo lote en filas distintas.
+  const mismos = data.filter((b) => firstWord(b.producto) === firstWord(producto));
+  const exacto = mismos.find((b) => b.producto === producto);
+  return { row: exacto || mismos[0] || null, error: null };
+}
+
+// PostgREST devuelve como máximo 1000 filas por consulta. Con varios lotes se
+// supera ese tope enseguida, así que hay que pedir la tabla por tramos: sin
+// esto se cargaban datos incompletos sin ningún aviso.
+const PAGE_SIZE = 1000;
+
+async function selectAll(tabla, orderBy) {
+  const filas = [];
+
+  for (let desde = 0; ; desde += PAGE_SIZE) {
+    let query = supabase.from(tabla).select("*").range(desde, desde + PAGE_SIZE - 1);
+    if (orderBy) query = query.order(orderBy, { ascending: true });
+
+    const { data, error } = await query;
+    if (error) return { data: null, error };
+
+    filas.push(...data);
+    if (data.length < PAGE_SIZE) break;
+  }
+
+  return { data: filas, error: null };
 }
 
 export async function syncDocumentToSupabase(doc) {
@@ -146,18 +178,15 @@ export async function deleteDocumentFromSupabase(doc) {
 export async function loadDocumentsFromSupabase() {
   if (!supabaseEnabled) return [];
 
-  const { data: batchRows, error: batchErr } = await supabase.from("batches").select("*");
+  const { data: batchRows, error: batchErr } = await selectAll("batches");
   if (batchErr || !batchRows) return [];
 
-  const { data: valueRows, error: valErr } = await supabase
-    .from("batch_values")
-    .select("*")
-    .order("sort_order", { ascending: true });
+  const { data: valueRows, error: valErr } = await selectAll("batch_values", "sort_order");
   if (valErr) return [];
 
   // batch_personnel es best-effort: si el proyecto todavía no corrió la
   // migración v3, se sigue cargando todo lo demás con normalidad.
-  const { data: personnelRows } = await supabase.from("batch_personnel").select("*");
+  const { data: personnelRows } = await selectAll("batch_personnel");
 
   const byId = new Map(batchRows.map((b) => [b.id, b]));
   const docs = new Map();
@@ -172,6 +201,7 @@ export async function loadDocumentsFromSupabase() {
         fileName,
         meta: { producto: batch.producto, lote: batch.lote, stage },
         params: [],
+        paramIds: new Set(),
         personnel: { operarios: [], supervisores: [] },
         uploadedAt: batch.updated_at || batch.created_at || null,
       });
@@ -184,8 +214,13 @@ export async function loadDocumentsFromSupabase() {
     if (!batch) continue;
 
     // Misma casilla (primera palabra + lote + etapa) que pudo haberse llenado
-    // desde más de una fila de "batches" si el nombre del producto varió.
-    ensureDoc(batch, row.stage, row.file_name).params.push({
+    // desde más de una fila de "batches" si el nombre del producto varió; en
+    // ese caso el mismo parámetro llega repetido y basta con quedarse con uno.
+    const doc = ensureDoc(batch, row.stage, row.file_name);
+    if (doc.paramIds.has(row.param_id)) continue;
+    doc.paramIds.add(row.param_id);
+
+    doc.params.push({
       id: row.param_id,
       section: row.section || "GENERAL",
       label: row.label || row.param_id,
@@ -204,8 +239,12 @@ export async function loadDocumentsFromSupabase() {
 
     const doc = ensureDoc(batch, row.stage, null);
     const list = row.role === "supervisor" ? doc.personnel.supervisores : doc.personnel.operarios;
-    list.push({ name: row.name, count: row.count });
+    const yaEsta = list.find((p) => p.name === row.name);
+    if (yaEsta) yaEsta.count = Math.max(yaEsta.count, row.count);
+    else list.push({ name: row.name, count: row.count });
   }
 
-  return [...docs.values()];
+  // paramIds sólo sirve para deduplicar durante la reconstrucción; no forma
+  // parte del documento que se guarda ni se compara más adelante.
+  return [...docs.values()].map(({ paramIds: _paramIds, ...doc }) => doc);
 }

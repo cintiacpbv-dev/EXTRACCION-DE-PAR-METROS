@@ -17,6 +17,7 @@ import {
   IconAlert,
   IconArrowLeft,
   IconGrid,
+  IconFileText,
 } from "./components/Icons.jsx";
 import { processPdfFile } from "./lib/parsers/index.js";
 import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
@@ -31,6 +32,8 @@ import {
 } from "./lib/storage.js";
 import { supabaseEnabled } from "./lib/supabaseClient.js";
 import { exportProductToExcel, tableToClipboardText } from "./lib/exportExcel.js";
+import { exportRvpToWord } from "./lib/exportWord.js";
+import { copyRvpToClipboard } from "./lib/rvpHtml.js";
 import {
   aggregatePersonnel,
   buildTable,
@@ -70,6 +73,7 @@ export default function App() {
   const [busyLabel, setBusyLabel] = useState("");
   const [messages, setMessages] = useState([]);
   const [copyState, setCopyState] = useState("idle");
+  const [rvpCopyState, setRvpCopyState] = useState("idle");
   const [macroOpen, setMacroOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -316,6 +320,23 @@ export default function App() {
     if (!ok) pushMessage("No hay datos para exportar en este producto.", "error");
   }
 
+  async function handleExportWord() {
+    if (!productoActivo) return;
+    try {
+      await exportRvpToWord(docs, productoActivo, { onlyCritical });
+      pushMessage("Informe Word generado. Revisa las columnas marcadas para completar a mano.", "success");
+    } catch (err) {
+      pushMessage(`No se pudo generar el informe: ${err.message}`, "error");
+    }
+  }
+
+  async function handleCopyRvp() {
+    if (!productoActivo) return;
+    const ok = await copyRvpToClipboard(docs, productoActivo, { onlyCritical });
+    setRvpCopyState(ok ? "copied" : "error");
+    setTimeout(() => setRvpCopyState("idle"), 2500);
+  }
+
   async function handleCopy() {
     if (!table) return;
     const text = tableToClipboardText(table);
@@ -476,6 +497,18 @@ export default function App() {
                   <button className="btn btn--ghost" onClick={handleCopy} disabled={!table}>
                     {copyState === "copied" ? <IconCheck size={16} /> : <IconCopy size={16} />}
                     {copyState === "copied" ? "Copiado" : copyState === "error" ? "No se pudo copiar" : "Copiar tabla"}
+                  </button>
+                  <button className="btn btn--ghost" onClick={handleCopyRvp} disabled={!productoActivo}>
+                    {rvpCopyState === "copied" ? <IconCheck size={16} /> : <IconFileText size={16} />}
+                    {rvpCopyState === "copied"
+                      ? "Informe copiado"
+                      : rvpCopyState === "error"
+                        ? "No se pudo copiar"
+                        : "Copiar informe"}
+                  </button>
+                  <button className="btn btn--ghost" onClick={handleExportWord} disabled={!productoActivo}>
+                    <IconFileText size={16} />
+                    Informe Word
                   </button>
                   <button className="btn btn--primary" onClick={handleExport} disabled={!productoActivo}>
                     <IconDownload size={16} />

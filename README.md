@@ -96,6 +96,31 @@ En el **SQL Editor** del proyecto:
 
 Sin Supabase configurado la app funciona igual, guardando en el `localStorage`.
 
+## Informe de validación en Word (RVP)
+
+El botón **Informe Word** genera un `.docx` con la estructura del reporte de
+validación de proceso, relleno con los datos ya extraídos:
+
+| Sección | Origen |
+|---|---|
+| Lotes controlados y fechas de proceso | Fechas de inicio/término de cada etapa |
+| Materiales utilizados | Sección de insumos del registro |
+| Personal que intervino | Operarios ("Realizado / Por") y supervisores ("VB") |
+| Verificaciones de parámetros | La misma tabla de la app, con el setpoint como rango de operación |
+
+Igual que el reporte de referencia, alterna páginas verticales (datos
+generales) y horizontales (tablas que crecen una columna por lote), y parte la
+tabla de parámetros en bloques de 10 lotes para que las columnas sigan siendo
+legibles.
+
+**Proveedor y fecha de vencimiento** de los materiales quedan en blanco: no
+figuran en el registro de manufactura y deben completarse desde el sistema de
+almacén.
+
+El botón **Copiar informe** pone el mismo contenido en el portapapeles con
+formato, de modo que al pegar en Word llegan como tablas reales y no como
+texto separado por tabulaciones.
+
 ## Macro de formato para Excel
 
 El botón **Macro de formato** de la app explica el proceso y descarga
