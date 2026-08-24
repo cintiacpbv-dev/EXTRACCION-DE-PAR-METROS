@@ -116,13 +116,29 @@ function celdaConTexto(xmlCelda, texto, resaltar) {
   // porque insertar un párrafo a mano se sale de lo que este lector entiende.
   if (primero) return null;
 
-  if (resaltar) {
-    salida = salida.includes("<w:tcPr>")
-      ? salida.replace("<w:tcPr>", `<w:tcPr>${AMARILLO}`)
-      : salida.replace("<w:tc>", `<w:tc><w:tcPr>${AMARILLO}</w:tcPr>`);
+  return resaltar ? conFondoAmarillo(salida) : salida;
+}
+
+// Dentro de las propiedades de una celda, Word exige un orden concreto de
+// elementos: el sombreado va detrás de los bordes y del ancho, y delante del
+// resto. Puesto en otro sitio el documento se abre igual, pero Word ignora el
+// color y el resaltado no se ve.
+const ANTES_DEL_SOMBREADO = [/<\/w:tcBorders>/, /<w:tcW\b[^>]*\/>/, /<w:gridSpan\b[^>]*\/>/];
+
+function conFondoAmarillo(xmlCelda) {
+  // Un sombreado previo se reemplaza, no se duplica.
+  const limpio = xmlCelda.replace(/<w:shd\b[^>]*\/>|<w:shd\b[^>]*>[\s\S]*?<\/w:shd>/, "");
+
+  if (!limpio.includes("<w:tcPr>")) {
+    return limpio.replace(/<w:tc>/, `<w:tc><w:tcPr>${AMARILLO}</w:tcPr>`);
   }
 
-  return salida;
+  const props = limpio.slice(limpio.indexOf("<w:tcPr>"), limpio.indexOf("</w:tcPr>"));
+  for (const marca of ANTES_DEL_SOMBREADO) {
+    const m = props.match(marca);
+    if (m) return limpio.replace(m[0], m[0] + AMARILLO);
+  }
+  return limpio.replace("<w:tcPr>", `<w:tcPr>${AMARILLO}`);
 }
 
 /**
