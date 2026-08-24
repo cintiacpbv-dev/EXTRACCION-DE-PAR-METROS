@@ -118,7 +118,10 @@ const FILA_INSUMO_RE = new RegExp(
     /(Z[A-Z]{3}\d{5})\s+/, // grupo de artículo
     /(P\d{3})\s+/, // almacén de piso
     /([\d.,]+)\s*/, // cantidad requerida
-    /([A-Z]{2,4})\s*/, // unidad de medida
+    // Unidad de medida. Admite una sola letra: los gramos ("1356.000 g") y
+    // los litros ("20 L") se escriben así, y exigir dos caracteres descartaba
+    // la fila entera, con lo que ese material se quedaba sin su Lote ME.
+    /([A-Z]{1,4})\s*/, // unidad de medida
     /(\d{6,})\s+/, // lote del material (Lote ME)
     /([\d.,]+)\s+/, // potencia %
     /([\d.,]+)\s+/, // cantidad entregada
