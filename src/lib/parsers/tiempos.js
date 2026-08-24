@@ -14,6 +14,13 @@ const INICIO_RE = /^FECHA\s*\/\s*HORA\s+INICI(?:O|AL)\b/i;
 const FINAL_RE = /^FECHA\s*\/\s*HORA\s+FINAL\b/i;
 const FECHA_HORA_RE = /^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?/;
 
+// Lo que rodea al proceso pero no es el proceso: papeleo, alistar el material
+// y las máquinas, y el desmontaje de después. Duran minutos y no dicen nada
+// de cuánto se tarda en fabricar, envasar o acondicionar un lote, así que no
+// llevan tiempo ni cuentan para el total de la etapa.
+const SECCION_SIN_TIEMPO_RE =
+  /^(DOCUMENTACION|DOCUMENTACIÓN|PREPARACION|PREPARACIÓN|SET\s*UP\s*\(\s*POST)/i;
+
 export const SECCION_TOTAL = "TIEMPO TOTAL DE LA ETAPA";
 
 /** Instante de un valor "2026-08-02 01:56", en minutos, o null. */
@@ -86,7 +93,7 @@ export function conTiempos(params) {
     if (t === null) continue;
 
     const duracion = formatoDuracion(t - abierto.t);
-    if (duracion === null) {
+    if (duracion === null || SECCION_SIN_TIEMPO_RE.test(abierto.seccion)) {
       abierto = null;
       continue;
     }

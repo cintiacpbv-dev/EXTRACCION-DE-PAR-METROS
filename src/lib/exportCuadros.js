@@ -69,8 +69,6 @@ const A4_ANCHO = 11907;
 const A4_ALTO = 16840;
 const MARGEN = 1000;
 
-const LOTES_POR_TABLA = 10; // como el original, una tabla por bloque de lotes
-
 // El cuadro de personal aprovecha el ancho entero de la hoja horizontal en
 // vez de cortar cada diez lotes: se meten todas las columnas que quepan y,
 // sólo si sobran, continúan en la hoja siguiente. Por debajo de este ancho
@@ -394,14 +392,69 @@ function valorParaCuadro(valor) {
   return typeof valor === "number" ? String(Math.round(valor * 1000) / 1000) : String(valor);
 }
 
-/** Un bloque del cuadro 4: la tabla de parámetros para un grupo de lotes. */
-function cuadroParametros(datos, lotes, etapa) {
+// Ancho con el que una columna de lote muestra en una sola línea un valor de
+// palabra entera ("ENCENDIDA", "Conforme"), que es lo primero que se parte
+// feo cuando las columnas se estrechan. Las fechas con hora no caben en una
+// línea a ningún ancho razonable y se reparten en dos, como en el original.
+const ANCHO_COMODO_LOTE = 900;
+
+// Hasta dónde pueden ceder las dos columnas de texto para hacerle sitio a los
+// lotes. El nombre del parámetro va justificado, como en el formato, y en una
+// columna estrecha la justificación abre huecos entre palabras; por eso cede
+// menos que el rango, que son cuatro palabras cortas.
+const MIN_NOMBRE = 1350;
+const MIN_RANGO = 850;
+
+/**
+ * Reparte el ancho de la hoja entre las columnas fijas y una columna por lote.
+ *
+ * Todos los lotes van en la misma tabla, así que a partir de unos catorce las
+ * columnas empiezan a apretarse. Antes de estrechar los datos se les quita
+ * ancho al nombre del parámetro y al rango de operación, que van holgados en
+ * el formato; con pocos lotes el reparto no se toca y quedan los anchos
+ * originales.
+ */
+function anchosParametros(nLotes) {
   const A = ANCHOS_PARAM;
-  const fijas = A.rotulo + A.nombreA + A.nombreB + A.nombreC + A.rango;
-  const anchoLote = Math.floor((ANCHO_TABLA_PARAM - fijas) / Math.max(lotes.length, 1));
-  const anchos = [A.rotulo, A.nombreA, A.nombreB, A.nombreC, A.rango, ...Array(lotes.length).fill(anchoLote)];
+  const n = Math.max(nLotes, 1);
+  const nombre = A.nombreA + A.nombreB + A.nombreC;
+
+  const libre = ANCHO_TABLA_PARAM - A.rotulo - nombre - A.rango;
+  const falta = ANCHO_COMODO_LOTE * n - libre;
+  const cede = Math.max(0, Math.min(falta, nombre - MIN_NOMBRE + (A.rango - MIN_RANGO)));
+
+  // Lo que se cede sale de las dos columnas en proporción a lo que les sobra.
+  const margenNombre = nombre - MIN_NOMBRE;
+  const margenRango = A.rango - MIN_RANGO;
+  const margen = margenNombre + margenRango || 1;
+  const quitaNombre = Math.round((cede * margenNombre) / margen);
+  const quitaRango = cede - quitaNombre;
+
+  const anchoNombre = nombre - quitaNombre;
+  const anchoRango = A.rango - quitaRango;
+
+  const paraLotes = ANCHO_TABLA_PARAM - A.rotulo - anchoNombre - anchoRango;
+  const anchoLote = Math.floor(paraLotes / n);
+  // El sobrante del redondeo va a la última columna: si no, el borde derecho
+  // de la tabla queda desalineado con el de las cabeceras.
+  const sobra = paraLotes - anchoLote * n;
+
+  return {
+    rotulo: A.rotulo,
+    nombre: anchoNombre,
+    rango: anchoRango,
+    lotes: Array(n).fill(anchoLote).map((w, i) => (i === n - 1 ? w + sobra : w)),
+    anchoLote,
+  };
+}
+
+/** El cuadro 4: la tabla de parámetros de una etapa, con todos sus lotes. */
+function cuadroParametros(datos, lotes, etapa) {
+  const A = anchosParametros(lotes.length);
+  const anchos = [A.rotulo, A.nombre, A.rango, ...A.lotes];
   const nCols = anchos.length;
   const total = anchos.reduce((a, b) => a + b, 0);
+  const anchoLotes = A.lotes.reduce((a, b) => a + b, 0);
 
   const filas = [
     // Cabecera de dos filas: los rótulos fijos se combinan en vertical y
@@ -410,7 +463,7 @@ function cuadroParametros(datos, lotes, etapa) {
       [
         celdaParam("Parámetros de proceso", {
           bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA,
-          colSpan: 4, rowSpan: 2, size: TAM_PARAM_CAB, width: A.rotulo + A.nombreA + A.nombreB + A.nombreC,
+          colSpan: 2, rowSpan: 2, size: TAM_PARAM_CAB, width: A.rotulo + A.nombre,
         }),
         celdaParam("Rango de operación", {
           bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA,
@@ -418,16 +471,16 @@ function cuadroParametros(datos, lotes, etapa) {
         }),
         celdaParam("RESULTADOS", {
           bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA,
-          colSpan: lotes.length, size: TAM_PARAM_CAB, width: anchoLote * lotes.length,
+          colSpan: lotes.length, size: TAM_PARAM_CAB, width: anchoLotes,
         }),
       ],
       { alto: ALTO_PAR_CAB1, cabecera: true }
     ),
     fila(
-      lotes.map((l) =>
+      lotes.map((l, i) =>
         celdaParam(l, {
           bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA,
-          size: TAM_PARAM_CAB, width: anchoLote,
+          size: TAM_PARAM_CAB, width: A.lotes[i],
         })
       ),
       { alto: ALTO_PAR_CAB2, cabecera: true }
@@ -462,20 +515,16 @@ function cuadroParametros(datos, lotes, etapa) {
       }
 
       const etiqueta = row.unit && !row.label.includes(row.unit) ? `${row.label} (${row.unit})` : row.label;
-      celdas.push(
-        celdaParam(etiqueta, {
-          align: AlignmentType.BOTH, colSpan: 3, width: A.nombreA + A.nombreB + A.nombreC,
-        })
-      );
+      celdas.push(celdaParam(etiqueta, { align: AlignmentType.BOTH, width: A.nombre }));
       celdas.push(
         celdaParam(row.setpoint || "Referencial", { align: AlignmentType.CENTER, width: A.rango })
       );
 
-      for (const lote of lotes) {
+      lotes.forEach((lote, j) => {
         celdas.push(
-          celdaParam(valorParaCuadro(row.values[lote]), { align: AlignmentType.CENTER, width: anchoLote })
+          celdaParam(valorParaCuadro(row.values[lote]), { align: AlignmentType.CENTER, width: A.lotes[j] })
         );
-      }
+      });
 
       filas.push(fila(celdas, { alto: ALTO_PAR_DATO }));
     });
@@ -526,17 +575,16 @@ export function buildCuadrosDocument(documents, familia, options) {
     }
   }
 
-  // Cuadro 4: una tabla por etapa y por bloque de lotes, como el original,
-  // que parte sus veinte lotes en dos tablas de diez.
+  // Cuadro 4: una sola tabla por etapa, con todos los lotes en la misma hoja.
+  // El original parte sus veinte lotes en dos tablas de diez, pero así hay que
+  // ir y venir entre hojas para comparar un parámetro entre lotes, que es
+  // justo para lo que sirve el cuadro; las columnas se estrechan en su lugar
+  // (ver anchosParametros).
   const parametros = [titulo("4. VERIFICACIÓN DE PARÁMETROS DE PROCESO")];
   for (const datos of model.tablas) {
     if (datos.lotes.length === 0 || datos.rowCount === 0) continue;
-
-    for (let i = 0; i < datos.lotes.length; i += LOTES_POR_TABLA) {
-      const grupo = datos.lotes.slice(i, i + LOTES_POR_TABLA);
-      parametros.push(cuadroParametros(datos, grupo, datos.stage));
-      parametros.push(new Paragraph({ children: [] }));
-    }
+    parametros.push(cuadroParametros(datos, datos.lotes, datos.stage));
+    parametros.push(new Paragraph({ children: [] }));
   }
 
   return new Document({
