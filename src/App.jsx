@@ -19,6 +19,8 @@ import {
   IconGrid,
   IconFileText,
   IconFilter,
+  IconUpload,
+  IconChevronDown,
 } from "./components/Icons.jsx";
 import { processPdfFile } from "./lib/parsers/index.js";
 import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
@@ -118,6 +120,7 @@ export default function App() {
   // ya en el primer render; lo de Supabase llega después.
   const [imagenes, setImagenes] = useState(cargarImagenesLocales);
   const [imagenAbierta, setImagenAbierta] = useState(null);
+  const [cargaAbierta, setCargaAbierta] = useState(false);
 
   // Procesar un PDF es asíncrono y dura varios segundos. Leer los documentos
   // del estado capturado al empezar haría que una segunda carga (o un borrado
@@ -314,6 +317,11 @@ export default function App() {
     () => docs.filter((d) => d.familia === productoActivo),
     [docs, productoActivo]
   );
+
+  // Con el producto ya analizado, lo que se viene a hacer es mirar sus
+  // parámetros por etapa; cargar documentos y traer lotes del SAP ya se hizo.
+  // Ese bloque se pliega para que la pantalla empiece por el producto.
+  const puedePlegarCarga = !blank && productDocs.length > 0;
 
   function pushMessage(text, type = "info") {
     const id = Date.now() + Math.random();
@@ -694,6 +702,46 @@ export default function App() {
             </button>
 
             <section className="card">
+              {/* Con el producto ya analizado, cargar documentos y traer lotes
+                  del SAP deja de ser lo que se viene a hacer: se pliega para
+                  que la pantalla empiece en el producto y su etapa, que es lo
+                  que se consulta. Sigue a un clic para añadir más. */}
+              {puedePlegarCarga && !cargaAbierta ? (
+                <button
+                  className="sap-cabecera sap-cabecera--boton carga-plegada"
+                  onClick={() => setCargaAbierta(true)}
+                  aria-expanded={false}
+                >
+                  <span className="sap-icono">
+                    <IconUpload size={16} />
+                  </span>
+                  <div>
+                    <strong>Agregar documentos</strong>
+                    <p className="muted">
+                      Cargar más RMD u órdenes, o traer lotes desde SAP.
+                    </p>
+                  </div>
+                  <IconChevronDown size={16} className="sap-chevron" />
+                </button>
+              ) : null}
+
+              <div className={puedePlegarCarga && !cargaAbierta ? "carga-oculta" : ""}>
+              {puedePlegarCarga && cargaAbierta && (
+                <button
+                  className="sap-cabecera sap-cabecera--boton carga-plegada"
+                  onClick={() => setCargaAbierta(false)}
+                  aria-expanded
+                >
+                  <span className="sap-icono">
+                    <IconUpload size={16} />
+                  </span>
+                  <div>
+                    <strong>Agregar documentos</strong>
+                    <p className="muted">Ocultar cuando termines.</p>
+                  </div>
+                  <IconChevronDown size={16} className="sap-chevron is-open" />
+                </button>
+              )}
               <div className="upload-row">
                 <UploadZone
                   onFiles={(files) => handleFiles(files, "registro")}
@@ -721,6 +769,7 @@ export default function App() {
                 analizados={analizados}
                 omitirMM={omitirMM}
               />
+              </div>
 
               {!blank && productos.length > 0 && (
                 <div className="selectors">
