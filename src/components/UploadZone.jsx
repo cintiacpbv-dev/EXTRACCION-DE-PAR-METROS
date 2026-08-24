@@ -15,6 +15,10 @@ export default function UploadZone({
   title = "Arrastra aquí los PDF",
   compactTitle = "Agregar otro PDF",
   hint = "Cualquier producto y cualquier etapa. Los parámetros se detectan solos a partir del documento.",
+  // Qué archivos admite. Por defecto PDF, que es lo que se carga casi
+  // siempre; el protocolo de referencia llega en Word.
+  extensiones = [".pdf"],
+  tipos = ["application/pdf"],
 }) {
   const inputRef = useRef(null);
   const hintId = useId();
@@ -23,11 +27,11 @@ export default function UploadZone({
   const handleFiles = useCallback(
     (fileList) => {
       const files = Array.from(fileList || []).filter(
-        (f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")
+        (f) => tipos.includes(f.type) || extensiones.some((e) => f.name.toLowerCase().endsWith(e))
       );
       if (files.length > 0) onFiles(files);
     },
-    [onFiles]
+    [onFiles, tipos, extensiones]
   );
 
   const etiqueta = busy ? busyLabel || "Procesando…" : compact ? compactTitle : title;
@@ -67,7 +71,7 @@ export default function UploadZone({
       <input
         ref={inputRef}
         type="file"
-        accept="application/pdf,.pdf"
+        accept={[...tipos, ...extensiones].join(",")}
         multiple
         hidden
         // El input vive dentro del contenedor pulsable: sin detener la

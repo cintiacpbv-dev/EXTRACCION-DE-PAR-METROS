@@ -6,6 +6,7 @@ import ProductLibrary from "./components/ProductLibrary.jsx";
 import PersonnelPanel from "./components/PersonnelPanel.jsx";
 import ProductImagePicker from "./components/ProductImagePicker.jsx";
 import SapPanel from "./components/SapPanel.jsx";
+import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
 import {
   IconCloud,
   IconDrive,
@@ -770,6 +771,8 @@ export default function App() {
                 omitirMM={omitirMM}
               />
               </div>
+
+              {!blank && productDocs.length > 0 && <ProtocoloPanel />}
 
               {!blank && productos.length > 0 && (
                 <div className="selectors">
