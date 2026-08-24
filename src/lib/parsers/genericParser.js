@@ -163,15 +163,31 @@ function splitLabel(rawLabel) {
   return { label, setpoint, unit };
 }
 
+// Acondicionado divide su procedimiento en operaciones numeradas
+// ("4.4.1.- OPERACION N° 1: IMPRESION DE CAJAS", "4.4.16.- OPERACION Nº 2:
+// ACONDICIONADO") que son trabajos distintos, a menudo con días de por medio:
+// en el lote 2075526 las cajas se imprimieron el 22 de julio y el
+// acondicionado se hizo el 2 de agosto. Son encabezados de sección aunque
+// lleven dos puntos, que es lo que normalmente delata una pareja
+// "etiqueta: valor" y no un título.
+const OPERACION_RE = /^OPERACI[OÓ]N\s*N\s*[°ºo.]*\s*\d+\s*:\s*\S/i;
+
 function matchSectionHeading(text) {
   const m = text.match(/^(\d+(?:\.\d+)*)\s*\.-\s*(.+)$/);
   if (!m) return null;
 
-  const title = m[2].replace(SECTION_NOTE_RE, "").trim().replace(/:$/, "").trim();
+  let title = m[2].replace(SECTION_NOTE_RE, "").trim().replace(/:$/, "").trim();
+
+  // El título de la operación arrastra una aclaración entre paréntesis que lo
+  // pasa de largo ("...IMPRESION DE CAJAS (NUMERO DE LOTE Y FECHA DE EXPIRA
+  // Y/O TEXTO ADICIONAL)"); se queda con el nombre de la operación.
+  const esOperacion = OPERACION_RE.test(title);
+  if (esOperacion) title = title.replace(/\s*\([^)]*\)\s*$/, "").trim();
+
   if (!title || title.length > 70) return null;
   if (/^\d/.test(title)) return null;
   if (/\b(Realizado|VB|V°B°)\b/i.test(title)) return null;
-  if (/:\s*\S/.test(title)) return null;
+  if (/:\s*\S/.test(title) && !esOperacion) return null;
 
   return { title: title.toUpperCase() };
 }

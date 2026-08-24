@@ -3,6 +3,7 @@ import { extractMeta } from "./meta.js";
 import { detectParameters } from "./genericParser.js";
 import { detectPersonnel } from "./personnel.js";
 import { detectInsumos } from "./insumos.js";
+import { conTiempos } from "./tiempos.js";
 import { esOrdenDeProduccion, parseOrden } from "./orden.js";
 
 /**
@@ -51,7 +52,7 @@ export async function processPdfFile(file) {
   }
 
   const meta = extractMeta(flatText, pages);
-  const params = detectParameters(pages);
+  const params = conTiempos(detectParameters(pages));
   const personnel = detectPersonnel(pages);
   const insumos = detectInsumos(pages);
 
