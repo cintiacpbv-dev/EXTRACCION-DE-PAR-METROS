@@ -43,16 +43,20 @@ function solape(a, b) {
   return n;
 }
 
-// Tipo de magnitud que declara un texto de setpoint del protocolo.
-const TIPOS = [
-  { tipo: "temperatura", re: /[ºo°]\s?C\b|temperatura/i },
-  { tipo: "velocidad", re: /\b(?:rpm|cpm)\b/i },
-  { tipo: "amperaje", re: /\b(?:A|ampere|amperes|amperaje)\b/i },
-  { tipo: "presion", re: /\b(?:MPa|Mpa|bar|psi)\b/i },
-  { tipo: "porcentaje", re: /%/ },
-  { tipo: "tiempo", re: /\b(?:minutos?|min|horas?|segundos?|seg)\b/i },
-  { tipo: "longitud", re: /\bmm\b/i },
-  { tipo: "peso", re: /\b(?:kg|g)\b/ },
+// Qué magnitud es cada unidad. Los patrones van anclados y se aplican a la
+// unidad ya recortada de la frase, nunca al texto entero: suelta, "seg" casa
+// dentro de "Según" —la ú no es letra para el motor de expresiones, así que
+// deja un límite de palabra justo ahí— y "Vaso superior (A)" pasaba por
+// amperios. Cada uno de esos dos errores mandaba la búsqueda a otra magnitud.
+const UNIDAD_TIPO = [
+  [/^(?:°C|ºC|oC|C°)$/i, "temperatura"],
+  [/^(?:rpm|cpm)$/i, "velocidad"],
+  [/^(?:A|amperes?)$/i, "amperaje"],
+  [/^(?:MPa|bar|psi)$/i, "presion"],
+  [/^%$/, "porcentaje"],
+  [/^(?:minutos?|min|horas?|segundos?|seg)$/i, "tiempo"],
+  [/^mm$/i, "longitud"],
+  [/^(?:kg|g)$/i, "peso"],
 ];
 
 /**
@@ -66,12 +70,40 @@ function tipoDeSetpoint(texto) {
   const m = String(texto || "").match(
     /\d+(?:[.,]\d+)?\s*(°C|ºC|oC|minutos?|min|horas?|segundos?|seg|rpm|cpm|amperes?|MPa|Mpa|bar|psi|%|mm|kg|g|A)\b/i
   );
-  if (m) {
-    for (const t of TIPOS) if (t.re.test(m[1])) return t.tipo;
-  }
-  // Sin cifra ("Temperatura ambiente", "Según lo observado") manda el nombre.
-  for (const t of TIPOS) if (t.re.test(texto)) return t.tipo;
+  if (!m) return null;
+  for (const [re, tipo] of UNIDAD_TIPO) if (re.test(m[1])) return tipo;
   return null;
+}
+
+// Cómo se llama cada magnitud cuando el valor no la delata.
+const POR_NOMBRE = [
+  [/temperatura|t[°º]\s|sellado/i, "temperatura"],
+  [/velocidad/i, "velocidad"],
+  [/amperaje|amperios?/i, "amperaje"],
+  [/presi[óo]n/i, "presion"],
+  [/tiempo|duraci[óo]n/i, "tiempo"],
+  [/peso|contenido|llenado/i, "peso"],
+  [/tama[ñn]o|longitud|ancho/i, "longitud"],
+  [/nivel|humedad/i, "porcentaje"],
+];
+
+/**
+ * La magnitud de una fila del protocolo.
+ *
+ * Cuando el valor no trae cifra —"Según lo observado", "Temperatura
+ * ambiente"— hay que deducirla del nombre del parámetro, que es justo el caso
+ * en que el registro sí puso un número y el protocolo se quedó sin él: la
+ * velocidad de la sacheteadora pasó de "según lo observado" a 15–30 cpm.
+ */
+function porNombre(texto) {
+  for (const [re, tipo] of POR_NOMBRE) if (re.test(String(texto || ""))) return tipo;
+  return null;
+}
+
+export function tipoDeFila(fila) {
+  // Manda la unidad del valor; si no la hay, lo que nombre el propio valor
+  // ("Temperatura ambiente") y, en último lugar, el nombre del parámetro.
+  return tipoDeSetpoint(fila.setpoint) || porNombre(fila.setpoint) || porNombre(fila.parametro);
 }
 
 /** Las cifras de un texto, para comparar valores y no cadenas. */
@@ -119,8 +151,11 @@ const MALLA_PROTOCOLO_RE = /malla/i;
 
 // Cuántos puntos de coincidencia hacen falta para dar una frase por buena.
 // Por debajo se prefiere no proponer nada: un cambio inventado en un
-// protocolo de validación cuesta más de encontrar que uno que falta.
-const UMBRAL = 7;
+// protocolo de validación cuesta más de encontrar que uno que falta. Con el
+// listón bajo, un parámetro de nombre corriente —"Velocidad"— se enganchaba
+// a cualquier velocidad del registro con sólo compartir un par de palabras
+// del paso.
+const UMBRAL = 10;
 
 /**
  * Busca en el registro la frase que fija el mismo valor que una fila del
@@ -129,7 +164,7 @@ const UMBRAL = 7;
  */
 function mejorEvidencia(fila, setpoints) {
   const esMalla = MALLA_PROTOCOLO_RE.test(fila.parametro);
-  const tipo = esMalla ? null : tipoDeSetpoint(fila.setpoint);
+  const tipo = esMalla ? null : tipoDeFila(fila);
   if (!tipo && !esMalla) return null;
 
   const delNombre = palabras(fila.parametro);
