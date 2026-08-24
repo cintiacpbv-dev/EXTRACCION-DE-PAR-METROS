@@ -148,7 +148,7 @@ function conFondoAmarillo(xmlCelda) {
  * delante para que cambiar una celda no desplace la posición de las
  * anteriores, que se calcularon sobre el XML original.
  */
-export async function escribirProtocolo({ zip, xml }, cambios, { resaltar = true } = {}) {
+export async function escribirProtocolo({ zip, xml }, cambios, { resaltar = true, resumen = null } = {}) {
   const ordenados = [...cambios].sort((a, b) => b.celda.inicio - a.celda.inicio);
 
   let salida = xml;
@@ -162,6 +162,21 @@ export async function escribirProtocolo({ zip, xml }, cambios, { resaltar = true
     aplicados += 1;
   }
 
+  if (resumen) salida = conApartadoFinal(salida, resumen);
+
   zip.file("word/document.xml", salida);
   return { blob: await zip.generateAsync({ type: "blob" }), aplicados };
+}
+
+/**
+ * Añade contenido al final del cuerpo del documento.
+ *
+ * Va justo antes del último <w:sectPr>, que no es una sección más sino la
+ * configuración de página del cuerpo entero y tiene que seguir siendo lo
+ * último. Metido después, Word da el archivo por dañado.
+ */
+function conApartadoFinal(xml, xmlNuevo) {
+  const cierre = xml.lastIndexOf("<w:sectPr");
+  if (cierre === -1) return xml.replace("</w:body>", `${xmlNuevo}</w:body>`);
+  return xml.slice(0, cierre) + xmlNuevo + xml.slice(cierre);
 }

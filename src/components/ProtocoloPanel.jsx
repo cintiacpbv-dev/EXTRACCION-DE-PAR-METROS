@@ -5,6 +5,7 @@ import { extractPdfText } from "../lib/pdfText.js";
 import { detectSetpoints } from "../lib/parsers/setpoints.js";
 import { leerProtocolo, escribirProtocolo, tituloAntesDe } from "../lib/protocolo/documento.js";
 import { compararProtocolo } from "../lib/protocolo/comparar.js";
+import { xmlResumen } from "../lib/protocolo/resumen.js";
 
 /**
  * Pone al lado el protocolo de validación anterior y el registro de
@@ -104,7 +105,23 @@ export default function ProtocoloPanel() {
         celda: entradas[i].celda,
         textoNuevo: editados[i] ?? entradas[i].propuesta,
       }));
-      const { blob, aplicados } = await escribirProtocolo(protocolo, cambios);
+
+      // El protocolo sale con su propio registro de cambios al final: qué se
+      // actualizó, contra qué registro, de qué paso sale cada valor y qué
+      // queda por mirar a mano. Sin eso, quien lo revise tiene que volver a
+      // comparar los dos documentos para saber qué se tocó.
+      const resumen = xmlResumen({
+        registros,
+        aplicados: [...aceptados].map((i) => ({
+          ...entradas[i],
+          textoNuevo: editados[i] ?? entradas[i].propuesta,
+        })),
+        noAplicados: entradas.filter((e, i) => e.estado === "distinto" && !aceptados.has(i)),
+        iguales,
+        sinEvidencia,
+      });
+
+      const { blob, aplicados } = await escribirProtocolo(protocolo, cambios, { resumen });
 
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
