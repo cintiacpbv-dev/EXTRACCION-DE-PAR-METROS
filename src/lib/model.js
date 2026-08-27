@@ -119,6 +119,11 @@ function ordenEtapa(stage) {
   return i === -1 ? ORDEN_ETAPAS.length : i;
 }
 
+/** Compara dos etapas por el orden natural del proceso. Para usar en `.sort()`. */
+export function compararEtapas(a, b) {
+  return ordenEtapa(a) - ordenEtapa(b) || a.localeCompare(b);
+}
+
 /** Etapas encontradas para un producto, en el orden en que ocurren. */
 export function listStages(documents, familia) {
   const stages = [];

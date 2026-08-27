@@ -8,7 +8,7 @@ import {
   traerPdf,
   contarLotes,
 } from "../lib/sapLocal.js";
-import { claveLote } from "../lib/model.js";
+import { claveLote, compararEtapas } from "../lib/model.js";
 import { esMuestraMedica } from "../lib/muestraMedica.js";
 
 const ETIQUETAS = {
@@ -35,6 +35,47 @@ const ETIQUETAS = {
 const claveDe = (a) =>
   `${claveLote({ lote: a.lote, producto: a.producto })}::${a.etapa}::${a.tipo === "OP" ? "orden" : "registro"}`;
 
+/**
+ * Agrupa lo descargado por lote + producto + etapa, que es la unidad en la
+ * que se decide analizar o no: la OP y el RMD de un mismo paso van juntos, no
+ * se elige uno sin el otro.
+ */
+function agruparPorLote(archivos, { analizados, omitirMM }) {
+  const grupos = new Map();
+
+  for (const a of archivos) {
+    if (omitirMM && esMuestraMedica(a.producto)) continue;
+    const clave = `${a.lote}::${a.producto}::${a.etapa}`;
+    if (!grupos.has(clave)) {
+      grupos.set(clave, { clave, lote: a.lote, producto: a.producto, etapa: a.etapa, op: null, rmd: null });
+    }
+    const g = grupos.get(clave);
+    if (a.tipo === "OP") g.op = a;
+    else if (a.tipo === "RMD") g.rmd = a;
+  }
+
+  for (const g of grupos.values()) {
+    g.opAnalizada = g.op ? analizados.has(claveDe(g.op)) : null;
+    g.rmdAnalizado = g.rmd ? analizados.has(claveDe(g.rmd)) : null;
+    // Pendiente si algo de lo que hay (OP, RMD, o ambos) todavía no se cargó.
+    g.pendiente = (g.op && !g.opAnalizada) || (g.rmd && !g.rmdAnalizado);
+  }
+
+  return [...grupos.values()].sort(
+    (a, b) => a.lote.localeCompare(b.lote) || compararEtapas(a.etapa, b.etapa) || a.producto.localeCompare(b.producto)
+  );
+}
+
+/** Celda de la columna OP/RMD: si no está descargado, si lo está, o si ya se cargó al análisis. */
+function celdaDoc(archivo, analizado) {
+  if (!archivo) return <span className="muted">—</span>;
+  return (
+    <span className={`sap-marca ${analizado ? "sap-marca--ok" : ""}`}>
+      <IconCheck size={13} /> {analizado ? "Analizado" : "Descargado"}
+    </span>
+  );
+}
+
 export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), omitirMM = false }) {
   const [base, setBase] = useState(null);
   const [buscando, setBuscando] = useState(true);
@@ -44,6 +85,9 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
   const [error, setError] = useState(null);
   const [analizando, setAnalizando] = useState(false);
   const [enDisco, setEnDisco] = useState([]);
+  const [seleccion, setSeleccion] = useState(() => new Set());
+  const [filtroLote, setFiltroLote] = useState("");
+  const seleccionInicial = useRef(false);
   const sondeo = useRef(null);
 
   const aplicar = useCallback((encontrada) => {
@@ -104,21 +148,53 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
     }
   }
 
+  // Lo descargado, agrupado por lote + producto + etapa: es la unidad en la
+  // que se decide analizar, porque la OP y el RMD de un mismo paso van juntos.
+  const grupos = agruparPorLote(enDisco, { analizados, omitirMM });
+  const grupoDeClave = new Map(grupos.map((g) => [g.clave, g]));
+
+  // La primera vez que aparece algo pendiente se marca todo por defecto, para
+  // que el flujo de un clic siga funcionando sin obligar a marcar uno por
+  // uno; a partir de ahí la selección la decide quien la vaya tocando, y no
+  // se vuelve a pisar en cada sondeo del avance.
+  useEffect(() => {
+    if (seleccionInicial.current) return;
+    const pendientes = grupos.filter((g) => g.pendiente);
+    if (pendientes.length === 0) return;
+    setSeleccion(new Set(pendientes.map((g) => g.clave)));
+    seleccionInicial.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enDisco]);
+
+  function alternarSeleccion(clave) {
+    setSeleccion((previa) => {
+      const s = new Set(previa);
+      if (s.has(clave)) s.delete(clave);
+      else s.add(clave);
+      return s;
+    });
+  }
+
+  function seleccionarPendientes() {
+    setSeleccion(new Set(grupos.filter((g) => g.pendiente).map((g) => g.clave)));
+  }
+
+  function limpiarSeleccion() {
+    setSeleccion(new Set());
+  }
+
   async function analizar() {
     setError(null);
     setAnalizando(true);
     try {
-      // Se manda sólo lo que aún no está en el análisis: reprocesar lo ya
-      // cargado no aporta nada y cuesta varios segundos por documento.
-      const pendientes = (await listarArchivos(base)).filter(
-        (a) => !analizados.has(claveDe(a)) && !(omitirMM && esMuestraMedica(a.producto))
-      );
-      if (pendientes.length === 0) {
-        setError("Todo lo descargado ya está analizado.");
+      const objetivo = [...seleccion].map((c) => grupoDeClave.get(c)).filter(Boolean);
+      const archivos = objetivo.flatMap((g) => [g.op, g.rmd].filter(Boolean));
+      if (archivos.length === 0) {
+        setError("Marca al menos un lote de la lista para analizar.");
         return;
       }
       const ficheros = [];
-      for (const a of pendientes) ficheros.push(await traerPdf(base, a));
+      for (const a of archivos) ficheros.push(await traerPdf(base, a));
       await onArchivos(ficheros);
       setEnDisco(await listarArchivos(base).catch(() => enDisco));
     } catch (err) {
@@ -138,12 +214,18 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
   // había empezado.
   const fallo = error || (estado?.fase === "error" ? estado.error : null);
 
-  // Lo que hay en la carpeta y todavía no está en el análisis.
-  // Se descuentan también las muestras médicas cuando están omitidas: si no,
-  // el botón invitaría a analizar documentos que después se descartan.
-  const sinAnalizar = enDisco.filter(
-    (a) => !analizados.has(claveDe(a)) && !(omitirMM && esMuestraMedica(a.producto))
-  );
+  // Cuántos documentos (OP + RMD) hay detrás de lo marcado, para que el botón
+  // diga lo mismo que antes decía ("Analizar N documentos") pero sobre la
+  // selección en vez de sobre todo lo pendiente.
+  const archivosSeleccionados = [...seleccion]
+    .map((c) => grupoDeClave.get(c))
+    .filter(Boolean)
+    .flatMap((g) => [g.op, g.rmd].filter(Boolean));
+
+  const pendientesTotal = grupos.filter((g) => g.pendiente).length;
+
+  const grupoCoincide = (g) => !filtroLote.trim() || g.lote.toLowerCase().includes(filtroLote.trim().toLowerCase());
+  const gruposVisibles = grupos.filter(grupoCoincide);
 
   const subtitulo = trabajando
     ? estado.mensaje || "Trabajando…"
@@ -213,20 +295,20 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
             <button
               className="btn btn--ghost"
               onClick={analizar}
-              disabled={trabajando || analizando || ocupado || sinAnalizar.length === 0}
+              disabled={trabajando || analizando || ocupado || archivosSeleccionados.length === 0}
               title={
-                sinAnalizar.length === 0 && enDisco.length > 0
-                  ? "Todo lo que hay descargado ya está en el análisis"
-                  : undefined
+                enDisco.length === 0
+                  ? "Todavía no hay nada descargado"
+                  : archivosSeleccionados.length === 0
+                    ? "Marca en la lista de abajo qué lotes analizar"
+                    : undefined
               }
             >
               {analizando
                 ? "Analizando…"
                 : enDisco.length === 0
                   ? "Analizar lo descargado"
-                  : sinAnalizar.length === 0
-                    ? "Todo analizado"
-                    : `Analizar ${sinAnalizar.length} documento${sinAnalizar.length === 1 ? "" : "s"}`}
+                  : `Analizar ${archivosSeleccionados.length} documento${archivosSeleccionados.length === 1 ? "" : "s"}`}
             </button>
             {nLotes > 0 && <span className="counter">{nLotes === 1 ? "1 lote" : `${nLotes} lotes`}</span>}
           </div>
@@ -298,6 +380,83 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
                 </table>
               </div>
             </>
+          )}
+
+          {enDisco.length > 0 && (
+            <div className="sap-seleccion">
+              <div className="sap-seleccion__cabecera">
+                <div>
+                  <strong>Elige qué analizar</strong>
+                  <p className="muted">
+                    Lote, producto y etapa de lo descargado, con si tiene OP y RMD. Marca los que quieras
+                    analizar.
+                  </p>
+                </div>
+                <input
+                  type="search"
+                  className="sap-filtro"
+                  placeholder="Filtrar por lote…"
+                  value={filtroLote}
+                  onChange={(e) => setFiltroLote(e.target.value)}
+                  aria-label="Filtrar la lista por lote"
+                />
+              </div>
+
+              <div className="sap-acciones sap-acciones--compactas">
+                <button className="btn btn--ghost btn--sm" onClick={seleccionarPendientes} type="button">
+                  Marcar lo pendiente{pendientesTotal > 0 ? ` (${pendientesTotal})` : ""}
+                </button>
+                <button className="btn btn--ghost btn--sm" onClick={limpiarSeleccion} type="button">
+                  Quitar selección
+                </button>
+                <span className="counter">
+                  {seleccion.size === 0
+                    ? "Nada marcado"
+                    : `${seleccion.size} de ${grupos.length} marcado${seleccion.size === 1 ? "" : "s"}`}
+                </span>
+              </div>
+
+              <div className="sap-tabla-scroll">
+                <table className="sap-tabla">
+                  <thead>
+                    <tr>
+                      <th aria-hidden="true"></th>
+                      <th>Lote</th>
+                      <th>Producto</th>
+                      <th>Etapa</th>
+                      <th>OP</th>
+                      <th>RMD</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gruposVisibles.map((g) => (
+                      <tr key={g.clave} className={seleccion.has(g.clave) ? "is-seleccionado" : ""}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={seleccion.has(g.clave)}
+                            onChange={() => alternarSeleccion(g.clave)}
+                            aria-label={`Analizar el lote ${g.lote}, etapa ${g.etapa}`}
+                          />
+                        </td>
+                        <td className="sap-mono">{g.lote}</td>
+                        <td>{g.producto}</td>
+                        <td>{g.etapa}</td>
+                        <td>{celdaDoc(g.op, g.opAnalizada)}</td>
+                        <td>{celdaDoc(g.rmd, g.rmdAnalizado)}</td>
+                      </tr>
+                    ))}
+                    {gruposVisibles.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="muted">
+                          Ningún lote coincide con &quot;{filtroLote}&quot;.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </div>
       )}

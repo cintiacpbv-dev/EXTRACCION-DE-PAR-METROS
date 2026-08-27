@@ -1608,3 +1608,51 @@
   gap: 6px;
   margin: 10px 0;
 }
+
+/* Selección de lotes para analizar
+   ------------------------------------------------------------------ */
+.sap-seleccion {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.sap-seleccion__cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sap-seleccion__cabecera strong {
+  font-size: 13px;
+  display: block;
+}
+
+.sap-seleccion__cabecera p {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.sap-filtro {
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 12.5px;
+  min-width: 180px;
+}
+
+.sap-acciones--compactas {
+  margin-top: 10px;
+}
+
+.sap-tabla tr.is-seleccionado {
+  background: var(--sky-soft);
+}
+
+.sap-tabla td input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+}
