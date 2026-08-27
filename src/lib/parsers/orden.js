@@ -122,7 +122,12 @@ const FILA_INSUMO_RE = new RegExp(
     // los litros ("20 L") se escriben así, y exigir dos caracteres descartaba
     // la fila entera, con lo que ese material se quedaba sin su Lote ME.
     /([A-Z]{1,4})\s*/, // unidad de medida
-    /(\d{6,})\s+/, // lote del material (Lote ME)
+    // Lote del material. La mayoría son numéricos ("2067493"), pero los
+    // materiales de empaque y las materias primas también se reciben con
+    // lote alfanumérico ("ME00087981", "MP00012345"): exigir sólo dígitos
+    // descartaba la fila entera, no sólo el lote, así que esos materiales
+    // desaparecían del cuadro 2 sin dejar rastro.
+    /([A-Za-z0-9]{6,})\s+/, // lote del material (Lote ME)
     /([\d.,]+)\s+/, // potencia %
     /([\d.,]+)\s+/, // cantidad entregada
     /([\d.,]+)\s+/, // adicional
