@@ -227,6 +227,43 @@ async function selectAll(tabla, orderBy) {
   return { data: filas, error: null };
 }
 
+// PostgREST nombra la columna que no encuentra ("Could not find the 'x'
+// column of 'batches' in the schema cache", code PGRST204). Sirve para
+// reintentar sin ella en vez de perder todo el escrito: "batches" tiene dos
+// columnas opcionales que dependen de qué migración se haya corrido (receta
+// de la v5, teorico/teorico_unidad de la v9), y un insert o un update es
+// todo o nada — si una columna no existe, el resto tampoco se guarda, aunque
+// sí exista. Eso perdía la receta con sólo que faltara la migración v9.
+function columnaAusente(error) {
+  if (error?.code !== "PGRST204") return null;
+  const m = error.message?.match(/'([^']+)' column/);
+  return m ? m[1] : null;
+}
+
+/**
+ * Ejecuta una escritura y, si PostgREST rechaza una columna que el proyecto
+ * aún no tiene, la quita del payload y reintenta con lo que sí se pudo
+ * reconocer. Devuelve también qué columnas tuvo que quitar, para avisar de
+ * qué migración falta sin bloquear el resto del guardado.
+ */
+async function conColumnasOpcionales(ejecutar, payloadInicial) {
+  const payload = { ...payloadInicial };
+  const faltantes = [];
+
+  for (;;) {
+    if (Object.keys(payload).length === 0) return { data: null, error: null, faltantes };
+
+    const { data, error } = await ejecutar(payload);
+    if (!error) return { data, error: null, faltantes };
+
+    const columna = columnaAusente(error);
+    if (!columna || !(columna in payload)) return { data: null, error, faltantes };
+
+    delete payload[columna];
+    faltantes.push(columna);
+  }
+}
+
 export async function syncDocumentToSupabase(doc) {
   if (!supabaseEnabled) return { ok: true, skipped: true };
 
@@ -238,30 +275,19 @@ export async function syncDocumentToSupabase(doc) {
   // escalas son dos análisis distintos, y sin este dato quedan mezclados.
   const teorico = doc.meta?.teorico || null;
   const teoricoUnidad = doc.meta?.teoricoUnidad || null;
-  // Las columnas "receta" (migración v5) y "teorico" (v9): si un proyecto
-  // todavía no las corrió, no deben bloquear la creación del lote, que es lo
-  // esencial.
-  let recetaWarning = null;
+  // Qué migraciones opcionales faltan por correr, para avisar sin bloquear
+  // el guardado de lo esencial (producto, lote, parámetros).
+  let columnasFaltantes = [];
 
   let batchRow = existing;
   if (!batchRow) {
-    const { data, error } = await supabase
-      .from("batches")
-      .insert({ producto: doc.producto, lote: doc.lote, receta, teorico, teorico_unidad: teoricoUnidad })
-      .select()
-      .single();
-    if (!error) {
-      batchRow = data;
-    } else {
-      const { data: data2, error: error2 } = await supabase
-        .from("batches")
-        .insert({ producto: doc.producto, lote: doc.lote })
-        .select()
-        .single();
-      if (error2) return { ok: false, error: error2.message };
-      batchRow = data2;
-      recetaWarning = "falta columna";
-    }
+    const { data, error, faltantes } = await conColumnasOpcionales(
+      (payload) => supabase.from("batches").insert(payload).select().single(),
+      { producto: doc.producto, lote: doc.lote, receta, teorico, teorico_unidad: teoricoUnidad }
+    );
+    if (error) return { ok: false, error: error.message };
+    batchRow = data;
+    columnasFaltantes = faltantes;
   } else {
     // La primera etapa cargada de un lote puede no haber traído la receta o
     // el teórico (por ejemplo, si sólo se subió una orden); se completan en
@@ -274,14 +300,13 @@ export async function syncDocumentToSupabase(doc) {
     }
 
     if (Object.keys(parche).length > 0) {
-      const { data, error } = await supabase
-        .from("batches")
-        .update(parche)
-        .eq("id", batchRow.id)
-        .select()
-        .single();
-      if (!error) batchRow = data;
-      else if (batchRow.receta === undefined) recetaWarning = "falta columna";
+      const { data, error, faltantes } = await conColumnasOpcionales(
+        (payload) => supabase.from("batches").update(payload).eq("id", batchRow.id).select().single(),
+        parche
+      );
+      if (data) batchRow = data;
+      else if (error) return { ok: false, error: error.message };
+      columnasFaltantes = faltantes;
     }
   }
 
@@ -300,7 +325,7 @@ export async function syncDocumentToSupabase(doc) {
       { onConflict: "batch_id,stage" }
     );
     if (error) return { ok: false, error: error.message };
-    return { ok: true, batchId: batchRow.id, recetaWarning };
+    return { ok: true, batchId: batchRow.id, columnasFaltantes };
   }
 
   // Se reemplazan los valores de esta etapa: al volver a procesar un PDF, los
@@ -377,7 +402,7 @@ export async function syncDocumentToSupabase(doc) {
     if (error) insumosWarning = error.message;
   }
 
-  return { ok: true, batchId: batchRow.id, personnelWarning, recetaWarning, insumosWarning };
+  return { ok: true, batchId: batchRow.id, personnelWarning, columnasFaltantes, insumosWarning };
 }
 
 export async function deleteDocumentFromSupabase(doc) {

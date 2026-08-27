@@ -492,20 +492,37 @@ export default function App() {
     if (supabaseEnabled) {
       let avisoMigracion = false;
       let avisoReceta = false;
+      let avisoTamano = false;
       for (const doc of nuevos) {
         const res = await syncDocumentToSupabase(doc);
         if (!res.ok && !res.skipped) {
           pushMessage(`No se pudo guardar en Supabase (${doc.stage} lote ${doc.lote}): ${res.error}`, "error");
-        } else if (res.personnelWarning && !avisoMigracion) {
+          continue;
+        }
+
+        if (res.personnelWarning && !avisoMigracion) {
           avisoMigracion = true;
           pushMessage(
             "Los parámetros se guardaron en Supabase, pero falta ejecutar supabase_migration_v3.sql para guardar también los participantes (operarios/supervisores).",
             "info"
           );
-        } else if (res.recetaWarning && !avisoReceta) {
+        }
+
+        // Cada columna opcional se avisa por separado (antes una tapaba a la
+        // otra): sin la receta, o sin el tamaño de lote, faltan migraciones
+        // distintas y conviene decir cuál.
+        const faltan = res.columnasFaltantes || [];
+        if (faltan.includes("receta") && !avisoReceta) {
           avisoReceta = true;
           pushMessage(
             "Se guardó todo, pero falta ejecutar supabase_migration_v5.sql para que la receta no se pierda al recargar la página.",
+            "info"
+          );
+        }
+        if ((faltan.includes("teorico") || faltan.includes("teorico_unidad")) && !avisoTamano) {
+          avisoTamano = true;
+          pushMessage(
+            "Se guardó todo, pero falta ejecutar supabase_migration_v9.sql para separar los productos que se fabrican a más de un tamaño de lote.",
             "info"
           );
         }
