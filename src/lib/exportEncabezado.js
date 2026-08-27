@@ -1,11 +1,13 @@
-// Encabezado y pie de página del Formato A09, tomados del propio protocolo
-// de referencia de la empresa (mismo logo, misma tabla de tres columnas,
-// mismo pie con "MEDIFARMA S.A. · PLANTA · Pág. N de M").
+// Encabezado y pie de página del Formato A09, con la misma tabla de tres
+// columnas y el mismo pie que el protocolo de referencia de la empresa
+// (logo | producto y proceso | código; abajo empresa, planta y "Pág. N de M").
 //
-// El encabezado real cambia de código y de "Adenda N°" según el protocolo
-// que le dio origen — datos que ni el RMD ni la orden traen, así que aquí se
-// dejan en blanco para completar a mano; el nombre del producto y la etapa sí
-// salen del propio análisis.
+// Nada de esto se identifica con una marca fija en el código: el primer logo
+// que se probó aquí era el de otra empresa (Medifarma, del documento de
+// referencia que sirvió para copiar el diseño), y no el de quien realmente
+// usa esta aplicación. El logo, la empresa, el código y la planta se reciben
+// como datos —vacíos si no se dan— igual que el resto de lo que el RMD y la
+// orden no pueden decir.
 
 import {
   AlignmentType,
@@ -22,7 +24,6 @@ import {
   BorderStyle,
   PageNumber,
 } from "docx";
-import { MEDIFARMA_LOGO_BASE64 } from "../assets/medifarmaLogo.js";
 
 const FUENTE = "Arial";
 
@@ -30,24 +31,6 @@ const FUENTE = "Arial";
 // ancho útil de cada orientación: 11.8 % · 76.4 % · 11.8 %.
 const PROP_LOGO = 0.118;
 const PROP_CODIGO = 0.118;
-
-// El PNG mide 280×77 px de por sí; se conserva esa proporción para que no
-// salga estirado, a un tamaño que quepa cómodo en la columna angosta.
-const LOGO_ANCHO_PX = 100;
-const LOGO_ALTO_PX = 27;
-
-let logoBytesCache = null;
-
-/** Bytes del logo, decodificados una sola vez. */
-function logoBytes() {
-  if (!logoBytesCache) {
-    const binario = atob(MEDIFARMA_LOGO_BASE64);
-    const bytes = new Uint8Array(binario.length);
-    for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
-    logoBytesCache = bytes;
-  }
-  return logoBytesCache;
-}
 
 const SIN_BORDE = { style: BorderStyle.NONE, size: 0, space: 0, color: "auto" };
 const BORDES_ENCABEZADO = {
@@ -76,12 +59,39 @@ function celda(children, ancho, { vAlign = VerticalAlign.CENTER } = {}) {
 }
 
 /**
- * El encabezado de cada página: logo a la izquierda, nombre del producto y
- * etapa al centro, y a la derecha el código del protocolo — en blanco si no
- * se conoce, para completarlo a mano igual que el resto de datos que el RMD
- * no trae.
+ * La celda del logo. Sin uno real que embeber, queda marcada entre corchetes
+ * en vez de dejarse en blanco sin más: así no pasa por descuido, ni —lo que
+ * importa más— por el logo de otra empresa.
  */
-export function encabezadoTabla({ ancho, producto, procesoTexto, codigo }) {
+function celdaLogo(logo, ancho) {
+  if (!logo?.bytes) {
+    return celda(
+      [parrafo([new TextRun({ text: "[LOGO]", font: FUENTE, size: 16, italics: true, color: "808080" })])],
+      ancho
+    );
+  }
+
+  return celda(
+    [
+      parrafo([
+        new ImageRun({
+          type: logo.tipo || "png",
+          data: logo.bytes,
+          transformation: { width: logo.ancho, height: logo.alto },
+        }),
+      ]),
+    ],
+    ancho
+  );
+}
+
+/**
+ * El encabezado de cada página: logo a la izquierda, nombre del producto y
+ * etapa al centro, y a la derecha el código del protocolo. Todo lo que la
+ * aplicación no puede saber por sí sola —logo, código— queda marcado para
+ * completar, nunca adivinado.
+ */
+export function encabezadoTabla({ ancho, producto, procesoTexto, codigo, logo }) {
   const anchoLogo = Math.round(ancho * PROP_LOGO);
   const anchoCodigo = Math.round(ancho * PROP_CODIGO);
   const anchoTitulo = ancho - anchoLogo - anchoCodigo;
@@ -98,18 +108,7 @@ export function encabezadoTabla({ ancho, producto, procesoTexto, codigo }) {
     rows: [
       new TableRow({
         children: [
-          celda(
-            [
-              parrafo([
-                new ImageRun({
-                  type: "png",
-                  data: logoBytes(),
-                  transformation: { width: LOGO_ANCHO_PX, height: LOGO_ALTO_PX },
-                }),
-              ]),
-            ],
-            anchoLogo
-          ),
+          celdaLogo(logo, anchoLogo),
           celda(
             [
               parrafo([new TextRun({ text: producto, font: FUENTE, size: 21, bold: true })]),
@@ -125,18 +124,21 @@ export function encabezadoTabla({ ancho, producto, procesoTexto, codigo }) {
 }
 
 /** El pie de cada página: empresa, planta y "Pág. N de M". */
-export function piePaginaTabla({ ancho, planta }) {
+export function piePaginaTabla({ ancho, empresa, planta }) {
   const tercio = Math.floor(ancho / 3);
   const anchos = [tercio, tercio, ancho - tercio * 2];
 
   return new Table({
     width: { size: ancho, type: WidthType.DXA },
     columnWidths: anchos,
-    borders: { ...Object.fromEntries(["top", "bottom", "left", "right", "insideHorizontal", "insideVertical"].map((l) => [l, SIN_BORDE])), top: BORDES_ENCABEZADO.top },
+    borders: {
+      ...Object.fromEntries(["top", "bottom", "left", "right", "insideHorizontal", "insideVertical"].map((l) => [l, SIN_BORDE])),
+      top: BORDES_ENCABEZADO.top,
+    },
     rows: [
       new TableRow({
         children: [
-          celda([parrafo([new TextRun({ text: "MEDIFARMA S.A.", font: FUENTE, size: 16 })], { centrado: false })], anchos[0]),
+          celda([parrafo([new TextRun({ text: empresa || "", font: FUENTE, size: 16 })], { centrado: false })], anchos[0]),
           celda([parrafo([new TextRun({ text: planta || "", font: FUENTE, size: 16 })])], anchos[1]),
           celda(
             [
@@ -159,9 +161,9 @@ export function piePaginaTabla({ ancho, planta }) {
 }
 
 /** Cabecera y pie ya envueltos en Header/Footer, listos para una sección. */
-export function encabezadoYPie({ ancho, producto, procesoTexto, codigo, planta }) {
+export function encabezadoYPie({ ancho, producto, procesoTexto, codigo, empresa, planta, logo }) {
   return {
-    headers: { default: new Header({ children: [encabezadoTabla({ ancho, producto, procesoTexto, codigo })] }) },
-    footers: { default: new Footer({ children: [piePaginaTabla({ ancho, planta })] }) },
+    headers: { default: new Header({ children: [encabezadoTabla({ ancho, producto, procesoTexto, codigo, logo })] }) },
+    footers: { default: new Footer({ children: [piePaginaTabla({ ancho, empresa, planta })] }) },
   };
 }

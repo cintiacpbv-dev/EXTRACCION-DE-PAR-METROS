@@ -682,23 +682,21 @@ export function buildCuadrosDocument(documents, familia, options) {
     parametros.push(new Paragraph({ children: [] }));
   }
 
-  // Encabezado y pie: mismo logo, misma tabla de tres columnas y mismo pie
-  // que el protocolo de referencia de la empresa, uno por cada orientación de
-  // página que usa el documento.
-  const encabezadoVertical = encabezadoYPie({
-    ancho: ANCHO_UTIL_VERTICAL,
+  // Encabezado y pie: misma tabla de tres columnas y mismo pie que el
+  // protocolo de referencia, uno por cada orientación de página. El logo y la
+  // empresa no van fijos en el código —el primer intento puso el de otra
+  // empresa— así que se reciben como datos y, sin ellos, quedan marcados
+  // para completar en vez de adivinados.
+  const datosEncabezado = {
     producto: familia,
     procesoTexto: proceso,
     codigo: options?.codigo,
+    empresa: options?.empresa,
     planta: options?.planta,
-  });
-  const encabezadoHorizontal = encabezadoYPie({
-    ancho: ANCHO_UTIL_HORIZONTAL,
-    producto: familia,
-    procesoTexto: proceso,
-    codigo: options?.codigo,
-    planta: options?.planta,
-  });
+    logo: options?.logo,
+  };
+  const encabezadoVertical = encabezadoYPie({ ancho: ANCHO_UTIL_VERTICAL, ...datosEncabezado });
+  const encabezadoHorizontal = encabezadoYPie({ ancho: ANCHO_UTIL_HORIZONTAL, ...datosEncabezado });
 
   return new Document({
     styles: { default: { document: { run: { font: FUENTE, size: TAM } } } },
