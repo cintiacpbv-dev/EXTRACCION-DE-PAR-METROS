@@ -234,15 +234,20 @@ export async function syncDocumentToSupabase(doc) {
   if (findErr) return { ok: false, error: findErr.message };
 
   const receta = doc.meta?.receta || null;
-  // La columna "receta" es de la migración v5: si un proyecto todavía no la
-  // corrió, no debe bloquear la creación del lote, que es lo esencial.
+  // El tamaño de lote separa validaciones: un producto que se fabrica a dos
+  // escalas son dos análisis distintos, y sin este dato quedan mezclados.
+  const teorico = doc.meta?.teorico || null;
+  const teoricoUnidad = doc.meta?.teoricoUnidad || null;
+  // Las columnas "receta" (migración v5) y "teorico" (v9): si un proyecto
+  // todavía no las corrió, no deben bloquear la creación del lote, que es lo
+  // esencial.
   let recetaWarning = null;
 
   let batchRow = existing;
   if (!batchRow) {
     const { data, error } = await supabase
       .from("batches")
-      .insert({ producto: doc.producto, lote: doc.lote, receta })
+      .insert({ producto: doc.producto, lote: doc.lote, receta, teorico, teorico_unidad: teoricoUnidad })
       .select()
       .single();
     if (!error) {
@@ -257,18 +262,27 @@ export async function syncDocumentToSupabase(doc) {
       batchRow = data2;
       recetaWarning = "falta columna";
     }
-  } else if (receta && batchRow.receta !== receta) {
-    // La primera etapa cargada de un lote puede no haber traído la receta
-    // (por ejemplo, si sólo se subió una orden); se completa en cuanto un
-    // documento posterior sí la aporta.
-    const { data, error } = await supabase
-      .from("batches")
-      .update({ receta })
-      .eq("id", batchRow.id)
-      .select()
-      .single();
-    if (!error) batchRow = data;
-    else if (batchRow.receta === undefined) recetaWarning = "falta columna";
+  } else {
+    // La primera etapa cargada de un lote puede no haber traído la receta o
+    // el teórico (por ejemplo, si sólo se subió una orden); se completan en
+    // cuanto un documento posterior sí los aporta.
+    const parche = {};
+    if (receta && batchRow.receta !== receta) parche.receta = receta;
+    if (teorico && batchRow.teorico !== teorico) {
+      parche.teorico = teorico;
+      parche.teorico_unidad = teoricoUnidad;
+    }
+
+    if (Object.keys(parche).length > 0) {
+      const { data, error } = await supabase
+        .from("batches")
+        .update(parche)
+        .eq("id", batchRow.id)
+        .select()
+        .single();
+      if (!error) batchRow = data;
+      else if (batchRow.receta === undefined) recetaWarning = "falta columna";
+    }
   }
 
   // Una orden de producción no aporta parámetros ni personal de planta: su
@@ -432,7 +446,14 @@ export async function loadDocumentsFromSupabase() {
         lote: batch.lote,
         stage,
         fileName,
-        meta: { producto: batch.producto, lote: batch.lote, stage, receta: batch.receta || null },
+        meta: {
+          producto: batch.producto,
+          lote: batch.lote,
+          stage,
+          receta: batch.receta || null,
+          teorico: batch.teorico || null,
+          teoricoUnidad: batch.teorico_unidad || null,
+        },
         params: [],
         paramIds: new Set(),
         personnel: { operarios: [], supervisores: [] },
@@ -495,7 +516,13 @@ export async function loadDocumentsFromSupabase() {
       lote: batch.lote,
       stage: row.stage,
       fileName: row.file_name,
-      meta: { producto: row.producto || batch.producto, lote: batch.lote, stage: row.stage },
+      meta: {
+        producto: row.producto || batch.producto,
+        lote: batch.lote,
+        stage: row.stage,
+        teorico: batch.teorico || null,
+        teoricoUnidad: batch.teorico_unidad || null,
+      },
       params: [],
       personnel: { operarios: [], supervisores: [] },
       orden: row.data,

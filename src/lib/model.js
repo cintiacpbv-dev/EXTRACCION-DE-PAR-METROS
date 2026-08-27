@@ -1,6 +1,7 @@
 import { computeStats } from "./stats.js";
 import { documentoEsMuestraMedica } from "./muestraMedica.js";
 import { firstWord } from "./productIdentity.js";
+import { tamanosPorFamilia } from "./tamanoLote.js";
 
 /** Categorías que se muestran en la vista "Parámetros de proceso". */
 const PROCESS_VIEW = new Set(["critico", "verificacion"]);
@@ -23,7 +24,23 @@ export function withFamilies(documents) {
     }
   }
 
-  return documents.map((doc) => ({ ...doc, familia: porPrimeraPalabra.get(firstWord(doc.producto)) }));
+  const base = (doc) => porPrimeraPalabra.get(firstWord(doc.producto));
+
+  // Un producto que se fabrica a dos escalas son dos validaciones distintas y
+  // se separan en dos análisis; el que se fabrica siempre igual no cambia de
+  // nombre (ver tamanoLote.js).
+  const { porLote, familias } = tamanosPorFamilia(documents, base);
+
+  return documents.map((doc) => {
+    const familia = base(doc);
+    const tamano = porLote.get(doc.lote);
+    const varias = (familias.get(familia)?.size || 0) > 1;
+    return {
+      ...doc,
+      tamanoLote: tamano || null,
+      familia: varias && tamano ? `${familia} · ${tamano}` : familia,
+    };
+  });
 }
 
 /**
