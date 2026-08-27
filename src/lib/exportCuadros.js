@@ -29,6 +29,7 @@ import {
 } from "docx";
 import { buildRvpModel } from "./rvpData.js";
 import { formatPersonName } from "./personName.js";
+import { encabezadoYPie } from "./exportEncabezado.js";
 
 // --- constantes tomadas del documento de referencia -------------------------
 
@@ -542,6 +543,71 @@ function titulo(texto) {
   });
 }
 
+/** Los cuatro apartados romanos (I-IV), un peldaño por encima de `titulo()`. */
+function tituloRomano(texto) {
+  return new Paragraph({
+    spacing: { before: 280, after: 140 },
+    children: [new TextRun({ text: texto, font: FUENTE, size: 22, bold: true })],
+  });
+}
+
+function parrafoTexto(texto) {
+  return new Paragraph({
+    spacing: { before: 0, after: 160 },
+    children: [new TextRun({ text: texto, font: FUENTE, size: TAM })],
+  });
+}
+
+/**
+ * Un hueco para completar a mano, marcado sin ambigüedad como tal —entre
+ * corchetes y en gris— para que nadie lo confunda con un texto redactado por
+ * la aplicación. La justificación de una validación y los documentos en que
+ * se apoya no salen de ningún RMD ni orden: son criterio de quien firma.
+ */
+function placeholder(texto) {
+  return new Paragraph({
+    spacing: { before: 0, after: 160 },
+    children: [new TextRun({ text: `[${texto}]`, font: FUENTE, size: TAM, italics: true, color: "808080" })],
+  });
+}
+
+// --- IV.1 Verificaciones preliminares ---------------------------------------
+//
+// Un listado de comprobaciones previas a la validación (calificación de
+// equipos, de proveedores, de personal, plan maestro…) que el RMD y la orden
+// no dicen si se cumplieron: viven en otros documentos que esta aplicación
+// nunca ve. Se deja la tabla con sus filas y las columnas de cumplimiento en
+// blanco, para completar a mano — nunca con un "SI" inventado.
+const VERIFICACIONES_PRELIMINARES = [
+  "Verificación del Plan Maestro de Validación.",
+  "Verificación de la Calificación de Operación / Diseño (CO/CD) de los equipos.",
+  "Verificación de la Calificación de los proveedores.",
+  "Verificación de la Validación de los sistemas computarizados.",
+  "Verificación de la Calificación del personal.",
+];
+
+function cuadroVerificacionesPreliminares() {
+  const anchos = [4907, 2500, ANCHO_UTIL_VERTICAL - 4907 - 2500];
+  const cab = fila(
+    [
+      celda("Prueba", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: anchos[0] }),
+      celda("Cumplimiento (SI/NO)", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: anchos[1] }),
+      celda("Resultado", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: anchos[2] }),
+    ],
+    { cabecera: true }
+  );
+
+  const filas = VERIFICACIONES_PRELIMINARES.map((texto) =>
+    fila([
+      celda(texto, { align: AlignmentType.BOTH, width: anchos[0] }),
+      celda("", { width: anchos[1] }),
+      celda("", { width: anchos[2] }),
+    ])
+  );
+
+  return tabla(anchos, [cab, ...filas]);
+}
+
 function pagina(horizontal) {
   return {
     page: {
@@ -553,12 +619,31 @@ function pagina(horizontal) {
   };
 }
 
+/**
+ * "PROCESO DE ACONDICIONADO" cuando el informe se restringe a una etapa,
+ * igual que el encabezado del documento de referencia; sin restringir a
+ * ninguna, el título no puede nombrar una sola etapa sin faltar a la verdad.
+ */
+function procesoTexto(stage) {
+  return stage ? `PROCESO DE ${stage}` : "VERIFICACIÓN DEL PROCESO DE MANUFACTURA";
+}
+
 export function buildCuadrosDocument(documents, familia, options) {
   const model = buildRvpModel(documents, familia, options);
+  const proceso = procesoTexto(options?.stage);
 
-  // Los cuadros 1 y 2 van en vertical, como en el formato de referencia; el
-  // 1 encoge sus columnas si las etapas no caben (ver ajustarAVertical).
-  const vertical = [
+  // I y II no salen de ningún RMD ni orden: la justificación de la validación
+  // y el documento que le da origen son criterio de quien la firma, así que
+  // quedan como un hueco marcado para completar, nunca inventados.
+  const inicio = [
+    tituloRomano("I. JUSTIFICACIÓN"),
+    placeholder("Completar: motivo de esta validación o adenda."),
+    tituloRomano("II. DOCUMENTACIÓN"),
+    placeholder("Completar: protocolo y demás documentos en que se apoya, con su fecha de aprobación."),
+    tituloRomano("III. RECOLECCIÓN DE DATOS DEL PROCESO"),
+    parrafoTexto(
+      "Los siguientes datos se recolectaron de los registros de manufactura y las órdenes de producción analizados:"
+    ),
     titulo("1. LOTES CONTROLADOS EN LA VALIDACIÓN Y FECHAS DE PROCESO"),
     cuadroLotes(model),
     titulo("2. MATERIALES UTILIZADOS EN LOS LOTES"),
@@ -575,26 +660,55 @@ export function buildCuadrosDocument(documents, familia, options) {
     }
   }
 
-  // Cuadro 4: una sola tabla por etapa, con todos los lotes en la misma hoja.
-  // El original parte sus veinte lotes en dos tablas de diez, pero así hay que
-  // ir y venir entre hojas para comparar un parámetro entre lotes, que es
-  // justo para lo que sirve el cuadro; las columnas se estrechan en su lugar
-  // (ver anchosParametros).
-  const parametros = [titulo("4. VERIFICACIÓN DE PARÁMETROS DE PROCESO")];
+  // IV.1: un listado de comprobaciones previas que viven en otros documentos
+  // (calificación de equipos, de proveedores, de personal…). El RMD y la
+  // orden no dicen si se cumplieron, así que la tabla sale con sus filas y
+  // sin marcar, para completar a mano.
+  const resultados = [
+    tituloRomano("IV. RESULTADOS DE LA VALIDACIÓN"),
+    titulo("1. VERIFICACIONES PRELIMINARES"),
+    cuadroVerificacionesPreliminares(),
+  ];
+
+  // IV.2: una sola tabla por etapa, con todos los lotes en la misma hoja. El
+  // original parte sus veinte lotes en dos tablas de diez, pero así hay que ir
+  // y venir entre hojas para comparar un parámetro entre lotes, que es justo
+  // para lo que sirve el cuadro; las columnas se estrechan en su lugar (ver
+  // anchosParametros).
+  const parametros = [titulo("2. VERIFICACIONES DE PARÁMETROS DE PROCESO")];
   for (const datos of model.tablas) {
     if (datos.lotes.length === 0 || datos.rowCount === 0) continue;
     parametros.push(cuadroParametros(datos, datos.lotes, datos.stage));
     parametros.push(new Paragraph({ children: [] }));
   }
 
+  // Encabezado y pie: mismo logo, misma tabla de tres columnas y mismo pie
+  // que el protocolo de referencia de la empresa, uno por cada orientación de
+  // página que usa el documento.
+  const encabezadoVertical = encabezadoYPie({
+    ancho: ANCHO_UTIL_VERTICAL,
+    producto: familia,
+    procesoTexto: proceso,
+    codigo: options?.codigo,
+    planta: options?.planta,
+  });
+  const encabezadoHorizontal = encabezadoYPie({
+    ancho: ANCHO_UTIL_HORIZONTAL,
+    producto: familia,
+    procesoTexto: proceso,
+    codigo: options?.codigo,
+    planta: options?.planta,
+  });
+
   return new Document({
     styles: { default: { document: { run: { font: FUENTE, size: TAM } } } },
     sections: [
-      { properties: pagina(false), children: vertical },
-      { properties: pagina(true), children: personal },
-      // El cuadro 4 crece una columna por lote: horizontal, como en el
-      // formato de referencia, donde ocupa las páginas 8 a 15.
-      { properties: pagina(true), children: parametros },
+      { properties: pagina(false), ...encabezadoVertical, children: inicio },
+      { properties: pagina(true), ...encabezadoHorizontal, children: personal },
+      { properties: pagina(false), ...encabezadoVertical, children: resultados },
+      // El cuadro de parámetros crece una columna por lote: horizontal, como
+      // en el formato de referencia, donde ocupa las páginas 8 a 15.
+      { properties: pagina(true), ...encabezadoHorizontal, children: parametros },
     ],
   });
 }
