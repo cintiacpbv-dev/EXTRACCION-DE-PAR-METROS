@@ -27,10 +27,14 @@ import {
 
 const FUENTE = "Arial";
 
-// Proporción de columnas del original (logo | título | código), aplicada al
-// ancho útil de cada orientación: 11.8 % · 76.4 % · 11.8 %.
-const PROP_LOGO = 0.118;
-const PROP_CODIGO = 0.118;
+// Ancho fijo de las columnas de logo y código, en vez de una proporción del
+// ancho de página como en el original: el logo de esta empresa es un
+// logotipo apaisado (191×26 px, casi 7:1), y calculado como porcentaje se
+// veía bien en la hoja horizontal pero se aplastaba en la vertical, donde el
+// ancho útil es un tercio menor. Con un ancho fijo el logo se ve del mismo
+// tamaño en las dos orientaciones, que es como se ve un logo real.
+const ANCHO_LOGO_DXA = 2200;
+const ANCHO_CODIGO_DXA = 1500;
 
 const SIN_BORDE = { style: BorderStyle.NONE, size: 0, space: 0, color: "auto" };
 const BORDES_ENCABEZADO = {
@@ -92,8 +96,8 @@ function celdaLogo(logo, ancho) {
  * completar, nunca adivinado.
  */
 export function encabezadoTabla({ ancho, producto, procesoTexto, codigo, logo }) {
-  const anchoLogo = Math.round(ancho * PROP_LOGO);
-  const anchoCodigo = Math.round(ancho * PROP_CODIGO);
+  const anchoLogo = ANCHO_LOGO_DXA;
+  const anchoCodigo = ANCHO_CODIGO_DXA;
   const anchoTitulo = ancho - anchoLogo - anchoCodigo;
 
   const filasCodigo = [

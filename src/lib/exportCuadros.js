@@ -30,6 +30,31 @@ import {
 import { buildRvpModel } from "./rvpData.js";
 import { formatPersonName } from "./personName.js";
 import { encabezadoYPie } from "./exportEncabezado.js";
+import { HUMANOVA_LOGO_BASE64 } from "../assets/humanovaLogo.js";
+
+// El logo por defecto del encabezado. Es apaisado (191×26 px, casi 7:1) y se
+// muestra a esta altura en las dos orientaciones de página —ver
+// ANCHO_LOGO_DXA en exportEncabezado.js—, que es lo que evita que un logo tan
+// ancho se vea aplastado en la hoja vertical, donde hay menos sitio.
+const LOGO_ALTO_PX = 20;
+const LOGO_RATIO = 191 / 26;
+
+let logoPorDefectoCache = null;
+
+function logoPorDefecto() {
+  if (!logoPorDefectoCache) {
+    const binario = atob(HUMANOVA_LOGO_BASE64);
+    const bytes = new Uint8Array(binario.length);
+    for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+    logoPorDefectoCache = {
+      bytes,
+      tipo: "png",
+      alto: LOGO_ALTO_PX,
+      ancho: Math.round(LOGO_ALTO_PX * LOGO_RATIO),
+    };
+  }
+  return logoPorDefectoCache;
+}
 
 // --- constantes tomadas del documento de referencia -------------------------
 
@@ -693,7 +718,7 @@ export function buildCuadrosDocument(documents, familia, options) {
     codigo: options?.codigo,
     empresa: options?.empresa,
     planta: options?.planta,
-    logo: options?.logo,
+    logo: options?.logo || logoPorDefecto(),
   };
   const encabezadoVertical = encabezadoYPie({ ancho: ANCHO_UTIL_VERTICAL, ...datosEncabezado });
   const encabezadoHorizontal = encabezadoYPie({ ancho: ANCHO_UTIL_HORIZONTAL, ...datosEncabezado });
