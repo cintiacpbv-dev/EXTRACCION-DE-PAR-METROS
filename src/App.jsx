@@ -8,6 +8,7 @@ import ProductImagePicker from "./components/ProductImagePicker.jsx";
 import SapPanel from "./components/SapPanel.jsx";
 import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
 import Formato3Panel from "./components/Formato3Panel.jsx";
+import BarraProgreso from "./components/BarraProgreso.jsx";
 import {
   IconCloud,
   IconDrive,
@@ -94,6 +95,19 @@ function writeRoute(view, producto, blank) {
   if (window.location.hash !== next) window.location.hash = next;
 }
 
+/**
+ * Cómo llamar a un archivo mientras se analiza. Si quien lo manda sabe a qué
+ * lote pertenece —el panel de SAP lo sabe— se usa eso; si no, el nombre del
+ * archivo sin la extensión ni los guiones bajos, que se lee mejor.
+ */
+function etiquetaDe(file, etiquetas) {
+  if (!file) return "";
+  return (
+    etiquetas?.[file.name] ||
+    file.name.replace(/\.pdf$/i, "").replace(/_+/g, " ").trim()
+  );
+}
+
 export default function App() {
   const [documents, setDocuments] = useState([]);
   const [view, setView] = useState("library"); // "library" | "product"
@@ -111,6 +125,9 @@ export default function App() {
   const [omitirMM, setOmitirMM] = useState(() => localStorage.getItem("deteccion-parametros:omitirMM") === "1");
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
+  // Avance de la tanda en curso: cuántos documentos van, cuántos son y cuál
+  // se está analizando. Lo pinta la barra de progreso.
+  const [progreso, setProgreso] = useState(null);
   // Qué zona de carga está trabajando, para no anunciar el mismo archivo en
   // las dos a la vez.
   const [busyKind, setBusyKind] = useState(null);
@@ -352,18 +369,27 @@ export default function App() {
     writeRoute("library", null, false);
   }
 
-  async function handleFiles(files, expectedKind) {
+  /**
+   * `etiquetas` permite decir con qué nombre mostrar cada archivo mientras se
+   * analiza. Los que vienen de SAP se llaman por el número del documento, que
+   * no dice nada; el panel de SAP sí sabe a qué lote y etapa corresponden y
+   * lo pasa por aquí. Arrastrando archivos a mano no hay nada mejor que el
+   * propio nombre del archivo.
+   */
+  async function handleFiles(files, expectedKind, { etiquetas } = {}) {
     if (busy) return; // una segunda tanda simultánea pisaría a la primera
     setBusy(true);
     setBusyKind(expectedKind);
+    setProgreso({ hecho: 0, total: files.length, actual: etiquetaDe(files[0], etiquetas) });
     let next = documentsRef.current;
     const nuevos = [];
     // Huellas de contenido ya vistas en esta misma tanda de carga, para
     // detectar dos archivos idénticos seleccionados juntos por error.
     const hashesEnEstaTanda = [];
 
-    for (const file of files) {
-      setBusyLabel(`Analizando ${file.name}…`);
+    for (const [indice, file] of files.entries()) {
+      setBusyLabel("Analizando…");
+      setProgreso({ hecho: indice, total: files.length, actual: etiquetaDe(file, etiquetas) });
       try {
         const result = await processPdfFile(file);
 
@@ -416,7 +442,8 @@ export default function App() {
           const sumaParticipantes = cuenta(result) > 0 && cuenta(yaVisto) === 0;
           const sumaReceta = !!result.meta?.receta && !yaVisto.meta?.receta;
           const sumaInsumos = (result.insumos?.length || 0) > 0 && (yaVisto.insumos?.length || 0) === 0;
-          const aporta = sumaParticipantes || sumaReceta || sumaInsumos;
+          const sumaEquipos = (result.equipos?.length || 0) > 0 && (yaVisto.equipos?.length || 0) === 0;
+          const aporta = sumaParticipantes || sumaReceta || sumaInsumos || sumaEquipos;
 
           if (!aporta) {
             pushMessage(
@@ -430,6 +457,7 @@ export default function App() {
           if (sumaParticipantes) aportes.push(`${cuenta(result)} nombres`);
           if (sumaReceta) aportes.push("la receta");
           if (sumaInsumos) aportes.push(`${result.insumos.length} materiales`);
+          if (sumaEquipos) aportes.push(`${result.equipos.length} equipos`);
           pushMessage(`${file.name}: ya estaba cargado, pero se actualizó con ${aportes.join(" y ")}.`, "success");
         }
 
@@ -443,6 +471,7 @@ export default function App() {
           params: result.params,
           personnel: result.personnel,
           insumos: result.insumos || [],
+          equipos: result.equipos || [],
           orden: result.orden || null,
           uploadedAt: new Date().toISOString(),
         };
@@ -490,15 +519,29 @@ export default function App() {
     setBusyLabel("");
     setBusyKind(null);
 
+    // La barra se queda al 100 % mientras se sube a la nube en vez de
+    // desaparecer al terminar de leer los PDF: subir treinta documentos tarda
+    // lo suyo, y sin nada en pantalla parecía que ya había acabado.
+    setProgreso({ hecho: files.length, total: files.length, actual: "Guardando…" });
+
     if (supabaseEnabled) {
       let avisoMigracion = false;
       let avisoReceta = false;
       let avisoTamano = false;
+      let avisoEquipos = false;
       for (const doc of nuevos) {
         const res = await syncDocumentToSupabase(doc);
         if (!res.ok && !res.skipped) {
           pushMessage(`No se pudo guardar en Supabase (${doc.stage} lote ${doc.lote}): ${res.error}`, "error");
           continue;
+        }
+
+        if (res.equiposWarning && !avisoEquipos) {
+          avisoEquipos = true;
+          pushMessage(
+            "Se guardó todo, pero falta ejecutar supabase_migration_v10.sql para guardar también los equipos de cada etapa (el Formato 3).",
+            "info"
+          );
         }
 
         if (res.personnelWarning && !avisoMigracion) {
@@ -529,6 +572,8 @@ export default function App() {
         }
       }
     }
+
+    setProgreso(null);
   }
 
   async function handleRemove(doc) {
@@ -783,11 +828,16 @@ export default function App() {
               </div>
 
               <SapPanel
-                onArchivos={(archivos) => handleFiles(archivos)}
+                onArchivos={(archivos, opciones) => handleFiles(archivos, undefined, opciones)}
                 ocupado={busy}
                 analizados={analizados}
                 omitirMM={omitirMM}
               />
+
+              {/* La barra vive fuera de las zonas de carga a propósito: la
+                  tanda puede venir de cualquiera de las dos o de SAP, y el
+                  avance es uno solo. */}
+              {progreso && <BarraProgreso {...progreso} />}
               </div>
 
               {!blank && productDocs.length > 0 && <ProtocoloPanel />}

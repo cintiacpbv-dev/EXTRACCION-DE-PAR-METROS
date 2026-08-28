@@ -59,6 +59,12 @@ function agruparPorLote(archivos, { analizados, omitirMM }) {
     g.rmdAnalizado = g.rmd ? analizados.has(claveDe(g.rmd)) : null;
     // Pendiente si algo de lo que hay (OP, RMD, o ambos) todavía no se cargó.
     g.pendiente = (g.op && !g.opAnalizada) || (g.rmd && !g.rmdAnalizado);
+    // Un paso sólo está completo cuando están descargados sus dos documentos.
+    // Con uno solo el análisis sale cojo —sin la OP no hay lote ME de los
+    // materiales ni rendimiento oficial; sin el RMD no hay parámetros—, así
+    // que el marcado automático lo deja fuera. Marcarlo a mano sigue siendo
+    // posible: a veces se quiere adelantar con lo que hay.
+    g.completo = Boolean(g.op && g.rmd);
   }
 
   return [...grupos.values()].sort(
@@ -153,15 +159,19 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
   const grupos = agruparPorLote(enDisco, { analizados, omitirMM });
   const grupoDeClave = new Map(grupos.map((g) => [g.clave, g]));
 
-  // La primera vez que aparece algo pendiente se marca todo por defecto, para
-  // que el flujo de un clic siga funcionando sin obligar a marcar uno por
-  // uno; a partir de ahí la selección la decide quien la vaya tocando, y no
-  // se vuelve a pisar en cada sondeo del avance.
+  // Lo que el marcado automático propone: lo que falta por analizar y tiene
+  // sus dos documentos. Un paso al que le falta la OP o el RMD no se marca
+  // solo — se analizaría a medias sin que nadie lo hubiera decidido.
+  const automarcables = grupos.filter((g) => g.pendiente && g.completo);
+
+  // La primera vez que aparece algo pendiente se marca por defecto, para que
+  // el flujo de un clic siga funcionando sin obligar a marcar uno por uno; a
+  // partir de ahí la selección la decide quien la vaya tocando, y no se
+  // vuelve a pisar en cada sondeo del avance.
   useEffect(() => {
     if (seleccionInicial.current) return;
-    const pendientes = grupos.filter((g) => g.pendiente);
-    if (pendientes.length === 0) return;
-    setSeleccion(new Set(pendientes.map((g) => g.clave)));
+    if (automarcables.length === 0) return;
+    setSeleccion(new Set(automarcables.map((g) => g.clave)));
     seleccionInicial.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enDisco]);
@@ -176,7 +186,7 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
   }
 
   function seleccionarPendientes() {
-    setSeleccion(new Set(grupos.filter((g) => g.pendiente).map((g) => g.clave)));
+    setSeleccion(new Set(automarcables.map((g) => g.clave)));
   }
 
   function limpiarSeleccion() {
@@ -193,9 +203,21 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
         setError("Marca al menos un lote de la lista para analizar.");
         return;
       }
+
+      // Los archivos de SAP se llaman por el número del documento, que no
+      // dice nada mientras se espera. Aquí sí se sabe a qué lote y etapa
+      // corresponde cada uno, así que se manda para que la barra de avance
+      // pueda decirlo.
+      const etiquetas = {};
+      for (const g of objetivo) {
+        for (const a of [g.op, g.rmd]) {
+          if (a) etiquetas[a.nombre] = `Lote ${g.lote} · ${g.etapa} · ${a.tipo}`;
+        }
+      }
+
       const ficheros = [];
       for (const a of archivos) ficheros.push(await traerPdf(base, a));
-      await onArchivos(ficheros);
+      await onArchivos(ficheros, { etiquetas });
       setEnDisco(await listarArchivos(base).catch(() => enDisco));
     } catch (err) {
       setError(err.message);
@@ -222,7 +244,10 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
     .filter(Boolean)
     .flatMap((g) => [g.op, g.rmd].filter(Boolean));
 
-  const pendientesTotal = grupos.filter((g) => g.pendiente).length;
+  const pendientesTotal = automarcables.length;
+  // Los que faltan por analizar pero les falta un documento: no se marcan
+  // solos, y conviene decir cuántos son para que no parezca que se perdieron.
+  const incompletosTotal = grupos.filter((g) => g.pendiente && !g.completo).length;
 
   const grupoCoincide = (g) => !filtroLote.trim() || g.lote.toLowerCase().includes(filtroLote.trim().toLowerCase());
   const gruposVisibles = grupos.filter(grupoCoincide);
@@ -389,7 +414,7 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
                   <strong>Elige qué analizar</strong>
                   <p className="muted">
                     Lote, producto y etapa de lo descargado, con si tiene OP y RMD. Marca los que quieras
-                    analizar.
+                    analizar. Los que no tengan los dos documentos no se marcan solos.
                   </p>
                 </div>
                 <input
@@ -413,6 +438,8 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
                   {seleccion.size === 0
                     ? "Nada marcado"
                     : `${seleccion.size} de ${grupos.length} marcado${seleccion.size === 1 ? "" : "s"}`}
+                  {incompletosTotal > 0 &&
+                    ` · ${incompletosTotal} sin OP o sin RMD, fuera del marcado automático`}
                 </span>
               </div>
 
@@ -430,7 +457,15 @@ export default function SapPanel({ onArchivos, ocupado, analizados = new Set(), 
                   </thead>
                   <tbody>
                     {gruposVisibles.map((g) => (
-                      <tr key={g.clave} className={seleccion.has(g.clave) ? "is-seleccionado" : ""}>
+                      <tr
+                        key={g.clave}
+                        className={[
+                          seleccion.has(g.clave) ? "is-seleccionado" : "",
+                          g.completo ? "" : "is-incompleto",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
                         <td>
                           <input
                             type="checkbox"

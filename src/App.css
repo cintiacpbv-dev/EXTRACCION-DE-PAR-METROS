@@ -1652,6 +1652,16 @@
   background: var(--sky-soft);
 }
 
+/* Al paso le falta la OP o el RMD: se puede marcar a mano, pero el marcado
+   automatico lo deja fuera. Se atenua en vez de esconderse. */
+.sap-tabla tr.is-incompleto td {
+  opacity: 0.62;
+}
+
+.sap-tabla tr.is-incompleto.is-seleccionado td {
+  opacity: 1;
+}
+
 .sap-tabla td input[type="checkbox"] {
   width: 15px;
   height: 15px;
@@ -1686,4 +1696,61 @@
 
 .formato3-origen {
   font-size: 11px;
+}
+
+/* Barra de avance de una tanda de carga
+   ------------------------------------------------------------------ */
+.progreso {
+  margin-top: 14px;
+}
+
+.progreso__cabecera {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.progreso__texto {
+  font-size: 12.5px;
+  color: var(--text-soft);
+}
+
+.progreso__pct {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--sky-dark);
+}
+
+.progreso__pista {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-tint);
+  overflow: hidden;
+}
+
+.progreso__relleno {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--sky), var(--sky-dark));
+  transition: width 220ms ease;
+}
+
+/* El detalle acompaña, no compite: el nombre puede ser largo y cambia en
+   cada documento, asi que se recorta en una linea en vez de mover la caja. */
+.progreso__detalle {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progreso__relleno {
+    transition: none;
+  }
 }
