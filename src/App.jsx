@@ -7,6 +7,7 @@ import PersonnelPanel from "./components/PersonnelPanel.jsx";
 import ProductImagePicker from "./components/ProductImagePicker.jsx";
 import SapPanel from "./components/SapPanel.jsx";
 import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
+import Formato3Panel from "./components/Formato3Panel.jsx";
 import {
   IconCloud,
   IconDrive,
@@ -790,6 +791,10 @@ export default function App() {
               </div>
 
               {!blank && productDocs.length > 0 && <ProtocoloPanel />}
+
+              {!blank && productDocs.length > 0 && (
+                <Formato3Panel documents={docs} familia={productoActivo} />
+              )}
 
               {!blank && productos.length > 0 && (
                 <div className="selectors">

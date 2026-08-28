@@ -188,7 +188,7 @@ async function findBatchRow(producto, lote) {
 async function limpiarBatchesVacios(ids) {
   for (const id of ids) {
     const cuentas = await Promise.all(
-      ["batch_values", "batch_orders", "batch_personnel", "batch_insumos"].map(async (tabla) => {
+      ["batch_values", "batch_orders", "batch_personnel", "batch_insumos", "batch_equipos"].map(async (tabla) => {
         const { count, error } = await supabase
           .from(tabla)
           .select("id", { count: "exact", head: true })
@@ -402,7 +402,18 @@ export async function syncDocumentToSupabase(doc) {
     if (error) insumosWarning = error.message;
   }
 
-  return { ok: true, batchId: batchRow.id, personnelWarning, columnasFaltantes, insumosWarning };
+  // Los equipos de la etapa van en su propia tabla (migración v10), con el
+  // mismo criterio: si falta la migración se avisa, pero no se pierde lo demás.
+  let equiposWarning = null;
+  if ((doc.equipos?.length || 0) > 0) {
+    const { error } = await supabase.from("batch_equipos").upsert(
+      { batch_id: batchRow.id, stage: doc.stage, data: doc.equipos, file_name: doc.fileName || null },
+      { onConflict: "batch_id,stage" }
+    );
+    if (error) equiposWarning = error.message;
+  }
+
+  return { ok: true, batchId: batchRow.id, personnelWarning, columnasFaltantes, insumosWarning, equiposWarning };
 }
 
 export async function deleteDocumentFromSupabase(doc) {
@@ -437,6 +448,7 @@ export async function deleteDocumentFromSupabase(doc) {
     // parámetros.
     await supabase.from("batch_personnel").delete().in("batch_id", ids).eq("stage", doc.stage);
     await supabase.from("batch_insumos").delete().in("batch_id", ids).eq("stage", doc.stage);
+    await supabase.from("batch_equipos").delete().in("batch_id", ids).eq("stage", doc.stage);
   }
 
   await limpiarBatchesVacios(ids);
@@ -459,6 +471,7 @@ export async function loadDocumentsFromSupabase() {
   const { data: personnelRows } = await selectAll("batch_personnel");
   const { data: orderRows } = await selectAll("batch_orders");
   const { data: insumosRows } = await selectAll("batch_insumos");
+  const { data: equiposRows } = await selectAll("batch_equipos");
 
   const byId = new Map(batchRows.map((b) => [b.id, b]));
   const docs = new Map();
@@ -522,6 +535,12 @@ export async function loadDocumentsFromSupabase() {
     const yaEsta = list.find((p) => p.name === row.name);
     if (yaEsta) yaEsta.count = Math.max(yaEsta.count, row.count);
     else list.push({ name: row.name, count: row.count });
+  }
+
+  for (const row of equiposRows || []) {
+    const batch = byId.get(row.batch_id);
+    if (!batch) continue;
+    ensureDoc(batch, row.stage, row.file_name).equipos = row.data || [];
   }
 
   for (const row of insumosRows || []) {

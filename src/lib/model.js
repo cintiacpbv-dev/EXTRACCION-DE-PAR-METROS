@@ -213,3 +213,47 @@ export function aggregatePersonnel(documents, familia, stage) {
 
   return { operarios: sum("operarios"), supervisores: sum("supervisores") };
 }
+
+/**
+ * Los equipos de todas las etapas de un producto, sin repetir.
+ *
+ * El mismo equipo aparece en el registro de cada lote y a veces en varias
+ * etapas; aquí se juntan en una sola entrada que recuerda en qué etapas
+ * intervino. Se identifican por su código SAP —el único que traen todas las
+ * ediciones del registro— y, a falta de él, por el de referencia.
+ */
+export function aggregateEquipos(documents, familia, stage) {
+  const docs = documents.filter(
+    (d) => d.familia === familia && d.kind !== "orden" && (!stage || d.stage === stage)
+  );
+
+  const porClave = new Map();
+
+  for (const doc of docs) {
+    for (const equipo of doc.equipos || []) {
+      const clave = equipo.codigoSap || equipo.codigoMif || equipo.descripcion;
+      if (!clave) continue;
+
+      const previo = porClave.get(clave);
+      if (!previo) {
+        porClave.set(clave, { ...equipo, etapas: [doc.stage] });
+        continue;
+      }
+
+      if (!previo.etapas.includes(doc.stage)) previo.etapas.push(doc.stage);
+      // Entre dos registros que describen el mismo equipo se conserva el dato
+      // presente: las ediciones antiguas del registro no traen código de
+      // referencia y las nuevas sí.
+      if (!previo.codigoMif && equipo.codigoMif) previo.codigoMif = equipo.codigoMif;
+      if (!previo.codigoSap && equipo.codigoSap) previo.codigoSap = equipo.codigoSap;
+    }
+  }
+
+  return [...porClave.values()]
+    .map((e) => ({ ...e, etapas: [...e.etapas].sort(compararEtapas) }))
+    .sort(
+      (a, b) =>
+        compararEtapas(a.etapas[0] || "", b.etapas[0] || "") ||
+        (a.codigoSap || "").localeCompare(b.codigoSap || "")
+    );
+}
