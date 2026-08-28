@@ -1754,3 +1754,7 @@
     transition: none;
   }
 }
+
+.formato3-marca--ok {
+  color: var(--ok);
+}

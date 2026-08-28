@@ -231,6 +231,11 @@ export function buscarCalificacion(indices, equipo) {
   const tieneCd = Boolean(fila.pqFecha);
   const tieneCo = Boolean(fila.oqFecha);
 
+  // "CALIFICADO" es lo que el cronograma escribe cuando la calificación está
+  // conforme; lo demás ("NO CUMPLE", "INOPERATIVO", "VENCIDO") no lo está.
+  const conformeCo = tieneCo && /CALIFICADO/i.test(fila.oqEstado || "");
+  const conformeCd = tieneCd && /CALIFICADO/i.test(fila.pqEstado || "");
+
   const fecha = fila.pqFecha || fila.oqFecha || "";
   const reportePreferido = tieneCd ? fila.pqReporte : fila.oqReporte;
   const codigoCalificacion = dato(reportePreferido) || dato(fila.pqReporte) || dato(fila.oqReporte);
@@ -248,6 +253,10 @@ export function buscarCalificacion(indices, equipo) {
     origenFecha: tieneCd ? "PQ" : tieneCo ? "OQ" : null,
     tieneCo,
     tieneCd,
+    conformeCo,
+    conformeCd,
+    oqEstado: fila.oqEstado,
+    pqEstado: fila.pqEstado,
   };
 }
 

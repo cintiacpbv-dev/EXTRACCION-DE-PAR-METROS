@@ -11,6 +11,31 @@ import {
 import { esEquipoCalificable } from "../lib/parsers/equipos.js";
 import { exportFormato3ToWord, filasFormato3 } from "../lib/exportFormato3.js";
 
+// Cómo se ve cada estado de las casillas CO y CD. En el documento exportado
+// el visto va como "ü" en Wingdings, que es la convención de los formatos de
+// la empresa; aquí basta el carácter.
+const MARCA = {
+  conforme: { texto: "✓", clase: "formato3-marca--ok", titulo: "Calificado y conforme" },
+  sin: { texto: "-", clase: "", titulo: "No tiene esta calificación" },
+  pendiente: {
+    texto: "",
+    clase: "",
+    titulo: "Tiene la calificación, pero el cronograma no la da por conforme",
+  },
+};
+
+function Marca({ estado, encontrado }) {
+  const m = MARCA[estado] || MARCA.pendiente;
+  // Sin ficha en el cronograma la casilla también queda vacía, pero por otro
+  // motivo: no hay nada que consultar, no es que no esté conforme.
+  const titulo = encontrado ? m.titulo : "El equipo no figura en el cronograma";
+  return (
+    <td className={`formato3-marca ${m.clase}`} title={titulo}>
+      {m.texto}
+    </td>
+  );
+}
+
 /**
  * Formato 3: la calificación de los equipos que intervinieron en el producto.
  *
@@ -217,8 +242,8 @@ export default function Formato3Panel({ documents, familia, opcionesEncabezado }
                         {f.fecha}
                         {f.origenFecha && <span className="muted formato3-origen"> ({f.origenFecha})</span>}
                       </td>
-                      <td className="formato3-marca">{f.co}</td>
-                      <td className="formato3-marca">{f.cd}</td>
+                      <Marca estado={f.co} encontrado={f.encontrado} />
+                      <Marca estado={f.cd} encontrado={f.encontrado} />
                       <td className={f.encontrado ? "" : "muted"}>
                         {f.encontrado ? f.estadoGeneral || f.estado : "no está en el cronograma"}
                       </td>
