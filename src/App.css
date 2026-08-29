@@ -1986,3 +1986,40 @@
 .card--table {
   border-color: var(--border-strong);
 }
+
+/* ---- Formato 01 · esquema del proceso ----------------------------- */
+.sap-panel--esquema .sap-icono {
+  background: var(--verde-soft);
+  color: var(--verde);
+}
+
+.esquema-etapas {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.esquema-etapa {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  padding: 10px 12px;
+}
+
+.esquema-etapa__cabecera {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  margin-bottom: 6px;
+}
+
+/* La lista numerada es el orden del proceso: sin ella no se ve que las
+   operaciones van una detrás de otra. */
+.esquema-lista {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+}

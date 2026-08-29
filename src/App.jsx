@@ -8,6 +8,7 @@ import ProductImagePicker from "./components/ProductImagePicker.jsx";
 import SapPanel from "./components/SapPanel.jsx";
 import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
 import Formato3Panel from "./components/Formato3Panel.jsx";
+import Formato01Panel from "./components/Formato01Panel.jsx";
 import BarraProgreso from "./components/BarraProgreso.jsx";
 import {
   IconCloud,
@@ -907,6 +908,10 @@ export default function App() {
             {!blank && productDocs.length > 0 && (
               <Formato3Panel documents={docs} familia={productoActivo} />
             )}
+
+            {/* El esquema lee sus propios registros: describe el proceso, no
+                un lote, así que no depende de lo que haya cargado el análisis. */}
+            <Formato01Panel />
 
             {!blank && <h2 className="seccion-titulo">Resultados del análisis</h2>}
 
