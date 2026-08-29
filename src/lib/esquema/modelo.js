@@ -12,7 +12,7 @@ import { detectEquipos } from "../parsers/equipos.js";
 import { detectInsumos } from "../parsers/insumos.js";
 import { extractMeta } from "../parsers/meta.js";
 import { nombreDeOperacion } from "./nombres.js";
-import { cajasDePasos, pasosPorSeccion } from "./pasos.js";
+import { cajasDePasos, pasosPorSeccion, unidadesPorCodigo } from "./pasos.js";
 
 // Secciones que no son operaciones del proceso: papeleo, alistar la sala y
 // las máquinas, desmontar, y los recuentos del final.
@@ -242,6 +242,7 @@ export function esquemaDeRegistro(pages) {
   const equipos = detectEquipos(pages);
   const textos = textoPorSeccion(pages);
 
+  const unidades = unidadesPorCodigo(pages);
   const insumosDeEtapa = detectInsumos(pages).filter((i) => i.descripcion);
   const nombresInsumo = new Set(insumosDeEtapa.map((i) => i.descripcion.toUpperCase()));
 
@@ -300,6 +301,7 @@ export function esquemaDeRegistro(pages) {
     // caja, que es como se ven las demás etapas.
     const cajas = cajasDePasos(pasos.get(seccion) || [], {
       equiposDeTexto: (t) => equiposDeSeccion(t, equipos),
+      unidadDe: (codigo) => unidades.get(codigo) || "",
     });
 
     if (cajas.length >= 2) {

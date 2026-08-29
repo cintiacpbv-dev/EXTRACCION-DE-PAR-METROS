@@ -24,13 +24,22 @@ function escapar(texto) {
  * Un renglón de texto dentro de un cuadro.
  *
  * `negrita` para el nombre de la operación, `cursiva` para el equipo —que es
- * como los distingue el formato— y `tam` en medios puntos.
+ * como los distingue el formato—, `subrayado` para los encabezados de las
+ * notas al margen ("Controles en proceso:") y `tam` en medios puntos.
  */
-function parrafo({ texto, negrita = false, cursiva = false, tam = 15, izquierda = false }) {
+function parrafo({
+  texto,
+  negrita = false,
+  cursiva = false,
+  subrayado = false,
+  tam = 15,
+  izquierda = false,
+}) {
   const rPr =
     `<w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>` +
     (negrita ? "<w:b/><w:bCs/>" : "") +
     (cursiva ? "<w:i/><w:iCs/>" : "") +
+    (subrayado ? `<w:u w:val="single"/>` : "") +
     `<w:sz w:val="${tam}"/><w:szCs w:val="${tam}"/></w:rPr>`;
 
   return (
@@ -78,8 +87,12 @@ export function cuadro({ id, x, y, ancho, alto, lineas, discontinuo = false, sin
  * Word dibuja el conector dentro de su propio rectángulo: si el destino queda
  * arriba o a la izquierda del origen, el conector se voltea con los atributos
  * flipH / flipV en vez de admitir medidas negativas.
+ *
+ * `sinPunta` deja la raya pelada, que es como el formato lleva los insumos
+ * hasta la operación; `punteado` la dibuja de puntos, que es como cuelga las
+ * notas y los controles en proceso del margen.
  */
-export function flecha({ id, x1, y1, x2, y2 }) {
+export function flecha({ id, x1, y1, x2, y2, sinPunta = false, punteado = false }) {
   const x = Math.min(x1, x2);
   const y = Math.min(y1, y2);
   const cx = Math.abs(x2 - x1);
@@ -91,8 +104,10 @@ export function flecha({ id, x1, y1, x2, y2 }) {
     `<wps:cNvCnPr/><wps:spPr>` +
     `<a:xfrm${flip}><a:off x="${mm(x)}" y="${mm(y)}"/><a:ext cx="${mm(cx)}" cy="${mm(cy)}"/></a:xfrm>` +
     `<a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>` +
-    `<a:ln w="9525"><a:solidFill><a:sysClr val="windowText" lastClr="000000"/></a:solidFill>` +
-    `<a:tailEnd type="triangle" w="med" len="med"/></a:ln>` +
+    `<a:ln w="${punteado ? 3175 : 9525}"><a:solidFill><a:sysClr val="windowText" lastClr="000000"/></a:solidFill>` +
+    (punteado ? `<a:prstDash val="dot"/>` : "") +
+    (sinPunta ? "" : `<a:tailEnd type="triangle" w="med" len="med"/>`) +
+    `</a:ln>` +
     `</wps:spPr><wps:bodyPr/></wps:wsp>`
   );
 }

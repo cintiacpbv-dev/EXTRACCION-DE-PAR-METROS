@@ -34,8 +34,9 @@ const VERBOS = [
 ];
 
 // Una línea de insumo dentro de un paso: "AGUA PURIFICADA (2500000002) 14 L
-// 14.000". El primer número tras el código es lo que manda la fórmula.
-const INSUMO_RE = /^(.+?)\s*\((\d{6,})\)\s*([\d.,]+(?:\s*[A-Za-z]+)?)/;
+// 14.000". El primer número tras el código es lo que manda la fórmula; el
+// segundo es lo que pesó el operario, que es de ese lote y no del proceso.
+const INSUMO_RE = /^(.+?)\s*\((\d{6,})\)\s*([\d.,]+)\s*([A-Za-z]+)?/;
 
 /** Los renglones del paso, sin lo que hay en los recuadros de firma. */
 function textoIzquierdo(linea) {
@@ -108,20 +109,62 @@ function rangosDelPaso(texto) {
   if (rpm) lineas.push(`V: ${rpm[1]} rpm`);
 
   const vacio = t.match(/(-?\d+\.\d+)\s*MPa/i);
-  if (vacio) lineas.push(`Presión de vacío: ${vacio[1]} MPa`);
+  if (vacio) lineas.push(`P° de vacío: ${vacio[1]} MPa`);
 
   return [...new Set(lineas)];
 }
 
-/** Los insumos que el paso agrega, con la cantidad de la fórmula. */
-function insumosDelPaso(renglones) {
+// Cómo escribe el esquema las unidades del registro. El registro las pone en
+// alto porque lo pone todo en alto, y algunas llevan pegado el código de la
+// forma en que se dispensa —"100 KGP", "225 GPA"—; el esquema escribe sólo la
+// unidad, que es lo que dice el formato ("100.000 kg", "225.000 g").
+const UNIDADES = new Map(
+  Object.entries({ KG: "kg", KGP: "kg", G: "g", GPA: "g", MG: "mg", ML: "mL", L: "L", LP: "L" })
+);
+
+/**
+ * La unidad de cada insumo, por su código de material.
+ *
+ * El registro no repite la unidad en todas las líneas: escribe "AGUA
+ * PURIFICADA (2500000002) 14 L" donde dispensa y "AGUA PURIFICADA
+ * (2500000002) 110.235" donde vuelve a usarla. La unidad de un material es la
+ * misma en todo el registro, así que se toma de donde sí la puso.
+ */
+export function unidadesPorCodigo(pages) {
+  const unidades = new Map();
+
+  for (const page of pages) {
+    for (const linea of page.lines) {
+      const m = textoIzquierdo(linea).match(INSUMO_RE);
+      if (!m || !m[4]) continue;
+      const unidad = UNIDADES.get(m[4].toUpperCase());
+      if (unidad && !unidades.has(m[2])) unidades.set(m[2], unidad);
+    }
+  }
+
+  return unidades;
+}
+
+/**
+ * Los insumos que el paso agrega, con la cantidad de la fórmula.
+ *
+ * La cantidad va con tres decimales —"14.000 L", "0.500 g"— porque es como la
+ * escribe el formato: así se lee de un vistazo que 0.5 g son medio gramo y no
+ * cinco.
+ */
+function insumosDelPaso(renglones, unidadDe) {
   const salida = [];
   for (const r of renglones) {
     const m = r.match(INSUMO_RE);
     if (!m) continue;
     const nombre = m[1].replace(/\s+/g, " ").trim();
     if (nombre.length < 4 || /^(NOTA|PRECAUCION|VERIFICAR)/i.test(nombre)) continue;
-    salida.push(`${nombre}: ${m[3].trim()}`);
+
+    const numero = Number(m[3].replace(/,/g, ""));
+    const cantidad = Number.isFinite(numero) ? numero.toFixed(3) : m[3].trim();
+    const unidad = m[4] ? UNIDADES.get(m[4].toUpperCase()) || m[4] : unidadDe(m[2]);
+
+    salida.push(`${nombre}: ${cantidad}${unidad ? ` ${unidad}` : ""}`);
   }
   return salida;
 }
@@ -138,7 +181,7 @@ function verboDe(texto) {
  * equipo. Los que sólo anotan una hora o un visto bueno se quedan fuera.
  * Cuando dos cajas comparten verbo se numeran, como en el formato.
  */
-export function cajasDePasos(pasos, { equiposDeTexto }) {
+export function cajasDePasos(pasos, { equiposDeTexto, unidadDe = () => "" }) {
   const cajas = [];
 
   for (const paso of pasos) {
@@ -146,7 +189,7 @@ export function cajasDePasos(pasos, { equiposDeTexto }) {
     const verbo = verboDe(texto);
     if (!verbo) continue;
 
-    const insumos = insumosDelPaso(paso.renglones);
+    const insumos = insumosDelPaso(paso.renglones, unidadDe);
     const lineas = rangosDelPaso(texto);
     const equipo = equiposDeTexto(texto);
     if (insumos.length === 0 && lineas.length === 0 && equipo.length === 0) continue;

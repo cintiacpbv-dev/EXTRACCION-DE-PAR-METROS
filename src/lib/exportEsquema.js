@@ -1,8 +1,10 @@
 // FORMATO 01: el esquema del proceso.
 //
-// Coloca en un lienzo de Word las operaciones de cada etapa, una debajo de
-// otra y unidas por flechas, con los insumos a la izquierda y los controles en
-// proceso al margen — que es como está hecho el formato de la empresa.
+// Copia la hoja del formato de la empresa: un marco que encierra el diagrama,
+// la fila de pesada arriba —INSUMOS, PESADA, verificación de la orden—, las
+// operaciones en columna unidas por flechas, los insumos que entran en cada una
+// a su izquierda, los controles en proceso colgando de puntos al margen y la
+// leyenda de abreviaturas abajo a la izquierda.
 //
 // La maquetación es la parte que el registro no puede dictar: dónde va cada
 // caja, cuánto mide y por dónde pasa la flecha. Se calcula aquí con una regla
@@ -13,6 +15,7 @@ import { Document, Packer, Paragraph, TextRun } from "docx";
 import { cuadro, flecha, lienzo, rotulo } from "./esquema/lienzo.js";
 import { inyectarLienzos, marcaDeLienzo } from "./esquema/inyectar.js";
 import { ordenarEtapas } from "./esquema/modelo.js";
+import { comoElEsquema } from "./esquema/texto.js";
 import { encabezadoYPie } from "./exportEncabezado.js";
 import { logoPorDefecto } from "./logoEmpresa.js";
 
@@ -22,12 +25,13 @@ const MARGEN = 1000;
 const ANCHO_UTIL = A4_ANCHO - MARGEN * 2;
 
 // La página en milímetros, que es como se razona la maquetación.
-const LIENZO_ANCHO = 165;
-const LIENZO_ALTO = 235;
+const LIENZO_ANCHO = 166;
+const LIENZO_ALTO = 238;
 
-// Las dos columnas: apoyo (insumos, controles) y proceso (las operaciones).
-const COL_APOYO = { x: 2, ancho: 62 };
-const COL_PROCESO = { x: 78, ancho: 62 };
+// Las dos columnas: apoyo (insumos, controles, leyenda) y proceso (las
+// operaciones). Entre las dos queda el hueco por donde entra la flecha.
+const COL_APOYO = { x: 5, ancho: 60 };
+const COL_PROCESO = { x: 88, ancho: 68 };
 
 // Alto de un renglón de texto y márgenes internos de las cajas, en mm.
 const ALTO_RENGLON = 3.4;
@@ -37,10 +41,14 @@ const SEPARACION = 7; // hueco entre dos operaciones, por donde va la flecha
 const TAM_TITULO = 15; // medios puntos
 const TAM_LINEA = 14;
 
-// El recuadro de una operación unitaria: sitio para su rótulo arriba y un
-// respiro por fuera para que la raya no toque las cajas de al lado.
+// El rótulo de una operación unitaria: una caja con su nombre a la izquierda,
+// sobre las cajas de los pasos que la componen.
 const ALTO_ROTULO_GRUPO = 6;
 const MARGEN_GRUPO = 4;
+
+// La fila de pesada, que encabeza todas las hojas del formato.
+const FILA_PESADA = { y: 3, alto: 8 };
+const PRIMERA_FILA = FILA_PESADA.y + FILA_PESADA.alto + 5;
 
 // Cuántos caracteres de Arial 7 pt caben en un milímetro de ancho. Medido
 // sobre el formato de la empresa: una caja de 62 mm admite unos 46 caracteres.
@@ -61,33 +69,73 @@ function altoDeCaja(lineas, ancho) {
 function lineasDeOperacion(op) {
   return [
     { texto: op.titulo, negrita: true, tam: TAM_TITULO },
-    ...op.lineas.map((l) => ({ texto: l, tam: TAM_LINEA })),
-    ...(op.equipo.length > 0 ? [{ texto: op.equipo.join(" + "), cursiva: true, tam: TAM_LINEA }] : []),
+    ...op.lineas.map((l) => ({ texto: comoElEsquema(l), tam: TAM_LINEA })),
+    ...(op.equipo.length > 0
+      ? [{ texto: comoElEsquema(op.equipo.join(" + ")), cursiva: true, tam: TAM_LINEA }]
+      : []),
   ];
 }
 
-/** Las líneas de la caja de agregaciones que cuelga de una operación. */
+/** Lo que entra en una operación, listado al margen izquierdo sin recuadro. */
 function lineasDeInsumos(insumos) {
-  return insumos.map((i) => ({ texto: `• ${i}`, izquierda: true, tam: TAM_LINEA }));
+  return insumos.map((i) => ({ texto: `• ${comoElEsquema(i)}`, izquierda: true, tam: TAM_LINEA }));
+}
+
+// La leyenda de abreviaturas que el formato lleva abajo a la izquierda. Sólo
+// nombra las que aparecen: una hoja sin presiones no explica qué es P°.
+const ABREVIATURAS = [
+  [/^T°/, "T°: Temperatura"],
+  [/^t\b/, "t: Tiempo"],
+  [/^V\b/, "V: Velocidad"],
+  [/^P°/, "P°: Presión"],
+];
+
+function leyendaDeHoja(cajas) {
+  const textos = cajas.flatMap((c) => c.op.lineas);
+  const usadas = ABREVIATURAS.filter(([re]) => textos.some((t) => re.test(t))).map(([, t]) => t);
+  if (usadas.length === 0) return [];
+
+  return [
+    { texto: "Leyenda:", negrita: true, cursiva: true, izquierda: true, tam: TAM_LINEA },
+    ...usadas.map((t) => ({ texto: t, izquierda: true, tam: TAM_LINEA })),
+  ];
+}
+
+/**
+ * Si la etapa necesita que su nombre encabece la hoja.
+ *
+ * Cuando las operaciones vienen agrupadas —preparar el bulk, preparar la
+ * gelatina— el rótulo de cada grupo ya dice dónde se está, que es como lo
+ * lleva el formato; sin grupos, el nombre de la etapa hace ese papel.
+ */
+function necesitaRotuloDeEtapa(esquema) {
+  return !esquema.operaciones[0]?.grupo;
+}
+
+function fondoDe(cajas) {
+  return cajas.reduce((n, c) => Math.max(n, c.y + Math.max(c.alto, c.altoIns)), 0);
 }
 
 /**
  * Reparte una etapa en páginas: las operaciones se apilan hasta llenar el
  * lienzo y lo que no cabe abre otra hoja.
+ *
+ * `reserva` es el sitio que hay que dejar libre al final de la última hoja
+ * para la leyenda y los controles en proceso, que van abajo a la izquierda.
  */
-function paginarEtapa(esquema) {
+function paginarEtapa(esquema, reserva) {
   const paginas = [];
   let actual = [];
-  let y = 12; // debajo del rótulo de la etapa
+  let y = PRIMERA_FILA + (necesitaRotuloDeEtapa(esquema) ? ALTO_ROTULO_GRUPO + 2 : 0);
 
   let grupoAbierto = null;
 
   for (const op of esquema.operaciones) {
-    // Al abrir una operación unitaria se deja sitio para el rótulo de su
-    // recuadro; al cerrarla, para que la raya no toque la caja siguiente.
+    // Al abrir una operación unitaria se deja sitio para su rótulo; al
+    // cerrarla, un respiro antes de la caja siguiente.
     if (op.grupo !== grupoAbierto) {
       if (grupoAbierto) y += MARGEN_GRUPO;
-      if (op.grupo) y += ALTO_ROTULO_GRUPO;
+      if (op.grupo) y += ALTO_ROTULO_GRUPO + 1;
       grupoAbierto = op.grupo || null;
     }
 
@@ -95,16 +143,17 @@ function paginarEtapa(esquema) {
     const alto = altoDeCaja(lineas, COL_PROCESO.ancho);
 
     // Lo que se agrega en esta operación va a su izquierda; la fila mide lo
-    // que la más alta de las dos cajas.
+    // que la más alta de las dos cosas.
     const insumos = op.insumos || [];
     const lineasIns = lineasDeInsumos(insumos);
     const altoIns = insumos.length > 0 ? altoDeCaja(lineasIns, COL_APOYO.ancho) : 0;
-    const altoFila = Math.max(alto, altoIns);
+    const altoFila = Math.max(alto, altoIns + 3);
 
     if (y + altoFila > LIENZO_ALTO - 6 && actual.length > 0) {
       paginas.push(actual);
       actual = [];
-      y = 12;
+      y = PRIMERA_FILA + (op.grupo ? ALTO_ROTULO_GRUPO + 1 : 0);
+      grupoAbierto = op.grupo || null;
     }
 
     actual.push({ op, lineas, alto, y, lineasIns, altoIns });
@@ -112,6 +161,17 @@ function paginarEtapa(esquema) {
   }
 
   if (actual.length > 0) paginas.push(actual);
+
+  // La leyenda y los controles van al pie de la última hoja: si el dibujo
+  // llega hasta abajo, la última caja pasa a una hoja nueva en vez de que se
+  // le monte el texto encima.
+  const ultima = paginas[paginas.length - 1];
+  if (ultima && ultima.length > 1 && fondoDe(ultima) + reserva > LIENZO_ALTO) {
+    const caja = ultima.pop();
+    caja.y = PRIMERA_FILA + (caja.op.grupo ? ALTO_ROTULO_GRUPO + 1 : 0);
+    paginas.push([caja]);
+  }
+
   return paginas;
 }
 
@@ -128,51 +188,100 @@ function tramosDeGrupo(cajas) {
   return tramos;
 }
 
+/** Una caja de rótulo: el nombre de una etapa o de una operación unitaria. */
+function cajaRotulo({ id, y, texto }) {
+  return cuadro({
+    id,
+    x: COL_APOYO.x,
+    y,
+    ancho: Math.min(100, 8 + texto.length * 1.6),
+    alto: ALTO_ROTULO_GRUPO,
+    lineas: [{ texto, negrita: true, tam: TAM_TITULO }],
+    recto: true,
+  });
+}
+
+/**
+ * La fila que encabeza todas las hojas del formato: los insumos llegan a la
+ * central de pesada, de ahí a la verificación de la orden, y de ahí baja por
+ * el margen izquierdo hasta el proceso.
+ */
+function filaDePesada(idBase, hastaY) {
+  const { y, alto } = FILA_PESADA;
+  const medio = y + alto / 2;
+  let id = idBase;
+
+  const verificacion = { x: 8, ancho: 40 };
+  const pesada = { x: 56, ancho: 38 };
+  const insumos = { x: 102, ancho: 22 };
+
+  return [
+    cuadro({
+      id: id++,
+      x: verificacion.x,
+      y,
+      ancho: verificacion.ancho,
+      alto,
+      recto: true,
+      lineas: [{ texto: "Verificación de la orden de Producción", negrita: true, tam: TAM_LINEA }],
+    }),
+    cuadro({
+      id: id++,
+      x: pesada.x,
+      y,
+      ancho: pesada.ancho,
+      alto,
+      recto: true,
+      lineas: [
+        { texto: "PESADA", negrita: true, tam: TAM_LINEA },
+        { texto: "(Central de pesada)", tam: TAM_LINEA },
+      ],
+    }),
+    cuadro({
+      id: id++,
+      x: insumos.x,
+      y: y + 1.5,
+      ancho: insumos.ancho,
+      alto: alto - 3,
+      recto: true,
+      lineas: [{ texto: "INSUMOS", negrita: true, tam: TAM_LINEA }],
+    }),
+    flecha({ id: id++, x1: insumos.x, y1: medio, x2: pesada.x + pesada.ancho, y2: medio }),
+    flecha({ id: id++, x1: pesada.x, y1: medio, x2: verificacion.x + verificacion.ancho, y2: medio }),
+    // El codo que baja por el margen: de la verificación al proceso.
+    flecha({ id: id++, x1: verificacion.x, y1: medio, x2: 2.5, y2: medio, sinPunta: true }),
+    flecha({ id: id++, x1: 2.5, y1: medio, x2: 2.5, y2: hastaY, sinPunta: true }),
+  ];
+}
+
 /** El lienzo de una hoja de la etapa. */
-function lienzoDeHoja({ esquema, cajas, ultima, idBase }) {
+function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
   const formas = [];
   let id = idBase;
 
+  // El marco que encierra el diagrama en la hoja del formato.
   formas.push(
-    rotulo({
+    cuadro({
       id: id++,
-      x: COL_APOYO.x,
-      y: 1,
-      ancho: 100,
-      alto: 6,
-      lineas: [{ texto: esquema.etapa, negrita: true, tam: 17, izquierda: true }],
+      x: 0.5,
+      y: 0.5,
+      ancho: LIENZO_ANCHO - 1,
+      alto: LIENZO_ALTO - 1,
+      lineas: [],
+      recto: true,
     })
   );
 
-  // El recuadro de rayas de cada operación unitaria, con su nombre encima:
-  // abarca todas sus cajas y las de lo que se les agrega.
-  for (const tramo of tramosDeGrupo(cajas)) {
-    const arriba = tramo.cajas[0].y - ALTO_ROTULO_GRUPO;
-    const ultima = tramo.cajas[tramo.cajas.length - 1];
-    const abajo = ultima.y + Math.max(ultima.alto, ultima.altoIns);
+  formas.push(...filaDePesada(id, cajas[0] ? cajas[0].y + 4 : PRIMERA_FILA));
+  id += 10;
 
-    formas.push(
-      rotulo({
-        id: id++,
-        x: COL_APOYO.x + 1,
-        y: arriba,
-        ancho: 110,
-        alto: ALTO_ROTULO_GRUPO,
-        lineas: [{ texto: tramo.grupo, negrita: true, tam: TAM_TITULO, izquierda: true }],
-      })
-    );
-    formas.push(
-      cuadro({
-        id: id++,
-        x: COL_APOYO.x - 1,
-        y: arriba,
-        ancho: COL_PROCESO.x + COL_PROCESO.ancho - COL_APOYO.x + 2,
-        alto: abajo - arriba + 2,
-        lineas: [],
-        discontinuo: true,
-        recto: true,
-      })
-    );
+  if (primera && necesitaRotuloDeEtapa(esquema)) {
+    formas.push(cajaRotulo({ id: id++, y: PRIMERA_FILA, texto: esquema.etapa }));
+  }
+
+  // El rótulo de cada operación unitaria, sobre las cajas de sus pasos.
+  for (const tramo of tramosDeGrupo(cajas)) {
+    formas.push(cajaRotulo({ id: id++, y: tramo.cajas[0].y - ALTO_ROTULO_GRUPO - 1, texto: tramo.grupo }));
   }
 
   for (const [i, caja] of cajas.entries()) {
@@ -187,60 +296,87 @@ function lienzoDeHoja({ esquema, cajas, ultima, idBase }) {
       })
     );
 
-    // La agregación: su caja a la izquierda y una flecha que entra en la
-    // operación, que es como el esquema muestra qué se echa y dónde.
+    // Lo que se agrega: la lista al margen, sin recuadro, y una raya que entra
+    // en la operación — que es como el formato dice qué se echa y dónde.
     if (caja.altoIns > 0) {
       formas.push(
-        cuadro({
+        rotulo({
           id: id++,
           x: COL_APOYO.x,
           y: caja.y,
           ancho: COL_APOYO.ancho,
           alto: caja.altoIns,
           lineas: caja.lineasIns,
-          discontinuo: true,
         })
       );
-      const medio = caja.y + Math.min(caja.alto, caja.altoIns) / 2;
-      formas.push(
-        flecha({
-          id: id++,
-          x1: COL_APOYO.x + COL_APOYO.ancho,
-          y1: medio,
-          x2: COL_PROCESO.x,
-          y2: medio,
-        })
-      );
+      const yLinea = Math.max(caja.y + caja.altoIns + 1, caja.y + caja.alto / 2);
+      formas.push(flecha({ id: id++, x1: COL_APOYO.x, y1: yLinea, x2: COL_PROCESO.x, y2: yLinea }));
     }
 
     if (i < cajas.length - 1) {
       const centro = COL_PROCESO.x + COL_PROCESO.ancho / 2;
       formas.push(
+        flecha({ id: id++, x1: centro, y1: caja.y + caja.alto, x2: centro, y2: cajas[i + 1].y })
+      );
+    }
+  }
+
+  // Al pie de la última hoja: los controles en proceso, colgados de puntos de
+  // la última operación, y debajo la leyenda de abreviaturas.
+  let fondo = LIENZO_ALTO - 3;
+
+  const leyenda = leyendaDeHoja(cajas);
+  if (leyenda.length > 0) {
+    const alto = altoDeCaja(leyenda, 44);
+    fondo -= alto;
+    formas.push(cuadro({ id: id++, x: COL_APOYO.x, y: fondo, ancho: 44, alto, lineas: leyenda }));
+    fondo -= 4;
+  }
+
+  if (ultima && esquema.controles.length > 0) {
+    const lineas = [
+      { texto: "Controles en proceso:", negrita: true, subrayado: true, izquierda: true, tam: TAM_LINEA },
+      ...esquema.controles.map((c) => ({ texto: c, izquierda: true, tam: TAM_LINEA })),
+    ];
+    const ancho = COL_APOYO.ancho + 8;
+    const alto = altoDeCaja(lineas, ancho);
+    const y = fondo - alto;
+    formas.push(cuadro({ id: id++, x: COL_APOYO.x, y, ancho, alto, lineas, recto: true }));
+
+    if (cajas.length > 0) {
+      const medio = y + alto / 2;
+      formas.push(
         flecha({
           id: id++,
-          x1: centro,
-          y1: caja.y + caja.alto,
-          x2: centro,
-          y2: cajas[i + 1].y,
+          x1: COL_APOYO.x + ancho,
+          y1: medio,
+          x2: COL_PROCESO.x + COL_PROCESO.ancho / 2,
+          y2: medio,
+          sinPunta: true,
+          punteado: true,
         })
       );
     }
   }
 
-  // Los insumos que ninguna operación reclamó se listan al final, para que no
-  // se pierdan: si el registro no dice dónde entran, el esquema tampoco puede.
+  // Los insumos que ninguna operación reclamó se listan aparte, para que no se
+  // pierdan: si el registro no dice dónde entran, el esquema tampoco puede.
   const reclamados = new Set(
     esquema.operaciones.flatMap((o) => (o.insumos || []).map((i) => i.split(":")[0].trim().toUpperCase()))
   );
-  const sueltos = ultima
-    ? esquema.insumos.filter((i) => !reclamados.has(i.nombre.toUpperCase()))
-    : [];
+  const sueltos = ultima ? esquema.insumos.filter((i) => !reclamados.has(i.nombre.toUpperCase())) : [];
 
   if (sueltos.length > 0) {
     const lineas = [
-      { texto: "Otros insumos dispensados:", negrita: true, izquierda: true, tam: TAM_LINEA },
+      {
+        texto: "Otros insumos dispensados:",
+        negrita: true,
+        subrayado: true,
+        izquierda: true,
+        tam: TAM_LINEA,
+      },
       ...sueltos.map((i) => ({
-        texto: `• ${i.nombre}${i.cantidad ? `: ${i.cantidad}` : ""}`,
+        texto: `• ${comoElEsquema(`${i.nombre}${i.cantidad ? `: ${i.cantidad}` : ""}`)}`,
         izquierda: true,
         tam: TAM_LINEA,
       })),
@@ -249,8 +385,8 @@ function lienzoDeHoja({ esquema, cajas, ultima, idBase }) {
     formas.push(
       cuadro({
         id: id++,
-        x: COL_APOYO.x,
-        y: Math.max(12, LIENZO_ALTO - alto - 40),
+        x: COL_PROCESO.x,
+        y: Math.max(PRIMERA_FILA, LIENZO_ALTO - alto - 3),
         ancho: COL_APOYO.ancho,
         alto,
         lineas,
@@ -259,25 +395,15 @@ function lienzoDeHoja({ esquema, cajas, ultima, idBase }) {
     );
   }
 
-  if (ultima && esquema.controles.length > 0) {
-    const lineas = [
-      { texto: "Controles en proceso:", negrita: true, izquierda: true, tam: TAM_LINEA },
-      ...esquema.controles.map((c) => ({ texto: c, izquierda: true, tam: TAM_LINEA })),
-    ];
-    const alto = altoDeCaja(lineas, COL_APOYO.ancho);
-    formas.push(
-      cuadro({
-        id: id++,
-        x: COL_APOYO.x,
-        y: Math.max(12, LIENZO_ALTO - alto - 6),
-        ancho: COL_APOYO.ancho,
-        alto,
-        lineas,
-      })
-    );
-  }
-
   return lienzo({ id: id++, ancho: LIENZO_ANCHO, alto: LIENZO_ALTO, formas });
+}
+
+/** El sitio que hay que reservar al pie de la última hoja de una etapa. */
+function reservaDePie(esquema) {
+  if (esquema.controles.length === 0) return 24;
+
+  const lineas = [{ texto: "Controles en proceso:" }, ...esquema.controles.map((c) => ({ texto: c }))];
+  return altoDeCaja(lineas, COL_APOYO.ancho + 8) + 28;
 }
 
 /** Los lienzos de todo el esquema, uno por hoja. */
@@ -286,17 +412,18 @@ export function lienzosDelEsquema(esquemas) {
   let idBase = 1000;
 
   for (const esquema of ordenarEtapas(esquemas)) {
-    const paginas = paginarEtapa(esquema);
+    const paginas = paginarEtapa(esquema, reservaDePie(esquema));
     paginas.forEach((cajas, i) => {
       lienzos.push(
         lienzoDeHoja({
           esquema,
           cajas,
+          primera: i === 0,
           ultima: i === paginas.length - 1,
           idBase,
         })
       );
-      idBase += 200;
+      idBase += 300;
     });
   }
 
@@ -306,9 +433,11 @@ export function lienzosDelEsquema(esquemas) {
 export function buildEsquemaDocument(esquemas, { producto, codigo, empresa, planta, logo } = {}) {
   const lienzos = lienzosDelEsquema(esquemas);
 
+  // El encabezado lleva sólo el nombre del producto: el formato no repite el
+  // título del documento en cada hoja.
   const encabezado = encabezadoYPie({
     ancho: ANCHO_UTIL,
-    titulo: [producto || "", "ESQUEMA DEL PROCESO"],
+    titulo: [producto || ""],
     codigo,
     empresa,
     planta,
