@@ -537,6 +537,16 @@ function cuadroParametros(datos, lotes, etapa) {
         );
       }
 
+      // Una banda no es un parámetro: nombra la operación que viene debajo y
+      // ocupa el ancho del cuadro, menos la columna del rótulo girado.
+      if (row.banda) {
+        celdas.push(
+          celdaParam(row.label, { bold: true, colSpan: nCols - 1, width: total - A.rotulo })
+        );
+        filas.push(fila(celdas, { alto: ALTO_PAR_SECCION }));
+        return;
+      }
+
       const etiqueta = row.unit && !row.label.includes(row.unit) ? `${row.label} (${row.unit})` : row.label;
       celdas.push(celdaParam(etiqueta, { align: AlignmentType.BOTH, width: A.nombre }));
       celdas.push(
@@ -547,9 +557,10 @@ function cuadroParametros(datos, lotes, etapa) {
       );
 
       lotes.forEach((lote, j) => {
-        celdas.push(
-          celdaParam(valorParaCuadro(row.values[lote]), { align: AlignmentType.CENTER, width: A.lotes[j] })
-        );
+        // Las filas de la estructura estándar salen vacías para llenar a mano;
+        // los guiones significan "no aplica", que es otra cosa.
+        const valor = row.enBlanco ? "" : valorParaCuadro(row.values[lote]);
+        celdas.push(celdaParam(valor, { align: AlignmentType.CENTER, width: A.lotes[j] }));
       });
 
       filas.push(fila(celdas, { alto: ALTO_PAR_DATO }));

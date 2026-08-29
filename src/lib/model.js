@@ -163,6 +163,11 @@ export function buildTable(documents, familia, stage, { onlyCritical = true } = 
           setpoint: p.setpoint,
           // El rango se deja vacío en vez de "Referencial" (ver opcionesParams).
           sinRango: Boolean(p.sinRango),
+          // Marcas de la estructura estándar del informe: una banda nombra la
+          // operación y ocupa el ancho del cuadro; una fila en blanco se
+          // completa a mano (ver estandarAcondicionado.js).
+          banda: Boolean(p.banda),
+          enBlanco: Boolean(p.enBlanco),
           unit: p.unit,
           valueType: p.valueType,
           category: p.category,

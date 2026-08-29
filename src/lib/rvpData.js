@@ -6,6 +6,7 @@
 // materiales de la sección de insumos.
 
 import { aggregatePersonnel, buildTable, claveLote, listStages } from "./model.js";
+import { seccionEstandarAcondicionado } from "./estandarAcondicionado.js";
 
 const FECHA_RE = /^(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}:\d{2}))?/;
 
@@ -380,9 +381,16 @@ export function buildRvpModel(documents, familia, { onlyCritical = true, stage =
       // El material y su cantidad abren el cuadro, como en el informe: son el
       // contexto del lote antes de entrar en los parámetros de operación.
       const consideraciones = consideracionesGenerales(alcance, familia, etapa);
-      if (consideraciones) {
-        tabla.sections = [consideraciones, ...tabla.sections];
-        tabla.rowCount += consideraciones.rows.length;
+      const encabeza = consideraciones ? [consideraciones] : [];
+
+      // Y tras ellas, en acondicionado, las operaciones manuales del proceso
+      // con lo que se verifica en cada una. Es estructura fija del informe,
+      // no algo que diga el registro (ver estandarAcondicionado.js).
+      if (etapa === "ACONDICIONADO") encabeza.push(seccionEstandarAcondicionado());
+
+      if (encabeza.length > 0) {
+        tabla.sections = [...encabeza, ...tabla.sections];
+        tabla.rowCount += encabeza.reduce((n, s) => n + s.rows.length, 0);
       }
       return tabla;
     }),
