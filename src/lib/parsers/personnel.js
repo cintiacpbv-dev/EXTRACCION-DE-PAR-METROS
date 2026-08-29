@@ -34,6 +34,13 @@ const MAX_BLOCK_ROWS = 8;
 // este límite.
 const SIGNATURE_X_MIN = 465;
 
+// El control inspectivo lo hace personal de control de calidad, que no
+// interviene en el acondicionado: entra a la línea, toma sus muestras y se
+// va. Sus firmas no cuentan como personal del proceso, así que el paso que
+// las recoge se salta entero.
+const PASO_AJENO_RE = /CONTROL\s+INSPECTIVO\s+DEL\s+PROCESO/i;
+const PASO_RE = /^\d+(\.\d+)*\s*\.-/;
+
 function isNameToken(tok) {
   return NAME_TOKEN_RE.test(tok) && !SKIP_WORDS.has(tok) && !DATE_RE.test(tok) && !TIME_RE.test(tok);
 }
@@ -68,16 +75,22 @@ export function detectPersonnel(pages) {
   // días de por medio.
   const porSeccion = new Map();
   let seccion = null;
+  // Si el paso en curso es de gente ajena al proceso, sus firmas se descartan.
+  let pasoAjeno = false;
 
   for (const page of pages) {
     const lines = page.lines;
 
     for (let i = 0; i < lines.length; i++) {
-      const encabezado = matchSectionHeading(String(lines[i].text || "").trim());
+      const texto = String(lines[i].text || "").trim();
+
+      if (PASO_RE.test(texto)) pasoAjeno = PASO_AJENO_RE.test(texto);
+
+      const encabezado = matchSectionHeading(texto);
       if (encabezado) seccion = encabezado.title;
 
       const realizadoSeg = lines[i].segments.find((s) => s.str === "Realizado");
-      if (!realizadoSeg) continue;
+      if (!realizadoSeg || pasoAjeno) continue;
 
       const vbSeg = lines[i].segments.find((s) => s.str === "VB");
       const threshold = vbSeg ? vbSeg.x - COLUMN_MARGIN : Infinity;
