@@ -5,6 +5,7 @@ import { detectPersonnel } from "./personnel.js";
 import { detectInsumos } from "./insumos.js";
 import { detectEquipos } from "./equipos.js";
 import { conOpciones } from "./opcionesParams.js";
+import { conAmbientales } from "./ambientales.js";
 import { conTiempos } from "./tiempos.js";
 import { esOrdenDeProduccion, parseOrden } from "./orden.js";
 
@@ -54,7 +55,7 @@ export async function processPdfFile(file) {
   }
 
   const meta = extractMeta(flatText, pages);
-  const params = conOpciones(conTiempos(detectParameters(pages)), pages);
+  const params = conAmbientales(conOpciones(conTiempos(detectParameters(pages)), pages));
   const personnel = detectPersonnel(pages);
   const insumos = detectInsumos(pages);
   const equipos = detectEquipos(pages);

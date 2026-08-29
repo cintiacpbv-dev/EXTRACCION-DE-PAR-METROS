@@ -266,9 +266,9 @@ export function rendimientoPorLote(documents, familia) {
 // de turno y el incremento de capacidad son la misma operación de
 // acondicionado continuada por otra gente, así que van con ella.
 const BLOQUES_OPERARIOS = [
-  { etiqueta: "Lotizado", re: /IMPRESI[OÓ]N\s+DE\s+CAJAS/i },
+  { etiqueta: "Codificado de cajas", re: /IMPRESI[OÓ]N\s+DE\s+CAJAS/i },
   {
-    etiqueta: "ACONDICIONADO",
+    etiqueta: "Acondicionado",
     re: /OPERACI[OÓ]N\s*N\s*[°ºo.]*\s*2|INCREMENTO\s+DE\s+CAPACIDAD|CAMBIO\s+DE\s+TURNO/i,
   },
 ];
@@ -311,8 +311,14 @@ export function personalPorLote(documents, familia) {
       porLote[lote] = {
         operarios: nombresDe(doc?.personnel, null, "operarios"),
         supervisores: nombresDe(doc?.personnel, null, "supervisores"),
+        // Operarios y supervisores se reparten por el mismo criterio: quien
+        // codificó las cajas y quien acondicionó son trabajos distintos, y su
+        // visto bueno lo dio quien estaba de turno en cada uno.
         bloques: Object.fromEntries(
           bloques.map((b) => [b.etiqueta, nombresDe(doc?.personnel, b.re, "operarios")])
+        ),
+        bloquesSupervisores: Object.fromEntries(
+          bloques.map((b) => [b.etiqueta, nombresDe(doc?.personnel, b.re, "supervisores")])
         ),
       };
     }
@@ -369,6 +375,65 @@ export function buildRvpModel(documents, familia, { onlyCritical = true, stage =
     rendimiento: rendimientoPorLote(alcance, familia),
     personal: personalPorEtapa(alcance, familia),
     personalPorLote: personalPorLote(alcance, familia),
-    tablas: stages.map((s) => buildTable(alcance, familia, s, { onlyCritical })),
+    tablas: stages.map((etapa) => {
+      const tabla = buildTable(alcance, familia, etapa, { onlyCritical });
+      // El material y su cantidad abren el cuadro, como en el informe: son el
+      // contexto del lote antes de entrar en los parámetros de operación.
+      const consideraciones = consideracionesGenerales(alcance, familia, etapa);
+      if (consideraciones) {
+        tabla.sections = [consideraciones, ...tabla.sections];
+        tabla.rowCount += consideraciones.rows.length;
+      }
+      return tabla;
+    }),
   };
 }
+
+const SECCION_CONSIDERACIONES = "CONSIDERACIONES GENERALES";
+const ROTULO_MATERIAL = "MATERIAL DE ACONDICIONADO";
+
+/**
+ * El apartado "CONSIDERACIONES GENERALES" del cuadro de parámetros: qué
+ * material de acondicionado se usó y cuánto entró en cada lote.
+ *
+ * El nombre del material lo pone el registro de manufactura, que es el que
+ * dice lo que realmente se usó en la etapa; la cantidad la pone la orden de
+ * producción, que es donde está declarada (ver materialesPorLote, que ya
+ * cruza las dos por código de material).
+ *
+ * Se devuelve con la forma de una sección de buildTable para poder anteponerla
+ * a las demás sin que el cuadro tenga que saber de dónde salió.
+ */
+export function consideracionesGenerales(documents, familia, stage) {
+  const materiales = materialesPorLote(documents, familia).filter((m) => !stage || m.stage === stage);
+  if (materiales.length === 0) return null;
+
+  const porNombre = new Map();
+  for (const m of materiales) {
+    if (!m.nombre) continue;
+    if (!porNombre.has(m.nombre)) porNombre.set(m.nombre, {});
+    const cantidad = (m.cantidad || "").trim();
+    if (cantidad) porNombre.get(m.nombre)[m.lote] = cantidad;
+  }
+
+  const rows = [...porNombre.entries()]
+    .filter(([, valores]) => Object.keys(valores).length > 0)
+    .map(([nombre, values]) => ({
+      id: `consideracion::${nombre}`,
+      section: SECCION_CONSIDERACIONES,
+      label: nombre,
+      // Ni rango ni "Referencial": la cantidad entregada no se compara contra
+      // un criterio, se deja constancia de ella.
+      setpoint: "",
+      sinRango: true,
+      unit: "",
+      valueType: "text",
+      category: "critico",
+      values,
+    }));
+
+  return rows.length > 0
+    ? { title: SECCION_CONSIDERACIONES, rotulo: ROTULO_MATERIAL, rows }
+    : null;
+}
+

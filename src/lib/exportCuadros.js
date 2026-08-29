@@ -316,8 +316,10 @@ function tablaPersonalBloque(entrada, lotes) {
   const total = anchos.reduce((a, b) => a + b, 0);
 
   const nombres = (lote, rol) => (entrada.porLote[lote]?.[rol] || []).map((x) => formatPersonName(x));
-  const nombresBloque = (lote, bloque) =>
-    (entrada.porLote[lote]?.bloques?.[bloque] || []).map((x) => formatPersonName(x));
+  const nombresBloque = (lote, bloque, rol = "operarios") => {
+    const donde = rol === "supervisores" ? "bloquesSupervisores" : "bloques";
+    return (entrada.porLote[lote]?.[donde]?.[bloque] || []).map((x) => formatPersonName(x));
+  };
 
   const bandaAncha = (texto) =>
     fila([celda(texto, { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_FUNCION });
@@ -332,10 +334,13 @@ function tablaPersonalBloque(entrada, lotes) {
   // acondicionado— porque son trabajos distintos hechos por gente distinta.
   // En las demás etapas hay un solo bloque, el de la etapa entera.
   const bloques = entrada.bloques?.length ? entrada.bloques : [entrada.stage];
-  const filasOperarios = bloques.flatMap((b) => [
-    bandaAncha(b),
-    filaNombres((l) => (bloques.length === 1 ? nombres(l, "operarios") : nombresBloque(l, b))),
-  ]);
+  const unSoloBloque = bloques.length === 1;
+
+  const filasPorRol = (rol) =>
+    bloques.flatMap((b) => [
+      bandaAncha(b),
+      filaNombres((l) => (unSoloBloque ? nombres(l, rol) : nombresBloque(l, b, rol))),
+    ]);
 
   return tabla(
     anchos,
@@ -347,9 +352,9 @@ function tablaPersonalBloque(entrada, lotes) {
       ),
       fila([celda(entrada.producto, { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_CAB, cabecera: true }),
       bandaAncha("FUNCIÓN: OPERADOR"),
-      ...filasOperarios,
+      ...filasPorRol("operarios"),
       bandaAncha("FUNCIÓN: SUPERVISOR (Q.F.)"),
-      filaNombres((l) => nombres(l, "supervisores")),
+      ...filasPorRol("supervisores"),
     ],
     { indent: SANGRIA_PERSONAL }
   );
@@ -526,7 +531,7 @@ function cuadroParametros(datos, lotes, etapa) {
         // no descuadrar la columna.
         const cabeElRotulo = seccion.rows.length >= MIN_FILAS_ROTULO;
         celdas.push(
-          celdaParam(cabeElRotulo ? etapa : "", {
+          celdaParam(cabeElRotulo ? seccion.rotulo || etapa : "", {
             align: AlignmentType.CENTER, girado: true, rowSpan: seccion.rows.length, width: A.rotulo,
           })
         );
