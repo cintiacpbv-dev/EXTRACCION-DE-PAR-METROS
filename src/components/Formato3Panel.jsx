@@ -122,7 +122,7 @@ export default function Formato3Panel({ documents, familia, opcionesEncabezado }
 
   if (!abierto) {
     return (
-      <section className="card sap-panel sap-panel--cerrado">
+      <section className="card sap-panel sap-panel--formato3 sap-panel--cerrado">
         <button className="sap-cabecera sap-cabecera--boton" onClick={() => setAbierto(true)}>
           <span className="sap-icono">
             <IconGrid size={16} />
@@ -140,7 +140,7 @@ export default function Formato3Panel({ documents, familia, opcionesEncabezado }
   }
 
   return (
-    <section className="card sap-panel">
+    <section className="card sap-panel sap-panel--formato3">
       <button className="sap-cabecera sap-cabecera--boton" onClick={() => setAbierto(false)} aria-expanded>
         <span className="sap-icono">
           <IconGrid size={16} />

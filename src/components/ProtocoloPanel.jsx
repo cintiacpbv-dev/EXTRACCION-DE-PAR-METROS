@@ -151,7 +151,7 @@ export default function ProtocoloPanel() {
 
   if (!abierto) {
     return (
-      <section className="card sap-panel sap-panel--cerrado">
+      <section className="card sap-panel sap-panel--protocolo sap-panel--cerrado">
         <button className="sap-cabecera sap-cabecera--boton" onClick={() => setAbierto(true)}>
           <span className="sap-icono">
             <IconShieldCheck size={16} />
@@ -169,7 +169,7 @@ export default function ProtocoloPanel() {
   }
 
   return (
-    <section className="card sap-panel">
+    <section className="card sap-panel sap-panel--protocolo">
       <button className="sap-cabecera sap-cabecera--boton" onClick={() => setAbierto(false)} aria-expanded>
         <span className="sap-icono">
           <IconShieldCheck size={16} />

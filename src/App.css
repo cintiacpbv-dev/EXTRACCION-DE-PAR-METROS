@@ -527,8 +527,10 @@
   transform: translateY(1px);
 }
 
+/* El degradado arranca en el azul oscuro, no en el pastel: el pastel es
+   para rellenos, y con texto blanco encima se quedaba corto de contraste. */
 .btn--primary {
-  background: linear-gradient(180deg, var(--sky) 0%, var(--sky-dark) 100%);
+  background: linear-gradient(180deg, var(--sky-dark) 0%, var(--sky-deep) 100%);
   color: #fff;
   box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
@@ -1757,4 +1759,131 @@
 
 .formato3-marca--ok {
   color: var(--ok);
+}
+
+/* ==================================================================
+   Ritmo y color de la página
+   ------------------------------------------------------------------
+   Cada apartado es una tarjeta al mismo nivel —carga, protocolo,
+   formato 3, contexto, participantes, tabla— y se distingue por un
+   pastel distinto en su icono, no por el tamaño ni por el borde. Así
+   la columna se lee de un vistazo sin que ninguna caja pese más que
+   otra.
+   ================================================================== */
+
+.main {
+  gap: 14px;
+}
+
+/* Una tarjeta plegada no necesita el margen interior: su cabecera ya
+   lo trae, y sin esto quedaba una banda vacía debajo del título. */
+.card--carga.is-plegada {
+  padding: 0;
+  overflow: hidden;
+}
+
+.card--contexto {
+  padding-top: 16px;
+}
+
+.card--contexto .selectors {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* El icono de cada apartado lleva su propio pastel. Es lo único que los
+   diferencia en color, para no convertir la página en un semáforo. */
+.card--carga .sap-icono {
+  background: var(--sky-soft);
+  color: var(--sky-dark);
+}
+
+.sap-panel--protocolo .sap-icono {
+  background: var(--lila-soft);
+  color: var(--lila);
+}
+
+.sap-panel--formato3 .sap-icono {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+/* La cabecera de una tarjeta plegada se aclara al pasar por encima con
+   el pastel de su propio apartado, no con un gris genérico. */
+.sap-cabecera--boton:hover {
+  background: var(--surface-soft);
+}
+
+/* ---- barra de herramientas de la tabla ---------------------------
+   Eran ocho controles seguidos en una línea, todos del mismo peso.
+   Se agrupan: a la izquierda lo que filtra lo que se ve, a la derecha
+   lo que produce un archivo, y entre medias el recuento. */
+.toolbar {
+  gap: 10px;
+  row-gap: 8px;
+  align-items: center;
+}
+
+.toolbar .counter {
+  margin-inline: 2px;
+}
+
+/* Las pastillas de conteo y estado, todas con la misma forma. */
+.sap-pastilla,
+.badge {
+  border-radius: 999px;
+}
+
+.sap-pastilla--ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+  border-color: #cfe7dc;
+}
+
+.sap-pastilla--falta {
+  background: var(--arena-soft);
+  color: #8a6a3c;
+  border-color: #f0e0c9;
+}
+
+/* ---- participantes ------------------------------------------------ */
+.personnel-chip {
+  background: var(--surface-soft);
+  border-color: var(--border);
+}
+
+.personnel-chip__count {
+  background: var(--sky-soft);
+  color: var(--sky-dark);
+}
+
+/* ---- tabla de parámetros ------------------------------------------
+   La cabecera va en pastel y la fila de sección en un pastel más
+   cálido, para que al desplazarse quede claro dónde empieza cada
+   bloque sin líneas gruesas. */
+.param-table thead th {
+  background: var(--surface-tint);
+}
+
+.param-table tr.section-row td {
+  background: var(--arena-soft);
+}
+
+.param-table tbody tr:hover td {
+  background: var(--sky-soft);
+}
+
+/* Los dos grupos de la barra de herramientas. Cada uno se mantiene junto y,
+   si no caben los dos en una línea, el de las descargas baja entero en vez
+   de dejar un botón suelto colgando. */
+.toolbar__grupo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbar__grupo--fin {
+  margin-left: auto;
 }

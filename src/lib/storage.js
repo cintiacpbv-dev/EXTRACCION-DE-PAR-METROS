@@ -235,9 +235,25 @@ async function selectAll(tabla, orderBy) {
 // todo o nada — si una columna no existe, el resto tampoco se guarda, aunque
 // sí exista. Eso perdía la receta con sólo que faltara la migración v9.
 function columnaAusente(error) {
-  if (error?.code !== "PGRST204") return null;
-  const m = error.message?.match(/'([^']+)' column/);
-  return m ? m[1] : null;
+  // PostgREST avisa de dos maneras según por dónde le llegue la columna
+  // desconocida: PGRST204 cuando es el cuerpo de un insert o un update
+  // ("Could not find the 'x' column"), y el 42703 de Postgres cuando aparece
+  // en un select o en un filtro ("column t.x does not exist"). Reconocer sólo
+  // la primera dejaba pasar la segunda: el guardado del personal borraba las
+  // filas de la etapa y luego fallaba al reinsertarlas, y esas firmas se
+  // perdían hasta volver a subir el registro.
+  if (error?.code === "PGRST204") {
+    const m = error.message?.match(/'([^']+)' column/);
+    return m ? m[1] : null;
+  }
+  if (error?.code === "42703") {
+    // Postgres lo redacta de dos formas: "column tabla.columna does not
+    // exist" en un select, y 'column "columna" of relation "tabla" does not
+    // exist' en un insert.
+    const m = error.message?.match(/column\s+"?([\w.]+)"?\s+(?:of relation\s+\S+\s+)?does not exist/i);
+    return m ? m[1].split(".").pop() : null;
+  }
+  return null;
 }
 
 /**

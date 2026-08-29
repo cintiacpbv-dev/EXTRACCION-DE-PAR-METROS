@@ -199,19 +199,11 @@ export default function App() {
         const clavesRemotas = new Set(remotos.map(docKey));
         const soloLocales = locales.filter((d) => !clavesRemotas.has(docKey(d)) && vivo(d));
 
-        if (soloLocales.length > 0) {
-          let subidos = 0;
-          for (const doc of soloLocales) {
-            const res = await syncDocumentToSupabase(doc);
-            if (res.ok && !res.skipped) subidos++;
-          }
-          if (subidos > 0) {
-            pushMessage(
-              `Se subieron a Supabase ${subidos} documento(s) que estaban sólo en este navegador.`,
-              "success"
-            );
-          }
-        }
+        // La subida NO se espera: con noventa documentos sólo locales tarda
+        // minutos, y hasta ahora la pantalla se quedaba en "Cargando…" todo
+        // ese rato sin enseñar nada. Se lanza aparte, con su barra de avance,
+        // y el análisis se puede consultar mientras tanto.
+        if (soloLocales.length > 0) subirPendientes(soloLocales);
 
         saveLocalDocuments(docs);
       }
@@ -376,6 +368,25 @@ export default function App() {
    * lo pasa por aquí. Arrastrando archivos a mano no hay nada mejor que el
    * propio nombre del archivo.
    */
+  /**
+   * Sube a Supabase los documentos que sólo están en este navegador.
+   *
+   * Va por su cuenta, sin bloquear la pantalla: es trabajo de puesta al día
+   * que no hace falta esperar para empezar a mirar el análisis.
+   */
+  async function subirPendientes(docs) {
+    let subidos = 0;
+    for (const [i, doc] of docs.entries()) {
+      setProgreso({ hecho: i, total: docs.length, actual: `Subiendo ${doc.lote} · ${doc.stage}` });
+      const res = await syncDocumentToSupabase(doc);
+      if (res.ok && !res.skipped) subidos++;
+    }
+    setProgreso(null);
+    if (subidos > 0) {
+      pushMessage(`Se subieron a Supabase ${subidos} documento(s) que estaban sólo en este navegador.`, "success");
+    }
+  }
+
   async function handleFiles(files, expectedKind, { etiquetas } = {}) {
     if (busy) return; // una segunda tanda simultánea pisaría a la primera
     setBusy(true);
@@ -765,7 +776,7 @@ export default function App() {
               <IconArrowLeft size={15} /> Todos los productos
             </button>
 
-            <section className="card">
+            <section className={`card card--carga ${puedePlegarCarga && !cargaAbierta ? "is-plegada" : ""}`}>
               {/* Con el producto ya analizado, cargar documentos y traer lotes
                   del SAP deja de ser lo que se viene a hacer: se pliega para
                   que la pantalla empiece en el producto y su etapa, que es lo
@@ -839,14 +850,20 @@ export default function App() {
                   avance es uno solo. */}
               {progreso && <BarraProgreso {...progreso} />}
               </div>
+            </section>
 
-              {!blank && productDocs.length > 0 && <ProtocoloPanel />}
+            {/* Cada apartado en su propia tarjeta, al mismo nivel: antes
+                colgaban dentro de la de carga y se veían como cajas dentro
+                de cajas. */}
+            {!blank && productDocs.length > 0 && <ProtocoloPanel />}
 
-              {!blank && productDocs.length > 0 && (
-                <Formato3Panel documents={docs} familia={productoActivo} />
-              )}
+            {!blank && productDocs.length > 0 && (
+              <Formato3Panel documents={docs} familia={productoActivo} />
+            )}
 
-              {!blank && productos.length > 0 && (
+            {!blank && (
+              <section className="card card--contexto">
+              {productos.length > 0 && (
                 <div className="selectors">
                   <label className="field">
                     <span className="field__label">
@@ -880,14 +897,20 @@ export default function App() {
                 </div>
               )}
 
-              {!blank && <LoadedBatches documents={productDocs} onRemove={handleRemove} />}
-            </section>
+              <LoadedBatches documents={productDocs} onRemove={handleRemove} />
+              </section>
+            )}
 
             {!blank && <PersonnelPanel personnel={personnel} stage={stageActiva} />}
 
             {!blank && (
               <section className="card card--table">
                 <div className="toolbar">
+                  {/* Dos grupos: a la izquierda lo que cambia lo que se ve,
+                      a la derecha lo que produce un archivo. Sueltos en una
+                      sola fila eran ocho controles del mismo peso que se
+                      partían por cualquier sitio al estrecharse la ventana. */}
+                  <div className="toolbar__grupo">
                   <div className="switch" role="group" aria-label="Alcance de parámetros">
                     <button
                       className={`switch__opt ${onlyCritical ? "is-active" : ""}`}
@@ -932,8 +955,9 @@ export default function App() {
                     </span>
                   )}
 
-                  <div className="toolbar__spacer" />
+                  </div>
 
+                  <div className="toolbar__grupo toolbar__grupo--fin">
                   <button className="btn btn--ghost" onClick={handleCopy} disabled={!table}>
                     {copyState === "copied" ? <IconCheck size={16} /> : <IconCopy size={16} />}
                     {copyState === "copied" ? "Copiado" : copyState === "error" ? "No se pudo copiar" : "Copiar tabla"}
@@ -966,6 +990,7 @@ export default function App() {
                     <IconDownload size={16} />
                     Exportar a Excel
                   </button>
+                  </div>
                 </div>
 
                 <ParamTable table={table} />
