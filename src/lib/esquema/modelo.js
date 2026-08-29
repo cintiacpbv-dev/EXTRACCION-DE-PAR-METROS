@@ -16,11 +16,13 @@ import { nombreDeOperacion } from "./nombres.js";
 // Secciones que no son operaciones del proceso: papeleo, alistar la sala y
 // las máquinas, desmontar, y los recuentos del final.
 //
-// "PREPARACION DE LA SOLUCION GRANULANTE" y "PREPARACION DE LA SUSPENSION DE
-// RECUBRIMIENTO" sí son operaciones —son el DISOLVER y el DISPERSAR del
-// esquema— y por eso se salvan antes de descartar todo lo que empieza por
-// "preparar".
-const SI_ES_OPERACION = /PREPARACI[OÓ]N\s+DE\s+LA\s+(SOLUCION|SOLUCIÓN|SUSPENSION|SUSPENSIÓN)/i;
+// Preparar la solución granulante, el bulk o la gelatina sí son operaciones
+// unitarias del proceso —son el DISOLVER, el HOMOGENEIZAR y el PREPARACIÓN DEL
+// BULK del esquema— y se salvan antes de descartar todo lo que empieza por
+// "preparar", que si no se llevaría por delante también el alistado de la sala
+// y de las máquinas.
+const SI_ES_OPERACION =
+  /PREPARACI[OÓ]N\s+DE(?:\s+LA|\s+LOS?|L)?\s+(SOLUCI[OÓ]N|SUSPENSI[OÓ]N|BULK|GELATINA|CONTENIDO|MEZCLA|EMULSI[OÓ]N|JARABE)/i;
 
 const NO_ES_OPERACION =
   /^(GENERAL|EQUIPOS|INSUMOS|CONDICIONES AMBIENTALES|DOCUMENTACION|DOCUMENTACIÓN|PREPARA|SET\s*UP|RENDIMIENTO|RANGO DE ACEPTACION|VERIFICACION DE FIRMAS|TIEMPO TOTAL|EN\s|VERIFICAR|REGISTRAR|ROTULAR|COLOCAR|UBICAR|TRASLADAR|RETIRAR|ENTREGAR|REALIZAR|CONTABILIZAR)/i;
@@ -86,7 +88,60 @@ function sinLectura(label) {
  * valor que anotó el operario describen un lote concreto, no el proceso, y el
  * esquema no habla de lotes.
  */
-function rangosDe(params) {
+/**
+ * Los insumos que entran en esta operación, con la cantidad que declara el
+ * registro.
+ *
+ * El esquema no lista los insumos todos juntos al principio: cada uno cuelga
+ * de la operación donde se agrega, y por eso el mismo producto lleva agua
+ * purificada en el bulk y otra vez en la gelatina. El registro lo dice igual —
+ * cada paso anota lo que se le echa— así que basta con cruzar los parámetros
+ * de la sección con la lista de insumos de la etapa.
+ */
+/**
+ * Si esta etiqueta nombra un insumo de la etapa.
+ *
+ * No se compara por igualdad: la lista de insumos escribe "SORBITOL SOLUCION
+ * NO CRISTALIZANTE 70%" y el paso lo llama "SORBITOL SOLUCION NO
+ * CRISTALIZANTE", así que basta con que uno empiece por el otro.
+ */
+function esInsumo(etiqueta, nombresInsumo) {
+  const e = etiqueta.toUpperCase();
+  if (e.length < 5) return false;
+  for (const nombre of nombresInsumo) {
+    if (nombre.startsWith(e) || e.startsWith(nombre)) return true;
+  }
+  return false;
+}
+
+function insumosDeSeccion(params, nombresInsumo) {
+  const vistos = new Set();
+  const salida = [];
+
+  for (const p of params) {
+    if (!esInsumo(sinLectura(p.label), nombresInsumo)) continue;
+
+    // El valor trae lo declarado y lo realmente dispensado ("14 L 14.000"); al
+    // esquema va lo declarado, que es lo que manda la fórmula.
+    // El valor trae lo declarado y lo dispensado ("14 L 14.000"); al esquema
+    // va lo declarado, que es lo que manda la fórmula. Algunos insumos no
+    // llevan cantidad sino el grado con el que entran ("Sorbitol: 70%"), y ése
+    // está en el rango.
+    const cantidad =
+      String(p.value ?? "").trim().split(/\s{2,}|\s(?=\d+\.\d{3}$)/)[0].trim() ||
+      String(p.setpoint ?? "").trim();
+    if (!cantidad) continue;
+
+    const texto = `${sinLectura(p.label)}: ${cantidad}`;
+    if (vistos.has(texto)) continue;
+    vistos.add(texto);
+    salida.push(texto);
+  }
+
+  return salida;
+}
+
+function rangosDe(params, nombresInsumo = new Set()) {
   const vistos = new Set();
   const lineas = [];
 
@@ -95,6 +150,9 @@ function rangosDe(params) {
     if (!rango || rango.toUpperCase() === "UNICA") continue;
     if (CONTROL_RE.test(sinLectura(p.label))) continue;
     if (NO_ES_RANGO.test(sinLectura(p.label))) continue;
+    // Un insumo es un material que entra, no un rango de operación: cuelga de
+    // la caja como agregación, no se lista dentro de ella.
+    if (esInsumo(sinLectura(p.label), nombresInsumo)) continue;
 
     const texto = `${abreviar(p.label)}: ${rango}`;
     if (vistos.has(texto)) continue;
@@ -181,6 +239,9 @@ export function esquemaDeRegistro(pages) {
   const equipos = detectEquipos(pages);
   const textos = textoPorSeccion(pages);
 
+  const insumosDeEtapa = detectInsumos(pages).filter((i) => i.descripcion);
+  const nombresInsumo = new Set(insumosDeEtapa.map((i) => i.descripcion.toUpperCase()));
+
   const porSeccion = new Map();
   for (const p of params) {
     if (!porSeccion.has(p.section)) porSeccion.set(p.section, []);
@@ -190,7 +251,7 @@ export function esquemaDeRegistro(pages) {
   // Los rangos del alistado se guardan para la caja de la etapa.
   const deAjuste = [];
   for (const [seccion, suyos] of porSeccion) {
-    if (AJUSTE_DE_MAQUINA_RE.test(seccion)) deAjuste.push(...rangosDe(suyos));
+    if (AJUSTE_DE_MAQUINA_RE.test(seccion)) deAjuste.push(...rangosDe(suyos, nombresInsumo));
   }
 
   const etapa = (meta.stage || "").toUpperCase();
@@ -207,7 +268,7 @@ export function esquemaDeRegistro(pages) {
 
     const texto = textos.get(seccion) || "";
     // El tiempo va primero: es lo que el esquema pone justo bajo el nombre.
-    const propios = [...tiemposDeSeccion(texto), ...rangosDe(suyos)];
+    const propios = [...tiemposDeSeccion(texto), ...rangosDe(suyos, nombresInsumo)];
     const lineas = esLaEtapa ? [...propios, ...deAjuste] : propios;
 
     // La sección que se llama como la etapa a veces sólo trae la sala y las
@@ -220,6 +281,9 @@ export function esquemaDeRegistro(pages) {
     operaciones.push({
       seccion,
       titulo: nombreDeOperacion(seccion),
+      // Lo que se agrega en esta operación: es lo que en el esquema cuelga a
+      // su izquierda con una flecha.
+      insumos: insumosDeSeccion(suyos, nombresInsumo),
       lineas: [...new Set(lineas)],
       equipo: esLaEtapa && equipos.length > 0
         ? equiposDeSeccion(texto, equipos).length > 0
@@ -242,8 +306,7 @@ export function esquemaDeRegistro(pages) {
     controles.push(texto);
   }
 
-  const insumos = detectInsumos(pages)
-    .filter((i) => i.descripcion)
+  const insumos = insumosDeEtapa
     .map((i) => ({
       nombre: i.descripcion,
       cantidad: `${i.cantidad ?? i.cantidadRecibida ?? ""} ${i.unidad ?? i.unidadRecibida ?? ""}`.trim(),

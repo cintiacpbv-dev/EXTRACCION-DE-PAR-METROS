@@ -61,6 +61,11 @@ function lineasDeOperacion(op) {
   ];
 }
 
+/** Las líneas de la caja de agregaciones que cuelga de una operación. */
+function lineasDeInsumos(insumos) {
+  return insumos.map((i) => ({ texto: `• ${i}`, izquierda: true, tam: TAM_LINEA }));
+}
+
 /**
  * Reparte una etapa en páginas: las operaciones se apilan hasta llenar el
  * lienzo y lo que no cabe abre otra hoja.
@@ -74,14 +79,21 @@ function paginarEtapa(esquema) {
     const lineas = lineasDeOperacion(op);
     const alto = altoDeCaja(lineas, COL_PROCESO.ancho);
 
-    if (y + alto > LIENZO_ALTO - 6 && actual.length > 0) {
+    // Lo que se agrega en esta operación va a su izquierda; la fila mide lo
+    // que la más alta de las dos cajas.
+    const insumos = op.insumos || [];
+    const lineasIns = lineasDeInsumos(insumos);
+    const altoIns = insumos.length > 0 ? altoDeCaja(lineasIns, COL_APOYO.ancho) : 0;
+    const altoFila = Math.max(alto, altoIns);
+
+    if (y + altoFila > LIENZO_ALTO - 6 && actual.length > 0) {
       paginas.push(actual);
       actual = [];
       y = 12;
     }
 
-    actual.push({ op, lineas, alto, y });
-    y += alto + SEPARACION;
+    actual.push({ op, lineas, alto, y, lineasIns, altoIns });
+    y += altoFila + SEPARACION;
   }
 
   if (actual.length > 0) paginas.push(actual);
@@ -89,7 +101,7 @@ function paginarEtapa(esquema) {
 }
 
 /** El lienzo de una hoja de la etapa. */
-function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
+function lienzoDeHoja({ esquema, cajas, ultima, idBase }) {
   const formas = [];
   let id = idBase;
 
@@ -116,6 +128,32 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
       })
     );
 
+    // La agregación: su caja a la izquierda y una flecha que entra en la
+    // operación, que es como el esquema muestra qué se echa y dónde.
+    if (caja.altoIns > 0) {
+      formas.push(
+        cuadro({
+          id: id++,
+          x: COL_APOYO.x,
+          y: caja.y,
+          ancho: COL_APOYO.ancho,
+          alto: caja.altoIns,
+          lineas: caja.lineasIns,
+          discontinuo: true,
+        })
+      );
+      const medio = caja.y + Math.min(caja.alto, caja.altoIns) / 2;
+      formas.push(
+        flecha({
+          id: id++,
+          x1: COL_APOYO.x + COL_APOYO.ancho,
+          y1: medio,
+          x2: COL_PROCESO.x,
+          y2: medio,
+        })
+      );
+    }
+
     if (i < cajas.length - 1) {
       const centro = COL_PROCESO.x + COL_PROCESO.ancho / 2;
       formas.push(
@@ -130,24 +168,32 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
     }
   }
 
-  // Los insumos abren la etapa y los controles la cierran: son el contexto de
-  // todo el bloque, no de una operación concreta.
-  if (primera && esquema.insumos.length > 0) {
+  // Los insumos que ninguna operación reclamó se listan al final, para que no
+  // se pierdan: si el registro no dice dónde entran, el esquema tampoco puede.
+  const reclamados = new Set(
+    esquema.operaciones.flatMap((o) => (o.insumos || []).map((i) => i.split(":")[0].trim().toUpperCase()))
+  );
+  const sueltos = ultima
+    ? esquema.insumos.filter((i) => !reclamados.has(i.nombre.toUpperCase()))
+    : [];
+
+  if (sueltos.length > 0) {
     const lineas = [
-      { texto: "Insumos dispensados:", negrita: true, izquierda: true, tam: TAM_LINEA },
-      ...esquema.insumos.map((i) => ({
+      { texto: "Otros insumos dispensados:", negrita: true, izquierda: true, tam: TAM_LINEA },
+      ...sueltos.map((i) => ({
         texto: `• ${i.nombre}${i.cantidad ? `: ${i.cantidad}` : ""}`,
         izquierda: true,
         tam: TAM_LINEA,
       })),
     ];
+    const alto = altoDeCaja(lineas, COL_APOYO.ancho);
     formas.push(
       cuadro({
         id: id++,
         x: COL_APOYO.x,
-        y: 12,
+        y: Math.max(12, LIENZO_ALTO - alto - 40),
         ancho: COL_APOYO.ancho,
-        alto: altoDeCaja(lineas, COL_APOYO.ancho),
+        alto,
         lineas,
         discontinuo: true,
       })
@@ -187,7 +233,6 @@ export function lienzosDelEsquema(esquemas) {
         lienzoDeHoja({
           esquema,
           cajas,
-          primera: i === 0,
           ultima: i === paginas.length - 1,
           idBase,
         })
