@@ -1,4 +1,5 @@
 import * as pdfjsLib from "pdfjs-dist";
+import { casillasDePagina } from "./casillas.js";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
@@ -52,7 +53,7 @@ function buildLines(textContent) {
 
 /**
  * Extrae el contenido de un PDF (File/Blob) en tres representaciones:
- *  - pages:    líneas estructuradas por página (con coordenadas) → detector genérico
+ *  - pages:    líneas y casillas de verificación por página (con coordenadas)
  *  - rawText:  texto con saltos de línea (depuración)
  *  - flatText: todo en una línea, espacios colapsados → metadatos de cabecera
  */
@@ -64,7 +65,14 @@ export async function extractPdfText(file) {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const textContent = await page.getTextContent();
-    pages.push({ index: i, lines: buildLines(textContent) });
+    pages.push({
+      index: i,
+      lines: buildLines(textContent),
+      // Las casillas de verificación del formulario no son texto: son
+      // imágenes pequeñas. Sin ellas no hay forma de saber cuál de las
+      // opciones de un "OPCION ELEGIDA" marcó el operario.
+      casillas: await casillasDePagina(pdfjsLib, page),
+    });
   }
 
   const rawText = pages.map((p) => p.lines.map((l) => l.text).join("\n")).join("\n\n");

@@ -402,7 +402,10 @@ function celdaParam(texto, opciones = {}) {
 }
 
 function valorParaCuadro(valor) {
-  if (valor === undefined || valor === null || valor === "") return "---";
+  // Los guiones largos son los del informe de referencia: significan que ese
+  // dato no aplica a ese lote (por ejemplo, un equipo de codificado que no se
+  // usó) o que no se llegó a registrar.
+  if (valor === undefined || valor === null || valor === "") return "---------";
   if (valor === "ü") return "Conforme";
   return typeof valor === "number" ? String(Math.round(valor * 1000) / 1000) : String(valor);
 }
@@ -466,7 +469,18 @@ function anchosParametros(nLotes) {
 /** El cuadro 4: la tabla de parámetros de una etapa, con todos sus lotes. */
 function cuadroParametros(datos, lotes, etapa) {
   const A = anchosParametros(lotes.length);
-  const anchos = [A.rotulo, A.nombre, A.rango, ...A.lotes];
+
+  // Los equipos que se eligen entre varios llevan el nombre en dos niveles
+  // ("Velocidad" | "HAPA N° 1"), como en el informe de referencia. La segunda
+  // columna sólo aparece si algún parámetro de la tabla la usa; el resto de
+  // las filas ocupa las dos.
+  const haySub = datos.sections.some((s) => s.rows.some((r) => r.sublabel));
+  const anchoSub = haySub ? Math.round(A.nombre * 0.34) : 0;
+  const anchoNombre = A.nombre - anchoSub;
+
+  const anchos = haySub
+    ? [A.rotulo, anchoNombre, anchoSub, A.rango, ...A.lotes]
+    : [A.rotulo, A.nombre, A.rango, ...A.lotes];
   const nCols = anchos.length;
   const total = anchos.reduce((a, b) => a + b, 0);
   const anchoLotes = A.lotes.reduce((a, b) => a + b, 0);
@@ -478,7 +492,7 @@ function cuadroParametros(datos, lotes, etapa) {
       [
         celdaParam("Parámetros de proceso", {
           bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA,
-          colSpan: 2, rowSpan: 2, size: TAM_PARAM_CAB, width: A.rotulo + A.nombre,
+          colSpan: haySub ? 3 : 2, rowSpan: 2, size: TAM_PARAM_CAB, width: A.rotulo + A.nombre,
         }),
         celdaParam("Rango de operación", {
           bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA,
@@ -530,9 +544,25 @@ function cuadroParametros(datos, lotes, etapa) {
       }
 
       const etiqueta = row.unit && !row.label.includes(row.unit) ? `${row.label} (${row.unit})` : row.label;
-      celdas.push(celdaParam(etiqueta, { align: AlignmentType.BOTH, width: A.nombre }));
+      if (haySub) {
+        celdas.push(
+          celdaParam(etiqueta, {
+            align: AlignmentType.BOTH,
+            width: row.sublabel ? anchoNombre : A.nombre,
+            colSpan: row.sublabel ? undefined : 2,
+          })
+        );
+        if (row.sublabel) {
+          celdas.push(celdaParam(row.sublabel, { align: AlignmentType.CENTER, width: anchoSub }));
+        }
+      } else {
+        celdas.push(celdaParam(etiqueta, { align: AlignmentType.BOTH, width: A.nombre }));
+      }
       celdas.push(
-        celdaParam(row.setpoint || "Referencial", { align: AlignmentType.CENTER, width: A.rango })
+        celdaParam(row.setpoint || (row.sinRango ? "" : "Referencial"), {
+          align: AlignmentType.CENTER,
+          width: A.rango,
+        })
       );
 
       lotes.forEach((lote, j) => {

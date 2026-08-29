@@ -160,7 +160,12 @@ export function buildTable(documents, familia, stage, { onlyCritical = true } = 
           id: p.id,
           section: p.section,
           label: p.label,
+          // Segunda columna del nombre en el cuadro del informe
+          // ("Velocidad" | "HAPA N° 1"); casi ningún parámetro la usa.
+          sublabel: p.sublabel || "",
           setpoint: p.setpoint,
+          // El rango se deja vacío en vez de "Referencial" (ver opcionesParams).
+          sinRango: Boolean(p.sinRango),
           unit: p.unit,
           valueType: p.valueType,
           category: p.category,
