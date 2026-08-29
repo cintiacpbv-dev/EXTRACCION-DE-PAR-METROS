@@ -231,8 +231,12 @@ export function buildEsquemaDocument(esquemas, { producto, codigo, empresa, plan
 
 export async function exportEsquemaToWord(esquemas, opciones = {}) {
   const { doc, lienzos } = buildEsquemaDocument(esquemas, opciones);
-  const bytes = await Packer.toBuffer(doc);
-  const conLienzos = await inyectarLienzos(bytes, lienzos);
+
+  // toBlob y no toBuffer: toBuffer le pide a JSZip un "nodebuffer", que sólo
+  // existe en Node. En el navegador falla con "nodebuffer is not supported by
+  // this platform", que es justo donde se usa esto.
+  const armado = await Packer.toBlob(doc);
+  const conLienzos = await inyectarLienzos(await armado.arrayBuffer(), lienzos);
 
   const nombre = (opciones.producto || "ESQUEMA").replace(/[^\w.-]+/g, "_").slice(0, 60);
   const blob = new Blob([conLienzos], {
