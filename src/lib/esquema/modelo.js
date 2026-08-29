@@ -12,6 +12,7 @@ import { detectEquipos } from "../parsers/equipos.js";
 import { detectInsumos } from "../parsers/insumos.js";
 import { extractMeta } from "../parsers/meta.js";
 import { nombreDeOperacion } from "./nombres.js";
+import { cajasDePasos, pasosPorSeccion } from "./pasos.js";
 
 // Secciones que no son operaciones del proceso: papeleo, alistar la sala y
 // las máquinas, desmontar, y los recuentos del final.
@@ -82,23 +83,6 @@ function sinLectura(label) {
 }
 
 /**
- * Los renglones de rango de una operación: "T°: 70 °C ± 5 °C".
- *
- * Sólo entran los parámetros que declaran un rango; los que sólo tienen el
- * valor que anotó el operario describen un lote concreto, no el proceso, y el
- * esquema no habla de lotes.
- */
-/**
- * Los insumos que entran en esta operación, con la cantidad que declara el
- * registro.
- *
- * El esquema no lista los insumos todos juntos al principio: cada uno cuelga
- * de la operación donde se agrega, y por eso el mismo producto lleva agua
- * purificada en el bulk y otra vez en la gelatina. El registro lo dice igual —
- * cada paso anota lo que se le echa— así que basta con cruzar los parámetros
- * de la sección con la lista de insumos de la etapa.
- */
-/**
  * Si esta etiqueta nombra un insumo de la etapa.
  *
  * No se compara por igualdad: la lista de insumos escribe "SORBITOL SOLUCION
@@ -114,6 +98,14 @@ function esInsumo(etiqueta, nombresInsumo) {
   return false;
 }
 
+/**
+ * Los insumos que entran en esta operación, con la cantidad que declara el
+ * registro.
+ *
+ * El esquema no lista los insumos todos juntos al principio: cada uno cuelga
+ * de la operación donde se agrega, y por eso el mismo producto lleva agua
+ * purificada en el bulk y otra vez en la gelatina.
+ */
 function insumosDeSeccion(params, nombresInsumo) {
   const vistos = new Set();
   const salida = [];
@@ -121,8 +113,6 @@ function insumosDeSeccion(params, nombresInsumo) {
   for (const p of params) {
     if (!esInsumo(sinLectura(p.label), nombresInsumo)) continue;
 
-    // El valor trae lo declarado y lo realmente dispensado ("14 L 14.000"); al
-    // esquema va lo declarado, que es lo que manda la fórmula.
     // El valor trae lo declarado y lo dispensado ("14 L 14.000"); al esquema
     // va lo declarado, que es lo que manda la fórmula. Algunos insumos no
     // llevan cantidad sino el grado con el que entran ("Sorbitol: 70%"), y ése
@@ -141,6 +131,13 @@ function insumosDeSeccion(params, nombresInsumo) {
   return salida;
 }
 
+/**
+ * Los renglones de rango de una operación: "T°: 70 °C ± 5 °C".
+ *
+ * Sólo entran los parámetros que declaran un rango; los que sólo tienen el
+ * valor que anotó el operario describen un lote concreto, no el proceso, y el
+ * esquema no habla de lotes.
+ */
 function rangosDe(params, nombresInsumo = new Set()) {
   const vistos = new Set();
   const lineas = [];
@@ -164,31 +161,37 @@ function rangosDe(params, nombresInsumo = new Set()) {
 }
 
 /**
- * Los equipos cuyo nombre aparece en el texto de esta sección del registro.
+ * Los equipos cuyo nombre aparece en el texto de este paso o sección.
  *
- * No basta con la primera palabra: "TAMIZ DE ACERO INOXIDABLE N° 20" y el N° 60
- * empiezan igual, y el paso los nombra como "Tamiz N° 20". Se exige la primera
- * palabra significativa y, si el equipo lleva número, también ese número.
+ * Se compara sin espacios: el registro escribe "TANQUE DE 250 L (B)" donde la
+ * lista de equipos dice "TANQUE 250L B1", y "Tamiz N° 20" donde dice "TAMIZ DE
+ * ACERO INOXIDABLE N° 20 (0.85 mm)".
+ *
+ * Se exige la primera palabra y, además, todos los identificadores del nombre
+ * —los trozos que llevan un dígito—. Sin esa segunda condición un paso que
+ * nombra "el tanque de 250 L" se llevaba de golpe los cinco tanques de la
+ * planta, y el tamiz N° 20 arrastraba también al N° 60.
  */
 function equiposDeSeccion(textoSeccion, equipos) {
-  const texto = textoSeccion.toUpperCase().replace(/\s+/g, " ");
+  const texto = textoSeccion.toUpperCase().replace(/\s+/g, "");
 
   return equipos
     .filter((e) => {
-      const nombre = e.descripcion.toUpperCase();
-      const primera = nombre.split(/\s+/)[0];
+      // Lo que va entre paréntesis es una aclaración del inventario ("(Grande)",
+      // "(0.85 mm)") que el paso no repite.
+      const nombre = e.descripcion.toUpperCase().replace(/\([^)]*\)/g, " ");
+      const palabras = nombre.split(/\s+/).filter(Boolean);
+      if (palabras.length === 0) return false;
+
+      const primera = palabras[0];
       if (primera.length < 5 || !texto.includes(primera)) return false;
 
-      const numero = nombre.match(/N\s*[°ºo.]*\s*(\d+)/);
-      if (!numero) return true;
-
-      // Con número, el paso tiene que nombrar ese mismo número. El "no seguido
-      // de dígito" evita que el tamiz N° 2 case con el N° 20.
-      const patron = String.raw`N\s*[°ºo.]*\s*` + numero[1] + String.raw`(?!\d)`;
-      return new RegExp(patron).test(texto);
+      const identificadores = palabras.filter((t) => /\d/.test(t));
+      return identificadores.every((t) => texto.includes(t.replace(/[°º.]/g, "")));
     })
     .map((e) => e.descripcion);
 }
+
 
 /**
  * El tiempo de la operación, que el registro escribe en la prosa del paso y no
@@ -248,6 +251,14 @@ export function esquemaDeRegistro(pages) {
     porSeccion.get(p.section).push(p);
   }
 
+  // Los pasos numerados de cada sección, para poder partir una operación
+  // unitaria en las cajas que el esquema dibuja. Se reconoce que un paso abre
+  // sección comparándolo con las que ya encontró el detector genérico.
+  const pasos = pasosPorSeccion(pages, (titulo) => {
+    const limpio = titulo.replace(/\s*\([^)]*\)\s*$/, "").replace(/:$/, "").trim().toUpperCase();
+    return limpio && limpio.length <= 70 && porSeccion.has(limpio) ? limpio : null;
+  });
+
   // Los rangos del alistado se guardan para la caja de la etapa.
   const deAjuste = [];
   for (const [seccion, suyos] of porSeccion) {
@@ -278,6 +289,33 @@ export function esquemaDeRegistro(pages) {
     if (esLaEtapa && !suyos.some((p) => p.setpoint && !ES_AMBIENTAL_RE.test(sinLectura(p.label)))) continue;
     if (esLaEtapa && deAjuste.length === 0 && propios.length === 0) continue;
 
+    const equipoDeSeccion =
+      esLaEtapa && equipos.length > 0 && equiposDeSeccion(texto, equipos).length === 0
+        ? [equipos[0].descripcion]
+        : equiposDeSeccion(texto, equipos);
+
+    // Una operación unitaria —preparar el bulk, la gelatina, la solución
+    // granulante— se dibuja como varias cajas: una por paso del registro. Sólo
+    // se parte si de verdad salen dos o más; si no, la sección entera es una
+    // caja, que es como se ven las demás etapas.
+    const cajas = cajasDePasos(pasos.get(seccion) || [], {
+      equiposDeTexto: (t) => equiposDeSeccion(t, equipos),
+    });
+
+    if (cajas.length >= 2) {
+      for (const caja of cajas) {
+        operaciones.push({
+          seccion,
+          grupo: nombreDeOperacion(seccion),
+          titulo: caja.titulo,
+          insumos: caja.insumos,
+          lineas: caja.lineas,
+          equipo: caja.equipo,
+        });
+      }
+      continue;
+    }
+
     operaciones.push({
       seccion,
       titulo: nombreDeOperacion(seccion),
@@ -285,11 +323,7 @@ export function esquemaDeRegistro(pages) {
       // su izquierda con una flecha.
       insumos: insumosDeSeccion(suyos, nombresInsumo),
       lineas: [...new Set(lineas)],
-      equipo: esLaEtapa && equipos.length > 0
-        ? equiposDeSeccion(texto, equipos).length > 0
-          ? equiposDeSeccion(texto, equipos)
-          : [equipos[0].descripcion]
-        : equiposDeSeccion(texto, equipos),
+      equipo: equipoDeSeccion,
     });
   }
 

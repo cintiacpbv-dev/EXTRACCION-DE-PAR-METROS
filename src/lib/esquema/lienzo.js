@@ -48,7 +48,7 @@ function parrafo({ texto, negrita = false, cursiva = false, tam = 15, izquierda 
  * izquierda del lienzo. `discontinuo` dibuja el borde a rayas, que es como el
  * formato marca las agrupaciones y las notas al margen.
  */
-export function cuadro({ id, x, y, ancho, alto, lineas, discontinuo = false, sinBorde = false }) {
+export function cuadro({ id, x, y, ancho, alto, lineas, discontinuo = false, sinBorde = false, recto = false }) {
   const borde = sinBorde
     ? `<a:ln w="3175"><a:noFill/></a:ln>`
     : `<a:ln w="3175" cap="flat" cmpd="sng" algn="ctr">` +
@@ -58,7 +58,11 @@ export function cuadro({ id, x, y, ancho, alto, lineas, discontinuo = false, sin
   return (
     `<wps:wsp><wps:cNvPr id="${id}" name="Cuadro ${id}"/><wps:cNvSpPr/><wps:spPr>` +
     `<a:xfrm><a:off x="${mm(x)}" y="${mm(y)}"/><a:ext cx="${mm(ancho)}" cy="${mm(alto)}"/></a:xfrm>` +
-    `<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 8944"/></a:avLst></a:prstGeom>` +
+    // Las operaciones van en rectángulo redondeado y las agrupaciones en
+    // rectángulo recto, como en el formato.
+    (recto
+      ? `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`
+      : `<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val 8944"/></a:avLst></a:prstGeom>`) +
     `<a:noFill/>${borde}<a:effectLst/></wps:spPr>` +
     `<wps:txbx><w:txbxContent>${lineas.map(parrafo).join("")}</w:txbxContent></wps:txbx>` +
     `<wps:bodyPr rot="0" spcFirstLastPara="0" vert="horz" wrap="square" lIns="27432" tIns="18288"` +

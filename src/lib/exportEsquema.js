@@ -37,6 +37,11 @@ const SEPARACION = 7; // hueco entre dos operaciones, por donde va la flecha
 const TAM_TITULO = 15; // medios puntos
 const TAM_LINEA = 14;
 
+// El recuadro de una operación unitaria: sitio para su rótulo arriba y un
+// respiro por fuera para que la raya no toque las cajas de al lado.
+const ALTO_ROTULO_GRUPO = 6;
+const MARGEN_GRUPO = 4;
+
 // Cuántos caracteres de Arial 7 pt caben en un milímetro de ancho. Medido
 // sobre el formato de la empresa: una caja de 62 mm admite unos 46 caracteres.
 const CARACTERES_POR_MM = 0.74;
@@ -75,7 +80,17 @@ function paginarEtapa(esquema) {
   let actual = [];
   let y = 12; // debajo del rótulo de la etapa
 
+  let grupoAbierto = null;
+
   for (const op of esquema.operaciones) {
+    // Al abrir una operación unitaria se deja sitio para el rótulo de su
+    // recuadro; al cerrarla, para que la raya no toque la caja siguiente.
+    if (op.grupo !== grupoAbierto) {
+      if (grupoAbierto) y += MARGEN_GRUPO;
+      if (op.grupo) y += ALTO_ROTULO_GRUPO;
+      grupoAbierto = op.grupo || null;
+    }
+
     const lineas = lineasDeOperacion(op);
     const alto = altoDeCaja(lineas, COL_PROCESO.ancho);
 
@@ -100,6 +115,19 @@ function paginarEtapa(esquema) {
   return paginas;
 }
 
+/** Los tramos de cajas que comparten operación unitaria. */
+function tramosDeGrupo(cajas) {
+  const tramos = [];
+  for (const caja of cajas) {
+    const grupo = caja.op.grupo;
+    if (!grupo) continue;
+    const ultimo = tramos[tramos.length - 1];
+    if (ultimo && ultimo.grupo === grupo) ultimo.cajas.push(caja);
+    else tramos.push({ grupo, cajas: [caja] });
+  }
+  return tramos;
+}
+
 /** El lienzo de una hoja de la etapa. */
 function lienzoDeHoja({ esquema, cajas, ultima, idBase }) {
   const formas = [];
@@ -115,6 +143,37 @@ function lienzoDeHoja({ esquema, cajas, ultima, idBase }) {
       lineas: [{ texto: esquema.etapa, negrita: true, tam: 17, izquierda: true }],
     })
   );
+
+  // El recuadro de rayas de cada operación unitaria, con su nombre encima:
+  // abarca todas sus cajas y las de lo que se les agrega.
+  for (const tramo of tramosDeGrupo(cajas)) {
+    const arriba = tramo.cajas[0].y - ALTO_ROTULO_GRUPO;
+    const ultima = tramo.cajas[tramo.cajas.length - 1];
+    const abajo = ultima.y + Math.max(ultima.alto, ultima.altoIns);
+
+    formas.push(
+      rotulo({
+        id: id++,
+        x: COL_APOYO.x + 1,
+        y: arriba,
+        ancho: 110,
+        alto: ALTO_ROTULO_GRUPO,
+        lineas: [{ texto: tramo.grupo, negrita: true, tam: TAM_TITULO, izquierda: true }],
+      })
+    );
+    formas.push(
+      cuadro({
+        id: id++,
+        x: COL_APOYO.x - 1,
+        y: arriba,
+        ancho: COL_PROCESO.x + COL_PROCESO.ancho - COL_APOYO.x + 2,
+        alto: abajo - arriba + 2,
+        lineas: [],
+        discontinuo: true,
+        recto: true,
+      })
+    );
+  }
 
   for (const [i, caja] of cajas.entries()) {
     formas.push(
