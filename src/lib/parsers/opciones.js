@@ -128,28 +128,3 @@ export function detectOpciones(pages) {
 
   return bloques;
 }
-
-// Cómo se nombra cada equipo en el informe de validación. El registro los
-// llama por su rótulo de planta ("LOTIZADORA HAPA N°1", "CODIFICADORA 9040
-// SERIE 8400017U") y el informe por lo que se verifica de ellos: la velocidad
-// del equipo de codificado, y la de la faja que lo acompaña. Es una
-// traducción, no un dato del registro, y por eso está aquí a la vista.
-//
-// Lo que no esté en la tabla sale con el nombre del registro, que es lo
-// honesto: vale para cualquier otro producto sin inventarle un nombre.
-const NOMBRES = [
-  { re: /LOTIZADORA\s+HAPA\s*N?\s*[°ºo.]*\s*1/i, nombre: "Velocidad", sub: "HAPA N° 1" },
-  { re: /LOTIZADORA\s+HAPA\s*N?\s*[°ºo.]*\s*2/i, nombre: "Velocidad", sub: "HAPA N° 2" },
-  {
-    re: /CODIFICADORA\s+9040/i,
-    nombre: "Velocidad de la faja transportadora N° 6",
-    sub: "IMAJE 9040",
-  },
-];
-
-/** El nombre con el que la opción sale en el cuadro de parámetros. */
-export function nombreDeOpcion(texto) {
-  const conocido = NOMBRES.find((n) => n.re.test(texto));
-  if (conocido) return { nombre: conocido.nombre, sub: conocido.sub };
-  return { nombre: texto, sub: "" };
-}

@@ -6,7 +6,7 @@
 // que se usó marcado como conforme y los demás con un guion, que es como los
 // lista el informe de validación.
 
-import { detectOpciones, nombreDeOpcion } from "./opciones.js";
+import { detectOpciones } from "./opciones.js";
 
 // El valor que el cuadro entiende como "conforme" (ver valorParaCuadro en
 // exportCuadros.js). Es el mismo carácter que el registro usa para sus vistos.
@@ -54,15 +54,15 @@ export function conOpciones(params, pages) {
     usados.add(bloque);
 
     for (const opcion of bloque.opciones) {
-      const { nombre, sub } = nombreDeOpcion(opcion.texto);
       salida.push({
         ...p,
         id: idDe(p.section, opcion.texto),
-        label: nombre,
-        baseLabel: nombre,
-        // El sub-rótulo es la segunda columna del nombre en el cuadro del
-        // informe ("Velocidad" | "HAPA N° 1").
-        sublabel: sub,
+        // El equipo se nombra como lo nombra el registro ("LOTIZADORA HAPA
+        // N°1", "CODIFICADORA 9040 SERIE 8400017U"). Traducirlo al nombre del
+        // informe obligaría a mantener una tabla por producto, y con el
+        // rótulo del registro cualquier equipo nuevo sale bien sin tocar nada.
+        label: opcion.texto,
+        baseLabel: opcion.texto,
         // El rango de operación de estos equipos no está en el registro —"Única
         // (79 cpm)", "Según lo observado" son criterio de quien valida—, así
         // que la casilla queda vacía en vez de decir "Referencial", que es lo
