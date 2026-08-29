@@ -270,22 +270,6 @@
 }
 
 /* ---------- Selectores ---------- */
-.selectors {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  min-width: 240px;
-}
-
 .field__label {
   display: inline-flex;
   align-items: center;
@@ -295,21 +279,6 @@
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-muted);
-}
-
-.field select {
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  border-radius: var(--radius-sm);
-  padding: 9px 10px;
-  font-size: 13px;
-  min-width: 260px;
-  cursor: pointer;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
-}
-
-.field select:hover {
-  border-color: var(--sky);
 }
 
 .tabs {
@@ -1782,16 +1751,6 @@
   overflow: hidden;
 }
 
-.card--contexto {
-  padding-top: 16px;
-}
-
-.card--contexto .selectors {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: none;
-}
-
 /* El icono de cada apartado lleva su propio pastel. Es lo único que los
    diferencia en color, para no convertir la página en un semáforo. */
 .card--carga .sap-icono {
@@ -1800,8 +1759,8 @@
 }
 
 .sap-panel--protocolo .sap-icono {
-  background: var(--lila-soft);
-  color: var(--lila);
+  background: var(--verde-soft);
+  color: var(--verde);
 }
 
 .sap-panel--formato3 .sap-icono {
@@ -1842,7 +1801,7 @@
 }
 
 .sap-pastilla--falta {
-  background: var(--arena-soft);
+  background: var(--ambar-soft);
   color: #8a6a3c;
   border-color: #f0e0c9;
 }
@@ -1867,7 +1826,7 @@
 }
 
 .param-table tr.section-row td {
-  background: var(--arena-soft);
+  background: var(--ambar-soft);
 }
 
 .param-table tbody tr:hover td {
@@ -1886,4 +1845,144 @@
 
 .toolbar__grupo--fin {
   margin-left: auto;
+}
+
+/* ==================================================================
+   Estructura de la página
+   ------------------------------------------------------------------
+   La vista de producto se lee de arriba abajo en tres tramos:
+
+     1. Qué estoy mirando   producto y etapa, con sus lotes
+     2. Herramientas        cargar, protocolo, formato 3
+     3. Resultados          participantes y el cuadro de parámetros
+
+   Cada tramo empieza por un rótulo pequeño y las tarjetas van debajo.
+   Antes era una pila de seis tarjetas del mismo peso y había que
+   buscar el selector de etapa entre los paneles de herramientas.
+   ================================================================== */
+
+.seccion-titulo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 -4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Una raya fina que llega hasta el borde: separa los tramos sin meter
+   otra caja por medio. */
+.seccion-titulo::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ---- 1. Cabecera de producto -------------------------------------- */
+.card--producto {
+  padding: 16px 18px;
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow);
+}
+
+.producto-cab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 28px;
+}
+
+.producto-cab__campo {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.rotulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* El nombre del producto es el título de la página; que además sea un
+   desplegable no debería hacerlo parecer un campo de formulario. */
+.producto-cab__select {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: 2px 26px 2px 6px;
+  margin-left: -6px;
+  font-family: inherit;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  cursor: pointer;
+  max-width: min(560px, 60vw);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.producto-cab__select:hover {
+  background: var(--surface-soft);
+  border-color: var(--border);
+}
+
+.producto-cab .tabs {
+  gap: 6px;
+}
+
+.producto-cab .tab {
+  padding: 8px 16px;
+}
+
+/* ---- 2. Herramientas ---------------------------------------------- */
+/* Plegadas son barras finas: son accesos, no contenido, y no deben
+   competir con el cuadro de parámetros. */
+.card--carga,
+.sap-panel--protocolo,
+.sap-panel--formato3 {
+  box-shadow: none;
+}
+
+.card--carga.is-plegada,
+.sap-panel--cerrado {
+  background: var(--surface-soft);
+}
+
+.card--carga.is-plegada:hover,
+.sap-panel--cerrado:hover {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+/* Un pastel por herramienta, sólo en el icono. */
+.card--carga .sap-icono {
+  background: var(--sky-soft);
+  color: var(--sky-dark);
+}
+
+.sap-panel--protocolo .sap-icono {
+  background: var(--verde-soft);
+  color: var(--verde);
+}
+
+.sap-panel--formato3 .sap-icono {
+  background: var(--ambar-soft);
+  color: var(--ambar);
+}
+
+/* ---- 3. Resultados ------------------------------------------------- */
+.personnel-panel,
+.card--table {
+  border-color: var(--border-strong);
 }

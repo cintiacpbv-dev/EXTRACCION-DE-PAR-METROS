@@ -1,56 +1,57 @@
-/* Paleta pastel sobre fondo claro, tipografía IBM Plex.
+/* Paleta clara de trabajo, tipografía IBM Plex.
    La app se compromete deliberadamente con un único tema claro: es una
    herramienta de planta que se usa junto a documentos impresos en papel
    blanco, así que cada color se declara de forma explícita y no se hereda
    del tema del sistema (ver color-scheme más abajo).
 
-   Los pasteles son los rellenos —fondos de tarjeta, pastillas, cabeceras de
-   tabla—, no la tinta. El texto y los iconos conservan una versión oscura
-   del mismo tono para que sobre pastel sigan leyéndose con holgura: en una
-   tabla de veinte lotes, un texto lavado se vuelve ilegible antes que
-   bonito. */
+   Los colores están al servicio de la lectura, no al revés. El fondo es un
+   gris muy claro para que las tarjetas blancas se recorten sobre él; el
+   azul pizarra es el color de acción; y los tres acentos —azul, verde
+   pizarra y ámbar— sólo se usan para distinguir apartados y estados. Las
+   tablas de veinte lotes se leen mucho rato seguido: nada saturado. */
 :root {
-  --bg: #fbfcfe;
+  --bg: #f6f7f9;
   --surface: #ffffff;
-  --surface-soft: #f4f7fd;
-  --surface-tint: #eaf0fb;
-  --border: #e3e9f5;
-  --border-strong: #c8d4ea;
+  --surface-soft: #f4f6f9;
+  --surface-tint: #e9edf3;
+  --border: #e2e6ed;
+  --border-strong: #c4cbd8;
 
-  /* Tinta azulada en vez de negro puro: sobre fondo claro el negro absoluto
-     vibra y endurece la lectura de tablas densas. */
-  --text: #23293a;
-  --text-soft: #55607a;
-  --text-muted: #67728a;
+  /* Tinta gris azulada en vez de negro puro: sobre fondo claro el negro
+     absoluto vibra y endurece la lectura de tablas densas. */
+  --text: #1e2532;
+  --text-soft: #4c5566;
+  --text-muted: #636c7d;
 
-  /* Azul empolvado: el color de acción. El claro es el relleno pastel; los
-     oscuros son para tinta sobre blanco y para el degradado del icono. */
-  --sky: #5b76bd;
-  --sky-dark: #455d9d;
-  --sky-deep: #35497c;
-  --sky-soft: #e7edfa;
+  /* Azul pizarra: el color de acción. El claro es relleno; los oscuros son
+     tinta sobre blanco y el degradado de los botones. */
+  --sky: #4a6491;
+  --sky-dark: #3a5075;
+  --sky-deep: #2b3c59;
+  --sky-soft: #e9eef6;
 
-  /* Verde menta y terracota suave, en pareja con el azul. */
-  --ok: #3f8168;
-  --ok-soft: #e6f4ee;
-  --warn: #a75a4b;
-  --warn-soft: #fbeeea;
+  /* Verde pizarra y terracota, del mismo temple que el azul. */
+  --ok: #2f7259;
+  --ok-soft: #e7f2ec;
+  --warn: #a15442;
+  --warn-soft: #faece7;
 
-  /* Lavanda y arena: los dos pasteles de apoyo, para distinguir apartados
-     sin recurrir siempre al azul. */
-  --lila: #7b6bb0;
-  --lila-soft: #efebfa;
-  --arena-soft: #fdf3e7;
+  /* Ámbar y verde azulado: los acentos de apoyo, para separar apartados sin
+     recurrir siempre al azul. */
+  --ambar: #8a6524;
+  --ambar-soft: #fbf3e4;
+  --verde: #2b6b6b;
+  --verde-soft: #e6f1f1;
 
-  /* Sombras teñidas del azul de la paleta, en capas: una de contacto y otra
-     de difusión. Muy suaves: con pasteles, una sombra dura ensucia. */
-  --shadow-sm: 0 1px 1px rgba(53, 73, 124, 0.03), 0 1px 3px rgba(53, 73, 124, 0.04);
-  --shadow: 0 1px 2px rgba(53, 73, 124, 0.04), 0 4px 14px rgba(53, 73, 124, 0.05);
-  --shadow-lg: 0 2px 4px rgba(53, 73, 124, 0.04), 0 14px 36px rgba(53, 73, 124, 0.08);
-  --ring: 0 0 0 3px rgba(91, 118, 189, 0.25);
+  /* Sombras muy suaves, teñidas del azul de la paleta: la separación entre
+     tarjeta y fondo la da el propio fondo gris, no una sombra marcada. */
+  --shadow-sm: 0 1px 2px rgba(43, 60, 89, 0.05);
+  --shadow: 0 1px 2px rgba(43, 60, 89, 0.05), 0 3px 10px rgba(43, 60, 89, 0.05);
+  --shadow-lg: 0 2px 4px rgba(43, 60, 89, 0.05), 0 12px 30px rgba(43, 60, 89, 0.09);
+  --ring: 0 0 0 3px rgba(74, 100, 145, 0.22);
 
-  --radius: 14px;
-  --radius-sm: 9px;
+  --radius: 10px;
+  --radius-sm: 7px;
 
   --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Consolas, "Courier New", monospace;

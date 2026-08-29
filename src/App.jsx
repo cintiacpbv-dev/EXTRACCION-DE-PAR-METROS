@@ -776,6 +776,53 @@ export default function App() {
               <IconArrowLeft size={15} /> Todos los productos
             </button>
 
+            {/* Lo primero es saber qué se está mirando: qué producto y qué
+                etapa. Antes esto quedaba debajo de tres paneles de
+                herramientas plegados y había que buscarlo. */}
+            {!blank && productos.length > 0 && (
+              <section className="card card--producto">
+                <div className="producto-cab">
+                  <label className="producto-cab__campo">
+                    <span className="rotulo">
+                      <IconFlask size={13} /> Producto
+                    </span>
+                    <select
+                      className="producto-cab__select"
+                      value={productoActivo || ""}
+                      onChange={(e) => openProduct(e.target.value)}
+                    >
+                      {productos.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="producto-cab__campo">
+                    <span className="rotulo">
+                      <IconLayers size={13} /> Etapa
+                    </span>
+                    <div className="tabs">
+                      {stages.map((s) => (
+                        <button
+                          key={s}
+                          className={`tab ${stageActiva === s ? "is-active" : ""}`}
+                          onClick={() => setStage(s)}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <LoadedBatches documents={productDocs} onRemove={handleRemove} />
+              </section>
+            )}
+
+            <h2 className="seccion-titulo">Herramientas</h2>
+
             <section className={`card card--carga ${puedePlegarCarga && !cargaAbierta ? "is-plegada" : ""}`}>
               {/* Con el producto ya analizado, cargar documentos y traer lotes
                   del SAP deja de ser lo que se viene a hacer: se pliega para
@@ -861,45 +908,7 @@ export default function App() {
               <Formato3Panel documents={docs} familia={productoActivo} />
             )}
 
-            {!blank && (
-              <section className="card card--contexto">
-              {productos.length > 0 && (
-                <div className="selectors">
-                  <label className="field">
-                    <span className="field__label">
-                      <IconFlask size={14} /> Producto
-                    </span>
-                    <select value={productoActivo || ""} onChange={(e) => openProduct(e.target.value)}>
-                      {productos.map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <div className="field">
-                    <span className="field__label">
-                      <IconLayers size={14} /> Etapa
-                    </span>
-                    <div className="tabs">
-                      {stages.map((s) => (
-                        <button
-                          key={s}
-                          className={`tab ${stageActiva === s ? "is-active" : ""}`}
-                          onClick={() => setStage(s)}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <LoadedBatches documents={productDocs} onRemove={handleRemove} />
-              </section>
-            )}
+            {!blank && <h2 className="seccion-titulo">Resultados del análisis</h2>}
 
             {!blank && <PersonnelPanel personnel={personnel} stage={stageActiva} />}
 
