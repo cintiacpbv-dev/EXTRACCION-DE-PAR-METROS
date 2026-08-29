@@ -34,7 +34,7 @@ const FUENTE = "Arial";
 // ancho útil es un tercio menor. Con un ancho fijo el logo se ve del mismo
 // tamaño en las dos orientaciones, que es como se ve un logo real.
 const ANCHO_LOGO_DXA = 2200;
-const ANCHO_CODIGO_DXA = 1500;
+const ANCHO_CODIGO_DXA = 1701;
 
 const SIN_BORDE = { style: BorderStyle.NONE, size: 0, space: 0, color: "auto" };
 const BORDES_ENCABEZADO = {
@@ -95,14 +95,18 @@ function celdaLogo(logo, ancho) {
  * aplicación no puede saber por sí sola —logo, código— queda marcado para
  * completar, nunca adivinado.
  */
-export function encabezadoTabla({ ancho, producto, procesoTexto, codigo, logo }) {
+export function encabezadoTabla({ ancho, titulo, codigo, logo }) {
   const anchoLogo = ANCHO_LOGO_DXA;
   const anchoCodigo = ANCHO_CODIGO_DXA;
   const anchoTitulo = ancho - anchoLogo - anchoCodigo;
 
+  // El código puede traer varias líneas ("RVP-17-80(I)-01" y "Adenda N° 4",
+  // como en el reporte de referencia).
   const filasCodigo = [
     parrafo([new TextRun({ text: "Código:", font: FUENTE, size: 18 })]),
-    parrafo([new TextRun({ text: codigo || "", font: FUENTE, size: 18 })]),
+    ...String(codigo || "")
+      .split("\n")
+      .map((linea) => parrafo([new TextRun({ text: linea, font: FUENTE, size: 18 })])),
   ];
 
   return new Table({
@@ -114,10 +118,12 @@ export function encabezadoTabla({ ancho, producto, procesoTexto, codigo, logo })
         children: [
           celdaLogo(logo, anchoLogo),
           celda(
-            [
-              parrafo([new TextRun({ text: producto, font: FUENTE, size: 21, bold: true })]),
-              parrafo([new TextRun({ text: procesoTexto, font: FUENTE, size: 21, bold: true })]),
-            ],
+            // Las líneas se reciben ya en orden: el reporte de validación
+            // pone el proceso encima del producto, y el Formato 3 sólo lleva
+            // el producto.
+            titulo
+              .filter(Boolean)
+              .map((linea) => parrafo([new TextRun({ text: linea, font: FUENTE, size: 21, bold: true })])),
             anchoTitulo
           ),
           celda(filasCodigo, anchoCodigo),
@@ -165,9 +171,9 @@ export function piePaginaTabla({ ancho, empresa, planta }) {
 }
 
 /** Cabecera y pie ya envueltos en Header/Footer, listos para una sección. */
-export function encabezadoYPie({ ancho, producto, procesoTexto, codigo, empresa, planta, logo }) {
+export function encabezadoYPie({ ancho, titulo, codigo, empresa, planta, logo }) {
   return {
-    headers: { default: new Header({ children: [encabezadoTabla({ ancho, producto, procesoTexto, codigo, logo })] }) },
+    headers: { default: new Header({ children: [encabezadoTabla({ ancho, titulo, codigo, logo })] }) },
     footers: { default: new Footer({ children: [piePaginaTabla({ ancho, empresa, planta })] }) },
   };
 }

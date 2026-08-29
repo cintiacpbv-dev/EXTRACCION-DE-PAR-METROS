@@ -393,8 +393,7 @@ export function buildFormato3Document(filas, { producto, procesoTexto: proceso, 
 
   const encabezado = encabezadoYPie({
     ancho: ANCHO_UTIL,
-    producto: producto || "",
-    procesoTexto: proceso || "VERIFICACIÓN DE LA CALIFICACIÓN DE EQUIPOS",
+    titulo: [producto || "", proceso || "VERIFICACIÓN DE LA CALIFICACIÓN DE EQUIPOS"],
     codigo,
     empresa,
     planta,

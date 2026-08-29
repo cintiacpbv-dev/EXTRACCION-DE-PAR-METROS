@@ -9,6 +9,8 @@
 // fragmento de 1 a 3 caracteres que sigue a otro nombre en la misma columna
 // se trata como la continuación de ese nombre, no como una persona aparte.
 
+import { matchSectionHeading } from "./genericParser.js";
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{1,2}:\d{2}(:\d{2})?$/;
 const NAME_TOKEN_RE = /^[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ0-9]{0,17}$/;
@@ -59,10 +61,21 @@ export function detectPersonnel(pages) {
   const operarios = new Map();
   const supervisores = new Map();
 
+  // Además del total de la etapa se anota quién firmó dentro de cada sección
+  // del registro. Acondicionado reparte el trabajo en dos operaciones —la
+  // impresión de cajas (el "lotizado") y el acondicionado propiamente dicho—
+  // que el informe lista por separado, con distinta gente y a menudo con
+  // días de por medio.
+  const porSeccion = new Map();
+  let seccion = null;
+
   for (const page of pages) {
     const lines = page.lines;
 
     for (let i = 0; i < lines.length; i++) {
+      const encabezado = matchSectionHeading(String(lines[i].text || "").trim());
+      if (encabezado) seccion = encabezado.title;
+
       const realizadoSeg = lines[i].segments.find((s) => s.str === "Realizado");
       if (!realizadoSeg) continue;
 
@@ -84,13 +97,34 @@ export function detectPersonnel(pages) {
         }
       }
 
-      addAll(operarios, mergeFragments(opTokens));
-      if (vbSeg) addAll(supervisores, mergeFragments(supTokens));
+      const ops = mergeFragments(opTokens);
+      const sups = vbSeg ? mergeFragments(supTokens) : [];
+
+      addAll(operarios, ops);
+      addAll(supervisores, sups);
+
+      if (seccion) {
+        if (!porSeccion.has(seccion)) {
+          porSeccion.set(seccion, { operarios: new Map(), supervisores: new Map() });
+        }
+        const bloque = porSeccion.get(seccion);
+        addAll(bloque.operarios, ops);
+        addAll(bloque.supervisores, sups);
+      }
     }
   }
 
   const toList = (counter) =>
     [...counter.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name));
 
-  return { operarios: toList(operarios), supervisores: toList(supervisores) };
+  return {
+    operarios: toList(operarios),
+    supervisores: toList(supervisores),
+    porSeccion: Object.fromEntries(
+      [...porSeccion].map(([nombre, b]) => [
+        nombre,
+        { operarios: toList(b.operarios), supervisores: toList(b.supervisores) },
+      ])
+    ),
+  };
 }

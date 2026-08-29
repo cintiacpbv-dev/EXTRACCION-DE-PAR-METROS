@@ -188,7 +188,7 @@ function cuadroLotes(model) {
   const cab1 = [
     celda("N°", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: A.num, rowSpan: 2 }),
     celda("RECETA", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: A.receta, rowSpan: 2 }),
-    celda("PRODUCTO", { bold: true, fill: AZUL_CABECERA, width: A.producto, rowSpan: 2 }),
+    celda("PRODUCTO", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: A.producto, rowSpan: 2 }),
     celda("LOTE", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: A.lote, rowSpan: 2 }),
     ...stages.map((s) =>
       celda(s, { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: A.fecha * 2, colSpan: 2 })
@@ -315,7 +315,27 @@ function tablaPersonalBloque(entrada, lotes) {
   const anchos = Array(n).fill(ancho);
   const total = anchos.reduce((a, b) => a + b, 0);
 
-  const nombres = (lote, rol) => (entrada.porLote[lote]?.[rol] || []).map((n) => formatPersonName(n));
+  const nombres = (lote, rol) => (entrada.porLote[lote]?.[rol] || []).map((x) => formatPersonName(x));
+  const nombresBloque = (lote, bloque) =>
+    (entrada.porLote[lote]?.bloques?.[bloque] || []).map((x) => formatPersonName(x));
+
+  const bandaAncha = (texto) =>
+    fila([celda(texto, { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_FUNCION });
+
+  const filaNombres = (dar) =>
+    fila(
+      lotes.map((l) => celdaLineas(dar(l), { align: AlignmentType.CENTER, width: ancho })),
+      { alto: ALTO_PERS_NOMBRES }
+    );
+
+  // En acondicionado los operarios van en dos bloques —lotizado y
+  // acondicionado— porque son trabajos distintos hechos por gente distinta.
+  // En las demás etapas hay un solo bloque, el de la etapa entera.
+  const bloques = entrada.bloques?.length ? entrada.bloques : [entrada.stage];
+  const filasOperarios = bloques.flatMap((b) => [
+    bandaAncha(b),
+    filaNombres((l) => (bloques.length === 1 ? nombres(l, "operarios") : nombresBloque(l, b))),
+  ]);
 
   return tabla(
     anchos,
@@ -326,17 +346,10 @@ function tablaPersonalBloque(entrada, lotes) {
         { alto: ALTO_PERS_CAB, cabecera: true }
       ),
       fila([celda(entrada.producto, { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_CAB, cabecera: true }),
-      fila([celda("FUNCIÓN: OPERADOR", { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_FUNCION }),
-      fila([celda(entrada.stage, { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_FUNCION }),
-      fila(
-        lotes.map((l) => celdaLineas(nombres(l, "operarios"), { align: AlignmentType.CENTER, width: ancho })),
-        { alto: ALTO_PERS_NOMBRES }
-      ),
-      fila([celda("FUNCIÓN: SUPERVISOR (Q.F.)", { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_FUNCION }),
-      fila(
-        lotes.map((l) => celdaLineas(nombres(l, "supervisores"), { align: AlignmentType.CENTER, width: ancho })),
-        { alto: ALTO_PERS_NOMBRES }
-      ),
+      bandaAncha("FUNCIÓN: OPERADOR"),
+      ...filasOperarios,
+      bandaAncha("FUNCIÓN: SUPERVISOR (Q.F.)"),
+      filaNombres((l) => nombres(l, "supervisores")),
     ],
     { indent: SANGRIA_PERSONAL }
   );
@@ -559,36 +572,33 @@ function parrafoTexto(texto) {
   });
 }
 
-/**
- * Un hueco para completar a mano, marcado sin ambigüedad como tal —entre
- * corchetes y en gris— para que nadie lo confunda con un texto redactado por
- * la aplicación. La justificación de una validación y los documentos en que
- * se apoya no salen de ningún RMD ni orden: son criterio de quien firma.
- */
-function placeholder(texto) {
-  return new Paragraph({
-    spacing: { before: 0, after: 160 },
-    children: [new TextRun({ text: `[${texto}]`, font: FUENTE, size: TAM, italics: true, color: "808080" })],
-  });
-}
-
 // --- IV.1 Verificaciones preliminares ---------------------------------------
 //
-// Un listado de comprobaciones previas a la validación (calificación de
-// equipos, de proveedores, de personal, plan maestro…) que el RMD y la orden
-// no dicen si se cumplieron: viven en otros documentos que esta aplicación
-// nunca ve. Se deja la tabla con sus filas y las columnas de cumplimiento en
-// blanco, para completar a mano — nunca con un "SI" inventado.
+// Las tres comprobaciones previas del reporte de referencia. Cada una vive en
+// un formato aparte que se adjunta como anexo, así que la columna "Resultado"
+// remite al anexo y la de cumplimiento queda en blanco: si se cumplieron o no
+// no lo dice ningún registro de manufactura ni ninguna orden, lo dice el
+// formato que se adjunta.
 const VERIFICACIONES_PRELIMINARES = [
-  "Verificación del Plan Maestro de Validación.",
-  "Verificación de la Calificación de Operación / Diseño (CO/CD) de los equipos.",
-  "Verificación de la Calificación de los proveedores.",
-  "Verificación de la Validación de los sistemas computarizados.",
-  "Verificación de la Calificación del personal.",
+  { prueba: "Verificación del Plan Maestro de Validación.", anexo: "Anexo 1" },
+  { prueba: "Verificación de la CO/CD de equipos.", anexo: "Anexo 2" },
+  { prueba: "Verificación de la Validación de Sistema computarizados", anexo: "Anexo 4" },
 ];
 
+// Los anexos que el reporte adjunta, cada uno en su propia hoja. La numeración
+// no es correlativa: es la del procedimiento de la empresa, donde cada formato
+// tiene asignado su número de anexo.
+const ANEXOS = [
+  { n: 1, formato: "Formato 1: Verificación del Plan Maestro de Validación" },
+  { n: 2, formato: "Formato 3: Verificación de la CO/CD de equipos" },
+  { n: 4, formato: "Formato 7: Verificación de la Validación de Sistemas Computarizados" },
+  { n: 6, formato: "Formato 9: Formato de Verificación del Proceso de Manufactura" },
+];
+
+const ANCHOS_PRELIMINARES = [6663, 1417, 1134];
+
 function cuadroVerificacionesPreliminares() {
-  const anchos = [4907, 2500, ANCHO_UTIL_VERTICAL - 4907 - 2500];
+  const anchos = ajustarAVertical(ANCHOS_PRELIMINARES);
   const cab = fila(
     [
       celda("Prueba", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: anchos[0] }),
@@ -598,15 +608,96 @@ function cuadroVerificacionesPreliminares() {
     { cabecera: true }
   );
 
-  const filas = VERIFICACIONES_PRELIMINARES.map((texto) =>
+  const filas = VERIFICACIONES_PRELIMINARES.map((v) =>
     fila([
-      celda(texto, { align: AlignmentType.BOTH, width: anchos[0] }),
-      celda("", { width: anchos[1] }),
-      celda("", { width: anchos[2] }),
+      celda(v.prueba, { align: AlignmentType.BOTH, width: anchos[0] }),
+      celda("", { align: AlignmentType.CENTER, width: anchos[1] }),
+      celda(v.anexo, { align: AlignmentType.CENTER, width: anchos[2] }),
     ])
   );
 
   return tabla(anchos, [cab, ...filas]);
+}
+
+// --- V. Dictamen, firmas y anexos -------------------------------------------
+
+const ANCHOS_FIRMA = [5670, 3401];
+const SIN_BORDE = { style: BorderStyle.NONE, size: 0, space: 0, color: "auto" };
+const RAYA_FIRMA = { style: BorderStyle.SINGLE, size: 4, space: 0, color: "auto" };
+
+function parrafoVacio() {
+  return new Paragraph({ spacing: { before: 0, after: 0 }, children: [] });
+}
+
+/**
+ * Un bloque de firma: el rótulo a la izquierda y, a la derecha, la raya sobre
+ * la que se firma.
+ *
+ * Debajo de la raya no va ningún nombre. Quién elabora, revisa y aprueba una
+ * validación no sale de ningún registro de manufactura ni de ninguna orden:
+ * lo decide quien firma, y queda en blanco.
+ */
+function bloqueFirma(rotulo) {
+  const celdaFirma = (children, ancho, bordes = {}) =>
+    new TableCell({
+      width: { size: ancho, type: WidthType.DXA },
+      borders: { top: SIN_BORDE, left: SIN_BORDE, right: SIN_BORDE, bottom: SIN_BORDE, ...bordes },
+      children,
+    });
+
+  return new Table({
+    width: { size: ANCHOS_FIRMA[0] + ANCHOS_FIRMA[1], type: WidthType.DXA },
+    columnWidths: ANCHOS_FIRMA,
+    layout: TableLayoutType.FIXED,
+    borders: Object.fromEntries(
+      ["top", "bottom", "left", "right", "insideHorizontal", "insideVertical"].map((l) => [l, SIN_BORDE])
+    ),
+    rows: [
+      new TableRow({
+        height: { value: 454, rule: HeightRule.ATLEAST },
+        children: [
+          celdaFirma([parrafo(rotulo, { bold: true })], ANCHOS_FIRMA[0]),
+          celdaFirma([parrafoVacio()], ANCHOS_FIRMA[1], { bottom: RAYA_FIRMA }),
+        ],
+      }),
+      new TableRow({
+        height: { value: 454, rule: HeightRule.ATLEAST },
+        children: [
+          celdaFirma([parrafoVacio()], ANCHOS_FIRMA[0]),
+          celdaFirma([parrafoVacio(), parrafoVacio()], ANCHOS_FIRMA[1]),
+        ],
+      }),
+    ],
+  });
+}
+
+/** "Lima, ……… de ……………… del ……" — la fecha de la firma, para poner a mano. */
+function lineaFecha() {
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 400, after: 0 },
+    children: [
+      new TextRun({ text: "Lima, ……… de …………………………… del …………", font: FUENTE, size: TAM }),
+    ],
+  });
+}
+
+/** La portada de un anexo: su número y el formato que lo acompaña, centrados. */
+function portadaAnexo({ n, formato }, primero) {
+  const salto = primero ? {} : { pageBreakBefore: true };
+  return [
+    new Paragraph({
+      ...salto,
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 3000, after: 0 },
+      children: [new TextRun({ text: `ANEXO ${n}`, font: FUENTE, size: 22, bold: true })],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 0, after: 0 },
+      children: [new TextRun({ text: formato, font: FUENTE, size: 22, bold: true })],
+    }),
+  ];
 }
 
 function pagina(horizontal) {
@@ -629,21 +720,72 @@ function procesoTexto(stage) {
   return stage ? `PROCESO DE ${stage}` : "VERIFICACIÓN DEL PROCESO DE MANUFACTURA";
 }
 
+// El hueco que se deja donde la aplicación no tiene el dato. Va como una
+// línea de puntos y no como un corchete explicativo porque estos huecos se
+// rellenan a mano sobre el documento impreso, igual que en el reporte de
+// referencia.
+const HUECO = "……………………………";
+
+/** Etapa en minúsculas para el texto corrido ("acondicionado"). */
+function etapaEnTexto(stage) {
+  return (stage || "manufactura").toLowerCase();
+}
+
+/** Etapa con la inicial en mayúscula, como la escribe el dictamen. */
+function etapaCapitalizada(stage) {
+  if (!stage) return "manufactura";
+  return stage[0].toUpperCase() + stage.slice(1).toLowerCase();
+}
+
+/**
+ * Un párrafo con partes en negrita. Se pasa una lista de cadenas y de
+ * objetos { texto, negrita }, que es como el reporte destaca el nombre del
+ * producto dentro de la frase.
+ */
+function parrafoRico(partes, { align = AlignmentType.BOTH, after = 160 } = {}) {
+  return new Paragraph({
+    alignment: align,
+    spacing: { before: 0, after },
+    children: partes.map((parte) =>
+      typeof parte === "string"
+        ? new TextRun({ text: parte, font: FUENTE, size: TAM })
+        : new TextRun({ text: parte.texto, font: FUENTE, size: TAM, bold: parte.negrita })
+    ),
+  });
+}
+
 export function buildCuadrosDocument(documents, familia, options) {
   const model = buildRvpModel(documents, familia, options);
-  const proceso = procesoTexto(options?.stage);
+  const stage = options?.stage || null;
+  const proceso = procesoTexto(stage);
+  const etapa = etapaEnTexto(stage);
+  const nLotes = model.lotes.filas.length;
 
-  // I y II no salen de ningún RMD ni orden: la justificación de la validación
-  // y el documento que le da origen son criterio de quien la firma, así que
-  // quedan como un hueco marcado para completar, nunca inventados.
+  // El nombre completo del producto sale del propio registro; la familia es
+  // sólo la primera palabra con la que la aplicación agrupa.
+  const producto = model.lotes.filas[0]?.producto || familia;
+
+  // I y II conservan la redacción del reporte, con un hueco donde va el dato
+  // que sólo conoce quien firma: el código del reporte al que se añade la
+  // información, y el protocolo con su fecha de aprobación. Ninguno de los
+  // dos está en el registro de manufactura ni en la orden.
   const inicio = [
     tituloRomano("I. JUSTIFICACIÓN"),
-    placeholder("Completar: motivo de esta validación o adenda."),
+    parrafoRico([
+      `El presente documento se emite para añadir información al reporte ${HUECO}, respecto al proceso de ${etapa} del producto `,
+      { texto: `${producto}.`, negrita: true },
+    ]),
+
     tituloRomano("II. DOCUMENTACIÓN"),
-    placeholder("Completar: protocolo y demás documentos en que se apoya, con su fecha de aprobación."),
+    parrafoRico([
+      `La validación del proceso de ${etapa} del producto `,
+      { texto: producto, negrita: true },
+      `, ha sido desarrollada empleando ${HUECO} con fecha de aprobación del ${HUECO}.`,
+    ]),
+
     tituloRomano("III. RECOLECCIÓN DE DATOS DEL PROCESO"),
     parrafoTexto(
-      "Los siguientes datos se recolectaron de los registros de manufactura y las órdenes de producción analizados:"
+      `Los siguientes datos han sido recolectados como parte del proceso de validación de ${etapa} e incluidos en el presente documento:`
     ),
     titulo("1. LOTES CONTROLADOS EN LA VALIDACIÓN Y FECHAS DE PROCESO"),
     cuadroLotes(model),
@@ -661,36 +803,70 @@ export function buildCuadrosDocument(documents, familia, options) {
     }
   }
 
-  // IV.1: un listado de comprobaciones previas que viven en otros documentos
-  // (calificación de equipos, de proveedores, de personal…). El RMD y la
-  // orden no dicen si se cumplieron, así que la tabla sale con sus filas y
-  // sin marcar, para completar a mano.
+  // IV.1: las comprobaciones previas viven en otros formatos, que se adjuntan
+  // como anexos. La columna de cumplimiento queda en blanco.
   const resultados = [
     tituloRomano("IV. RESULTADOS DE LA VALIDACIÓN"),
     titulo("1. VERIFICACIONES PRELIMINARES"),
+    parrafoTexto(
+      "A continuación, se muestra los resultados obtenidos en las verificaciones preliminares antes de realizar esta validación retrospectiva:"
+    ),
     cuadroVerificacionesPreliminares(),
+    new Paragraph({ children: [] }),
+    parrafoTexto(
+      `Como se puede apreciar en la tabla anterior se cumplen todos los criterios de aceptación requeridos, lo cuales están relacionados con las condiciones previas para realizar una validación del proceso de ${etapa}.`
+    ),
   ];
 
   // IV.2: una sola tabla por etapa, con todos los lotes en la misma hoja. El
-  // original parte sus veinte lotes en dos tablas de diez, pero así hay que ir
-  // y venir entre hojas para comparar un parámetro entre lotes, que es justo
-  // para lo que sirve el cuadro; las columnas se estrechan en su lugar (ver
+  // original parte sus lotes en varias tablas, pero así hay que ir y venir
+  // entre hojas para comparar un parámetro entre lotes, que es justo para lo
+  // que sirve el cuadro; las columnas se estrechan en su lugar (ver
   // anchosParametros).
-  const parametros = [titulo("2. VERIFICACIONES DE PARÁMETROS DE PROCESO")];
+  const parametros = [
+    titulo("2. VERIFICACIONES DE PARÁMETROS DE PROCESO"),
+    parrafoRico([
+      `Durante la revisión de ${nLotes} ${nLotes === 1 ? "lote" : "lotes"} del proceso de ${etapa} de `,
+      { texto: producto, negrita: true },
+      ` en su presentación de ${HUECO}, se recopilaron los parámetros de operación establecidos en los registros de manufactura (los registros de manufactura de cada etapa se encuentran ubicados en el sistema SAP).`,
+    ]),
+    parrafoTexto(
+      "En la siguiente tabla se refleja los parámetros de operación validados y las verificaciones correspondientes:"
+    ),
+    titulo("VERIFICACIÓN DE PARÁMETROS DE PROCESO"),
+  ];
   for (const datos of model.tablas) {
     if (datos.lotes.length === 0 || datos.rowCount === 0) continue;
     parametros.push(cuadroParametros(datos, datos.lotes, datos.stage));
     parametros.push(new Paragraph({ children: [] }));
   }
 
+  // V: el dictamen y las tres firmas. El texto es el del reporte; los nombres
+  // y la fecha van en blanco.
+  const dictamen = [
+    tituloRomano("V. DICTAMEN"),
+    parrafoRico([
+      `De acuerdo con los resultados obtenidos, el proceso de ${etapaCapitalizada(stage)} del producto, se declara `,
+      { texto: producto, negrita: true },
+      ", validado siempre que no existan cambios en el proceso que afecten esta condición.",
+    ]),
+    new Paragraph({ spacing: { before: 240 }, children: [] }),
+    bloqueFirma("Elaborado por:"),
+    bloqueFirma("Revisado por:"),
+    bloqueFirma("Aprobado por:"),
+    lineaFecha(),
+  ];
+
+  const anexos = ANEXOS.flatMap((a, i) => portadaAnexo(a, i === 0));
+
   // Encabezado y pie: misma tabla de tres columnas y mismo pie que el
-  // protocolo de referencia, uno por cada orientación de página. El logo y la
+  // reporte de referencia, uno por cada orientación de página. El logo y la
   // empresa no van fijos en el código —el primer intento puso el de otra
   // empresa— así que se reciben como datos y, sin ellos, quedan marcados
   // para completar en vez de adivinados.
   const datosEncabezado = {
-    producto: familia,
-    procesoTexto: proceso,
+    // El reporte pone el proceso encima del nombre del producto.
+    titulo: [proceso, producto],
     codigo: options?.codigo,
     empresa: options?.empresa,
     planta: options?.planta,
@@ -706,8 +882,10 @@ export function buildCuadrosDocument(documents, familia, options) {
       { properties: pagina(true), ...encabezadoHorizontal, children: personal },
       { properties: pagina(false), ...encabezadoVertical, children: resultados },
       // El cuadro de parámetros crece una columna por lote: horizontal, como
-      // en el formato de referencia, donde ocupa las páginas 8 a 15.
+      // en el formato de referencia.
       { properties: pagina(true), ...encabezadoHorizontal, children: parametros },
+      { properties: pagina(false), ...encabezadoVertical, children: dictamen },
+      { properties: pagina(false), ...encabezadoVertical, children: anexos },
     ],
   });
 }

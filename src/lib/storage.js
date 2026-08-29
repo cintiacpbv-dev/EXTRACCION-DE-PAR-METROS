@@ -371,19 +371,43 @@ export async function syncDocumentToSupabase(doc) {
   if (delPersonnelErr) {
     personnelWarning = delPersonnelErr.message;
   } else {
+    // Además del total de la etapa se guarda una fila por sección del
+    // registro (seccion = null es el total). El informe de acondicionado
+    // separa a quien imprimió las cajas de quien acondicionó, y eso no se
+    // puede reconstruir después a partir del total.
+    const deBloque = (bloque, seccion) => [
+      ...(bloque?.operarios || []).map((p) => ({ ...p, role: "operario", seccion })),
+      ...(bloque?.supervisores || []).map((p) => ({ ...p, role: "supervisor", seccion })),
+    ];
+
     const personnelRows = [
-      ...(doc.personnel?.operarios || []).map((p) => ({ ...p, role: "operario" })),
-      ...(doc.personnel?.supervisores || []).map((p) => ({ ...p, role: "supervisor" })),
+      ...deBloque(doc.personnel, null),
+      ...Object.entries(doc.personnel?.porSeccion || {}).flatMap(([seccion, bloque]) =>
+        deBloque(bloque, seccion)
+      ),
     ].map((p) => ({
       batch_id: batchRow.id,
       stage: doc.stage,
       role: p.role,
       name: p.name,
       count: p.count,
+      seccion: p.seccion,
     }));
 
     if (personnelRows.length > 0) {
-      const { error } = await supabase.from("batch_personnel").insert(personnelRows);
+      // "seccion" llegó con la migración v11. Sin ella la columna no existe y
+      // el insert entero falla, así que se reintenta con lo de siempre: el
+      // total de la etapa, que es lo que esas filas guardaban antes.
+      let { error } = await supabase.from("batch_personnel").insert(personnelRows);
+
+      if (columnaAusente(error) === "seccion") {
+        columnasFaltantes = [...columnasFaltantes, "seccion"];
+        const soloTotales = personnelRows
+          .filter((f) => f.seccion === null)
+          .map((f) => ({ batch_id: f.batch_id, stage: f.stage, role: f.role, name: f.name, count: f.count }));
+        ({ error } = await supabase.from("batch_personnel").insert(soloTotales));
+      }
+
       if (error) personnelWarning = error.message;
     }
   }
@@ -494,7 +518,7 @@ export async function loadDocumentsFromSupabase() {
         },
         params: [],
         paramIds: new Set(),
-        personnel: { operarios: [], supervisores: [] },
+        personnel: { operarios: [], supervisores: [], porSeccion: {} },
         insumos: [],
         uploadedAt: batch.updated_at || batch.created_at || null,
       });
@@ -531,7 +555,18 @@ export async function loadDocumentsFromSupabase() {
     if (!batch) continue;
 
     const doc = ensureDoc(batch, row.stage, null);
-    const list = row.role === "supervisor" ? doc.personnel.supervisores : doc.personnel.operarios;
+
+    // Las filas sin sección son el total de la etapa; las demás, quién firmó
+    // dentro de cada operación del registro (migración v11).
+    let bloque = doc.personnel;
+    if (row.seccion) {
+      if (!doc.personnel.porSeccion[row.seccion]) {
+        doc.personnel.porSeccion[row.seccion] = { operarios: [], supervisores: [] };
+      }
+      bloque = doc.personnel.porSeccion[row.seccion];
+    }
+
+    const list = row.role === "supervisor" ? bloque.supervisores : bloque.operarios;
     const yaEsta = list.find((p) => p.name === row.name);
     if (yaEsta) yaEsta.count = Math.max(yaEsta.count, row.count);
     else list.push({ name: row.name, count: row.count });

@@ -172,7 +172,7 @@ function splitLabel(rawLabel) {
 // "etiqueta: valor" y no un título.
 const OPERACION_RE = /^OPERACI[OÓ]N\s*N\s*[°ºo.]*\s*\d+\s*:\s*\S/i;
 
-function matchSectionHeading(text) {
+export function matchSectionHeading(text) {
   const m = text.match(/^(\d+(?:\.\d+)*)\s*\.-\s*(.+)$/);
   if (!m) return null;
 

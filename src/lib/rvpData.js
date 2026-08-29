@@ -48,10 +48,37 @@ export function fechasDeProceso(doc) {
   return { inicio, fin };
 }
 
+// La primera operación de acondicionado imprime el número de lote y la fecha
+// de expira en las cajas: es el "lotizado". El informe lo lista como una
+// columna aparte de la del acondicionado porque son trabajos distintos y a
+// menudo con días de por medio — en el lote 2018806 las cajas se imprimieron
+// el 3 de febrero y el acondicionado terminó el 10.
+const OPERACION_LOTIZADO_RE = /IMPRESI[OÓ]N\s+DE\s+CAJAS/i;
+export const ETAPA_LOTIZADO = "LOTIZADO";
+
+/**
+ * Fechas de inicio y fin de una operación concreta dentro de una etapa.
+ *
+ * Salen de las horas que el lector de tiempos (parsers/tiempos.js) empareja
+ * en cada sección: "HORA INICIO" con la "HORA FINAL" que le sigue.
+ */
+export function fechasDeOperacion(doc, re) {
+  const dentro = (p) => re.test(p.section || "");
+  const buscar = (etiqueta) => {
+    const p = doc.params.find((x) => dentro(x) && x.label === etiqueta);
+    return p ? soloFecha(p.value) : "";
+  };
+
+  const inicio = buscar("HORA INICIO");
+  const fin = buscar("HORA FINAL");
+  return inicio || fin ? { inicio, fin } : null;
+}
+
 /** Un renglón por lote con sus fechas en cada etapa (tabla de lotes del RVP). */
 export function lotesConFechas(documents, familia) {
   const stages = listStages(documents, familia);
   const porLote = new Map();
+  let hayLotizado = false;
 
   // Las órdenes se procesan al final para que sus fechas —declaradas de forma
   // explícita— pisen a las deducidas del registro.
@@ -64,11 +91,26 @@ export function lotesConFechas(documents, familia) {
 
     const fila = porLote.get(clave);
     fila.etapas[doc.stage] = fechasDeProceso(doc);
+
+    const lotizado = doc.params ? fechasDeOperacion(doc, OPERACION_LOTIZADO_RE) : null;
+    if (lotizado) {
+      fila.etapas[ETAPA_LOTIZADO] = lotizado;
+      hayLotizado = true;
+    }
+
     if (doc.orden?.cabecera?.producto) fila.producto = doc.orden.cabecera.producto;
   }
 
+  // El lotizado se antepone a la etapa a la que pertenece, no se añade al
+  // final: en el informe sus dos columnas van antes que las del acondicionado.
+  const columnas = [];
+  for (const s of stages) {
+    if (hayLotizado && s === "ACONDICIONADO") columnas.push(ETAPA_LOTIZADO);
+    columnas.push(s);
+  }
+
   return {
-    stages,
+    stages: columnas,
     filas: [...porLote.values()].sort((a, b) => a.clave.localeCompare(b.clave)),
   };
 }
@@ -219,22 +261,64 @@ export function rendimientoPorLote(documents, familia) {
  * columna por lote y, dentro de cada etapa, una fila de operadores y otra de
  * supervisores. (aggregatePersonnel, en cambio, resume toda la etapa.)
  */
+// Cómo se agrupan las operaciones de acondicionado en las filas de operarios
+// del informe: el lotizado por un lado y el acondicionado por otro. El cambio
+// de turno y el incremento de capacidad son la misma operación de
+// acondicionado continuada por otra gente, así que van con ella.
+const BLOQUES_OPERARIOS = [
+  { etiqueta: "Lotizado", re: /IMPRESI[OÓ]N\s+DE\s+CAJAS/i },
+  {
+    etiqueta: "ACONDICIONADO",
+    re: /OPERACI[OÓ]N\s*N\s*[°ºo.]*\s*2|INCREMENTO\s+DE\s+CAPACIDAD|CAMBIO\s+DE\s+TURNO/i,
+  },
+];
+
+/** Los nombres de un bloque de secciones, sin repetir y en orden. */
+function nombresDe(personnel, re, rol) {
+  if (!re) return (personnel?.[rol] || []).map((p) => p.name);
+
+  const vistos = new Set();
+  for (const [seccion, bloque] of Object.entries(personnel?.porSeccion || {})) {
+    if (!re.test(seccion)) continue;
+    for (const p of bloque[rol] || []) vistos.add(p.name);
+  }
+  return [...vistos].sort();
+}
+
+/**
+ * Personal lote por lote, que es como lo pide la tabla del informe: una
+ * columna por lote y, dentro de cada etapa, una fila de operadores y otra de
+ * supervisores. (aggregatePersonnel, en cambio, resume toda la etapa.)
+ *
+ * En acondicionado los operarios salen repartidos en dos filas —lotizado y
+ * acondicionado—, que son trabajos distintos hechos por gente distinta. Eso
+ * sólo se sabe si el registro se analizó con la lectura por secciones; en los
+ * lotes analizados antes, el bloque queda vacío y se muestra la fila única de
+ * siempre.
+ */
 export function personalPorLote(documents, familia) {
   return listStages(documents, familia).map((stage) => {
     const docs = documents.filter((d) => d.familia === familia && d.stage === stage && d.kind !== "orden");
     const lotes = [...new Set(docs.map(claveLote))].sort();
 
+    const hayPorSeccion = docs.some((d) => Object.keys(d.personnel?.porSeccion || {}).length > 0);
+    const bloques =
+      stage === "ACONDICIONADO" && hayPorSeccion ? BLOQUES_OPERARIOS : [{ etiqueta: stage, re: null }];
+
     const porLote = {};
     for (const lote of lotes) {
       const doc = docs.find((d) => claveLote(d) === lote);
       porLote[lote] = {
-        operarios: (doc?.personnel?.operarios || []).map((p) => p.name),
-        supervisores: (doc?.personnel?.supervisores || []).map((p) => p.name),
+        operarios: nombresDe(doc?.personnel, null, "operarios"),
+        supervisores: nombresDe(doc?.personnel, null, "supervisores"),
+        bloques: Object.fromEntries(
+          bloques.map((b) => [b.etiqueta, nombresDe(doc?.personnel, b.re, "operarios")])
+        ),
       };
     }
 
     const producto = docs[0]?.producto || familia;
-    return { stage, lotes, porLote, producto };
+    return { stage, lotes, porLote, producto, bloques: bloques.map((b) => b.etiqueta) };
   });
 }
 
