@@ -38,7 +38,13 @@ const SIGNATURE_X_MIN = 465;
 // interviene en el acondicionado: entra a la línea, toma sus muestras y se
 // va. Sus firmas no cuentan como personal del proceso, así que el paso que
 // las recoge se salta entero.
-const PASO_AJENO_RE = /CONTROL\s+INSPECTIVO\s+DEL\s+PROCESO/i;
+//
+// La decisión se toma con el renglón donde está el recuadro de firma, que es
+// el primero del paso, y ahí la frase puede venir cortada: el registro de
+// EVACLEAN parte "...REALIZA EL CONTROL INSPECTIVO DEL / PROCESO Y RETIRA SUS
+// MUESTRAS...", de modo que exigir "CONTROL INSPECTIVO DEL PROCESO" dejaba
+// entrar a Calidad. Basta con reconocer de quién habla el paso.
+const PASO_AJENO_RE = /PERSONAL\s+DE\s+CONTROL\s+DE(\s+CALIDAD)?\b|CONTROL\s+INSPECTIVO/i;
 const PASO_RE = /^\d+(\.\d+)*\s*\.-/;
 
 function isNameToken(tok) {
