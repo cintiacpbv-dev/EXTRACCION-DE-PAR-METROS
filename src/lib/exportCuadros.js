@@ -330,17 +330,30 @@ function tablaPersonalBloque(entrada, lotes) {
       { alto: ALTO_PERS_NOMBRES }
     );
 
-  // En acondicionado los operarios van en dos bloques —lotizado y
-  // acondicionado— porque son trabajos distintos hechos por gente distinta.
-  // En las demás etapas hay un solo bloque, el de la etapa entera.
+  // El cuadro se divide por operación y, dentro de cada una, por función: el
+  // acondicionado reparte el trabajo entre el lotizado —codificar las cajas— y
+  // el acondicionado propiamente dicho, y cada uno tiene sus operadores y su
+  // supervisor, que son gente distinta y a menudo de otro día.
+  //
+  // En las demás etapas hay una sola operación, la etapa entera, y entonces no
+  // se dibuja la banda: el cuadro queda como el del formato, operador encima y
+  // supervisor debajo.
   const bloques = entrada.bloques?.length ? entrada.bloques : [entrada.stage];
   const unSoloBloque = bloques.length === 1;
 
-  const filasPorRol = (rol) =>
-    bloques.flatMap((b) => [
-      bandaAncha(b),
-      filaNombres((l) => (unSoloBloque ? nombres(l, rol) : nombresBloque(l, b, rol))),
-    ]);
+  const filasDeRol = (b, rol, etiqueta) => [
+    bandaAncha(etiqueta),
+    filaNombres((l) => (unSoloBloque ? nombres(l, rol) : nombresBloque(l, b, rol))),
+  ];
+
+  // Cuando el registro de un lote no tiene la operación —no se codificaron
+  // cajas, o se codificaron en otro lote— la fila queda en blanco, que es lo
+  // que corresponde: el cuadro dice quién intervino, no quién pudo intervenir.
+  const filasDeBloque = (b, i) => [
+    ...(unSoloBloque ? [] : [bandaAncha(`${i + 1}. ${b}`)]),
+    ...filasDeRol(b, "operarios", "FUNCIÓN: OPERADOR"),
+    ...filasDeRol(b, "supervisores", "FUNCIÓN: SUPERVISOR (Q.F.)"),
+  ];
 
   return tabla(
     anchos,
@@ -351,10 +364,7 @@ function tablaPersonalBloque(entrada, lotes) {
         { alto: ALTO_PERS_CAB, cabecera: true }
       ),
       fila([celda(entrada.producto, { bold: true, colSpan: n, width: total })], { alto: ALTO_PERS_CAB, cabecera: true }),
-      bandaAncha("FUNCIÓN: OPERADOR"),
-      ...filasPorRol("operarios"),
-      bandaAncha("FUNCIÓN: SUPERVISOR (Q.F.)"),
-      ...filasPorRol("supervisores"),
+      ...bloques.flatMap(filasDeBloque),
     ],
     { indent: SANGRIA_PERSONAL }
   );

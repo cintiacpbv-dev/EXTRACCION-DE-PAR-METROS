@@ -270,17 +270,26 @@ const BLOQUES_OPERARIOS = [
   {
     etiqueta: "Acondicionado",
     re: /OPERACI[OÓ]N\s*N\s*[°ºo.]*\s*2|INCREMENTO\s+DE\s+CAPACIDAD|CAMBIO\s+DE\s+TURNO/i,
+    // Los lotes analizados antes de que se leyera el registro por secciones no
+    // tienen de dónde repartir su gente. En vez de dejar el cuadro entero en
+    // blanco, esos nombres caen aquí, que es donde estaban: el lotizado queda
+    // vacío, que es lo que corresponde cuando no consta que se codificara.
+    respaldo: true,
   },
 ];
 
 /** Los nombres de un bloque de secciones, sin repetir y en orden. */
-function nombresDe(personnel, re, rol) {
-  if (!re) return (personnel?.[rol] || []).map((p) => p.name);
+function nombresDe(personnel, bloque, rol) {
+  const todos = () => (personnel?.[rol] || []).map((p) => p.name);
+  if (!bloque?.re) return todos();
+
+  const secciones = Object.entries(personnel?.porSeccion || {});
+  if (secciones.length === 0) return bloque.respaldo ? todos() : [];
 
   const vistos = new Set();
-  for (const [seccion, bloque] of Object.entries(personnel?.porSeccion || {})) {
-    if (!re.test(seccion)) continue;
-    for (const p of bloque[rol] || []) vistos.add(p.name);
+  for (const [seccion, suyos] of secciones) {
+    if (!bloque.re.test(seccion)) continue;
+    for (const p of suyos[rol] || []) vistos.add(p.name);
   }
   return [...vistos].sort();
 }
@@ -301,9 +310,10 @@ export function personalPorLote(documents, familia) {
     const docs = documents.filter((d) => d.familia === familia && d.stage === stage && d.kind !== "orden");
     const lotes = [...new Set(docs.map(claveLote))].sort();
 
-    const hayPorSeccion = docs.some((d) => Object.keys(d.personnel?.porSeccion || {}).length > 0);
-    const bloques =
-      stage === "ACONDICIONADO" && hayPorSeccion ? BLOQUES_OPERARIOS : [{ etiqueta: stage, re: null }];
+    // Acondicionado siempre sale con sus dos operaciones, aunque en estos
+    // lotes no conste ninguna: el cuadro del informe tiene las dos, y la que
+    // no se hizo se queda en blanco.
+    const bloques = stage === "ACONDICIONADO" ? BLOQUES_OPERARIOS : [{ etiqueta: stage, re: null }];
 
     const porLote = {};
     for (const lote of lotes) {
@@ -315,10 +325,10 @@ export function personalPorLote(documents, familia) {
         // codificó las cajas y quien acondicionó son trabajos distintos, y su
         // visto bueno lo dio quien estaba de turno en cada uno.
         bloques: Object.fromEntries(
-          bloques.map((b) => [b.etiqueta, nombresDe(doc?.personnel, b.re, "operarios")])
+          bloques.map((b) => [b.etiqueta, nombresDe(doc?.personnel, b, "operarios")])
         ),
         bloquesSupervisores: Object.fromEntries(
-          bloques.map((b) => [b.etiqueta, nombresDe(doc?.personnel, b.re, "supervisores")])
+          bloques.map((b) => [b.etiqueta, nombresDe(doc?.personnel, b, "supervisores")])
         ),
       };
     }
