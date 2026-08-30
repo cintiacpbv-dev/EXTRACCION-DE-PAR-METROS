@@ -2023,3 +2023,87 @@
   font-size: 12px;
   line-height: 1.7;
 }
+
+/* ---- Archivos ya analizados que se apartaron ----------------------- */
+.sap-panel--omitidos .sap-icono {
+  background: var(--ambar-soft);
+  color: var(--ambar);
+}
+
+.omitidos-barra {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.omitidos-grupo {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+/* El nombre del producto manda, la cuenta acompaña y el botón se va al
+   borde: cada grupo se analiza por su cuenta. */
+.omitidos-grupo__cabecera {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  margin-bottom: 8px;
+}
+
+.omitidos-grupo__cabecera .btn {
+  margin-left: auto;
+  padding: 5px 10px;
+  font-size: 11.5px;
+}
+
+.omitidos-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+.omitidos-lista li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+
+.omitidos-lista li:first-child {
+  border-top: none;
+}
+
+.omitidos-lista__archivo {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omitidos-lista .muted {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.omitidos-lista__quitar {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  line-height: 0;
+}
+
+.omitidos-lista__quitar:not(:disabled):hover {
+  color: var(--rojo, #b23c3c);
+}

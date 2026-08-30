@@ -26,8 +26,10 @@ import {
   IconUpload,
   IconChevronDown,
 } from "./components/Icons.jsx";
+import ArchivosOmitidos from "./components/ArchivosOmitidos.jsx";
 import { processPdfFile } from "./lib/parsers/index.js";
 import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
+import { analisisPrevio, huellaDeArchivo, olvidarAnalisis, recordarAnalisis } from "./lib/analizados.js";
 import {
   loadLocalDocuments,
   saveLocalDocuments,
@@ -132,6 +134,9 @@ export default function App() {
   // Qué zona de carga está trabajando, para no anunciar el mismo archivo en
   // las dos a la vez.
   const [busyKind, setBusyKind] = useState(null);
+  // Los archivos que se soltaron pero ya se habían analizado. No se leen: se
+  // quedan aquí, agrupados por producto, hasta que se pida analizarlos.
+  const [omitidos, setOmitidos] = useState([]);
   const [messages, setMessages] = useState([]);
   const [copyState, setCopyState] = useState("idle");
   const [loading, setLoading] = useState(true);
@@ -388,10 +393,73 @@ export default function App() {
     }
   }
 
-  async function handleFiles(files, expectedKind, { etiquetas } = {}) {
+  /**
+   * Analiza otra vez archivos que se habían apartado.
+   *
+   * Se olvida su marca antes de volver a leerlos: si el análisis falla a
+   * medias, el archivo queda como nuevo y se puede reintentar, en vez de
+   * quedar apartado por un análisis que nunca llegó a completarse.
+   */
+  async function analizarDeNuevo(apartados) {
+    const huellas = apartados.map((a) => a.huella);
+    olvidarAnalisis(huellas);
+    setOmitidos((previos) => previos.filter((a) => !huellas.includes(a.huella)));
+    await handleFiles(
+      apartados.map((a) => a.file),
+      undefined,
+      { forzar: true }
+    );
+  }
+
+  /** Los quita de la lista sin analizarlos: siguen contando como analizados. */
+  function descartarOmitidos(apartados) {
+    const huellas = apartados.map((a) => a.huella);
+    setOmitidos((previos) => previos.filter((a) => !huellas.includes(a.huella)));
+  }
+
+  async function handleFiles(files, expectedKind, { etiquetas, forzar = false } = {}) {
     if (busy) return; // una segunda tanda simultánea pisaría a la primera
     setBusy(true);
     setBusyKind(expectedKind);
+
+    // Antes de abrir ningún PDF se mira si ya se analizó. La huella del
+    // archivo se calcula sobre sus bytes, así que cuesta milisegundos frente a
+    // los segundos que cuesta leerlo entero. Lo ya visto se aparta —no se
+    // analiza— y queda a la vista por si se quiere repetir.
+    setBusyLabel("Revisando…");
+    setProgreso({ hecho: 0, total: files.length, actual: "Revisando qué hay que analizar…" });
+
+    const porAnalizar = [];
+    const apartados = [];
+    for (const file of files) {
+      const huella = await huellaDeArchivo(file);
+      const previo = forzar ? null : analisisPrevio(huella);
+      if (previo) apartados.push({ huella, file, previo });
+      else porAnalizar.push({ huella, file });
+    }
+
+    if (apartados.length > 0) {
+      setOmitidos((previos) => {
+        const porHuella = new Map(previos.map((a) => [a.huella, a]));
+        for (const a of apartados) porHuella.set(a.huella, a);
+        return [...porHuella.values()];
+      });
+      pushMessage(
+        `${apartados.length} archivo(s) ya se habían analizado: se apartaron sin volver a leerlos. Están en "Ya analizados" por si quieres repetirlos.`,
+        "info"
+      );
+    }
+
+    if (porAnalizar.length === 0) {
+      setBusy(false);
+      setBusyLabel("");
+      setBusyKind(null);
+      setProgreso(null);
+      return;
+    }
+
+    const huellaDe = new Map(porAnalizar.map((a) => [a.file, a.huella]));
+    files = porAnalizar.map((a) => a.file);
     setProgreso({ hecho: 0, total: files.length, actual: etiquetaDe(files[0], etiquetas) });
     let next = documentsRef.current;
     const nuevos = [];
@@ -455,7 +523,10 @@ export default function App() {
           const sumaReceta = !!result.meta?.receta && !yaVisto.meta?.receta;
           const sumaInsumos = (result.insumos?.length || 0) > 0 && (yaVisto.insumos?.length || 0) === 0;
           const sumaEquipos = (result.equipos?.length || 0) > 0 && (yaVisto.equipos?.length || 0) === 0;
-          const aporta = sumaParticipantes || sumaReceta || sumaInsumos || sumaEquipos;
+          // Pedir el análisis a mano manda sobre la comparación: se pide
+          // justamente cuando la aplicación ya lee algo que antes no leía, y
+          // eso no siempre se nota comparando lo que había.
+          const aporta = forzar || sumaParticipantes || sumaReceta || sumaInsumos || sumaEquipos;
 
           if (!aporta) {
             pushMessage(
@@ -470,7 +541,12 @@ export default function App() {
           if (sumaReceta) aportes.push("la receta");
           if (sumaInsumos) aportes.push(`${result.insumos.length} materiales`);
           if (sumaEquipos) aportes.push(`${result.equipos.length} equipos`);
-          pushMessage(`${file.name}: ya estaba cargado, pero se actualizó con ${aportes.join(" y ")}.`, "success");
+          pushMessage(
+            aportes.length > 0
+              ? `${file.name}: ya estaba cargado, pero se actualizó con ${aportes.join(" y ")}.`
+              : `${file.name}: ya estaba cargado y se volvió a analizar, como pediste.`,
+            "success"
+          );
         }
 
         const doc = {
@@ -494,6 +570,8 @@ export default function App() {
 
         next = upsertDocument(next, doc);
         nuevos.push(doc);
+        // Queda apuntado para que la próxima vez no haya que volver a leerlo.
+        recordarAnalisis(huellaDe.get(file), doc);
         hashesEnEstaTanda.push({ hash: contentHash, fileName: doc.fileName, lote: doc.lote, stage: doc.stage });
         pushMessage(
           doc.kind === "orden"
@@ -899,6 +977,16 @@ export default function App() {
               {progreso && <BarraProgreso {...progreso} />}
               </div>
             </section>
+
+            {/* Fuera de la tarjeta de carga: cuando se pliega, lo apartado
+                seguiría ahí dentro sin verse, y es justo lo que hay que ver
+                para decidir si se analiza otra vez. */}
+            <ArchivosOmitidos
+              archivos={omitidos}
+              onAnalizar={analizarDeNuevo}
+              onDescartar={descartarOmitidos}
+              ocupado={busy}
+            />
 
             {/* Cada apartado en su propia tarjeta, al mismo nivel: antes
                 colgaban dentro de la de carga y se veían como cajas dentro
