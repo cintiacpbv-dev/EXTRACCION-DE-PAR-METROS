@@ -56,6 +56,12 @@ export function fechasDeProceso(doc) {
 const OPERACION_LOTIZADO_RE = /IMPRESI[OÓ]N\s+DE\s+CAJAS/i;
 export const ETAPA_LOTIZADO = "LOTIZADO";
 
+// La segunda operación es el acondicionado propiamente dicho. Sus fechas son
+// las que van en la columna de acondicionado del cuadro; las del documento
+// entero abarcan también el lotizado, y entonces las dos columnas dirían lo
+// mismo.
+const OPERACION_ACONDICIONADO_RE = /OPERACI[OÓ]N\s*N\s*[°ºo.]*\s*2|INCREMENTO\s+DE\s+CAPACIDAD|CAMBIO\s+DE\s+TURNO/i;
+
 /**
  * Fechas de inicio y fin de una operación concreta dentro de una etapa.
  *
@@ -78,7 +84,6 @@ export function fechasDeOperacion(doc, re) {
 export function lotesConFechas(documents, familia) {
   const stages = listStages(documents, familia);
   const porLote = new Map();
-  let hayLotizado = false;
 
   // Las órdenes se procesan al final para que sus fechas —declaradas de forma
   // explícita— pisen a las deducidas del registro.
@@ -90,22 +95,27 @@ export function lotesConFechas(documents, familia) {
     if (!porLote.has(clave)) porLote.set(clave, { clave, lote: doc.lote, producto: doc.producto, etapas: {} });
 
     const fila = porLote.get(clave);
-    fila.etapas[doc.stage] = fechasDeProceso(doc);
+    const deOperacion = doc.params ? fechasDeOperacion(doc, OPERACION_ACONDICIONADO_RE) : null;
+
+    // En acondicionado la columna de la etapa son las fechas de la operación
+    // de acondicionar. Sólo si el registro no las separa se usan las del
+    // documento entero, que es lo que se venía mostrando.
+    fila.etapas[doc.stage] =
+      doc.stage === "ACONDICIONADO" && deOperacion ? deOperacion : fechasDeProceso(doc);
 
     const lotizado = doc.params ? fechasDeOperacion(doc, OPERACION_LOTIZADO_RE) : null;
-    if (lotizado) {
-      fila.etapas[ETAPA_LOTIZADO] = lotizado;
-      hayLotizado = true;
-    }
+    if (lotizado) fila.etapas[ETAPA_LOTIZADO] = lotizado;
 
     if (doc.orden?.cabecera?.producto) fila.producto = doc.orden.cabecera.producto;
   }
 
-  // El lotizado se antepone a la etapa a la que pertenece, no se añade al
-  // final: en el informe sus dos columnas van antes que las del acondicionado.
+  // El acondicionado va siempre con sus dos pares de fechas: el lotizado
+  // primero —codificar las cajas es un trabajo aparte, a veces de otro día— y
+  // el acondicionado después. El lote en el que no conste el lotizado deja sus
+  // dos casillas en blanco, que es lo que dice el registro.
   const columnas = [];
   for (const s of stages) {
-    if (hayLotizado && s === "ACONDICIONADO") columnas.push(ETAPA_LOTIZADO);
+    if (s === "ACONDICIONADO") columnas.push(ETAPA_LOTIZADO);
     columnas.push(s);
   }
 
@@ -270,28 +280,47 @@ const BLOQUES_OPERARIOS = [
   {
     etiqueta: "Acondicionado",
     re: /OPERACI[OÓ]N\s*N\s*[°ºo.]*\s*2|INCREMENTO\s+DE\s+CAPACIDAD|CAMBIO\s+DE\s+TURNO/i,
-    // Los lotes analizados antes de que se leyera el registro por secciones no
-    // tienen de dónde repartir su gente. En vez de dejar el cuadro entero en
-    // blanco, esos nombres caen aquí, que es donde estaban: el lotizado queda
-    // vacío, que es lo que corresponde cuando no consta que se codificara.
+    // El acondicionado siempre lo hizo alguien: si el registro no lo reparte
+    // por secciones, o el reparto no da nadie, esta fila recoge al resto del
+    // personal de la etapa. El lotizado no lleva respaldo porque sí puede no
+    // haber ocurrido —las cajas vienen codificadas de otro lote— y entonces lo
+    // que corresponde es dejarlo en blanco.
     respaldo: true,
   },
 ];
 
 /** Los nombres de un bloque de secciones, sin repetir y en orden. */
 function nombresDe(personnel, bloque, rol) {
-  const todos = () => (personnel?.[rol] || []).map((p) => p.name);
-  if (!bloque?.re) return todos();
-
-  const secciones = Object.entries(personnel?.porSeccion || {});
-  if (secciones.length === 0) return bloque.respaldo ? todos() : [];
+  if (!bloque?.re) return (personnel?.[rol] || []).map((p) => p.name);
 
   const vistos = new Set();
-  for (const [seccion, suyos] of secciones) {
+  for (const [seccion, suyos] of Object.entries(personnel?.porSeccion || {})) {
     if (!bloque.re.test(seccion)) continue;
     for (const p of suyos[rol] || []) vistos.add(p.name);
   }
   return [...vistos].sort();
+}
+
+/**
+ * Reparte el personal de una etapa entre sus operaciones.
+ *
+ * El bloque de respaldo se queda con quien no reclamó ningún otro: en
+ * acondicionado eso es todo el que no aparece codificando cajas, que es
+ * exactamente quien acondicionó. Así la fila nunca queda vacía por un
+ * registro que no separe sus operaciones, y tampoco repite al lotizador.
+ */
+function repartirPersonal(personnel, bloques, rol) {
+  const reparto = bloques.map((b) => [b, nombresDe(personnel, b, rol)]);
+  const reclamados = new Set(reparto.flatMap(([b, n]) => (b.respaldo ? [] : n)));
+
+  return Object.fromEntries(
+    reparto.map(([b, nombres]) => [
+      b.etiqueta,
+      b.respaldo && nombres.length === 0
+        ? (personnel?.[rol] || []).map((p) => p.name).filter((n) => !reclamados.has(n))
+        : nombres,
+    ])
+  );
 }
 
 /**
@@ -324,12 +353,8 @@ export function personalPorLote(documents, familia) {
         // Operarios y supervisores se reparten por el mismo criterio: quien
         // codificó las cajas y quien acondicionó son trabajos distintos, y su
         // visto bueno lo dio quien estaba de turno en cada uno.
-        bloques: Object.fromEntries(
-          bloques.map((b) => [b.etiqueta, nombresDe(doc?.personnel, b, "operarios")])
-        ),
-        bloquesSupervisores: Object.fromEntries(
-          bloques.map((b) => [b.etiqueta, nombresDe(doc?.personnel, b, "supervisores")])
-        ),
+        bloques: repartirPersonal(doc?.personnel, bloques, "operarios"),
+        bloquesSupervisores: repartirPersonal(doc?.personnel, bloques, "supervisores"),
       };
     }
 
