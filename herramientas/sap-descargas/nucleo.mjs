@@ -69,6 +69,30 @@ async function cargarNavegador() {
   return chromium;
 }
 
+/**
+ * Si el fallo es que ya no hay navegador con el que trabajar.
+ *
+ * Cerrar la ventana de SAP a mitad —al terminar una tanda, o porque estorba—
+ * es lo más normal del mundo, pero Playwright lo cuenta como un error de
+ * programación: "Target page, context or browser has been closed". Reconocerlo
+ * permite volver a abrir en vez de dejar la herramienta inservible hasta que
+ * se reinicie entera.
+ */
+export function navegadorCerrado(err) {
+  const texto = String(err?.message || err || "");
+  return /has been closed|Target closed|Target crashed|browser has disconnected|Protocol error/i.test(texto);
+}
+
+/** Si esta sesión sigue sirviendo, o la ventana ya se cerró. */
+export function sesionViva(sesion) {
+  if (!sesion?.page || !sesion?.contexto) return false;
+  try {
+    return !sesion.page.isClosed() && sesion.contexto.pages().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function abrirNavegador(config) {
   const chromium = await cargarNavegador();
   const perfil = path.resolve(AQUI, config.perfilNavegador || ".perfil-sap");

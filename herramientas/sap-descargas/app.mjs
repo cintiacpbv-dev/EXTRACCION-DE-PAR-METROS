@@ -18,6 +18,8 @@ import {
   necesitaLogin,
   descargarLote,
   parsearLotes,
+  navegadorCerrado,
+  sesionViva,
 } from "./nucleo.mjs";
 
 const PUERTO_BASE = 4599;
@@ -44,6 +46,14 @@ function avisar(texto) {
 // --- preparación del navegador ----------------------------------------------
 
 async function prepararSesion() {
+  // Una sesión guardada sólo sirve mientras su ventana siga abierta. Cerrar
+  // la de SAP entre tandas es lo normal, y devolver la sesión muerta hacía
+  // que todo lo siguiente fallara con "Target page, context or browser has
+  // been closed" —y siguiera fallando— hasta cerrar la herramienta entera.
+  if (sesion && !sesionViva(sesion)) {
+    await sesion.contexto.close().catch(() => {});
+    sesion = null;
+  }
   if (sesion) return sesion;
 
   const config = await leerConfig();
@@ -70,6 +80,11 @@ async function prepararSesion() {
   }
 
   sesion = { contexto, page, descargas, config };
+  // Si la ventana se cierra mientras tanto, la sesión deja de valer en el
+  // acto: así la siguiente tanda abre una nueva en vez de estrellarse.
+  contexto.on("close", () => {
+    sesion = null;
+  });
   estado.carpeta = descargas;
   return sesion;
 }
@@ -83,11 +98,24 @@ async function ejecutarTanda(lotes, opciones = {}) {
   estado.error = null;
 
   try {
-    const { page, contexto, descargas, config } = await prepararSesion();
+    let { page, contexto, descargas, config } = await prepararSesion();
 
     estado.fase = "descargando";
     avisar("Abriendo el reporte…");
-    await irAlReporte(page, config, avisar);
+
+    // Si la ventana se cerró justo ahora —o se cerró antes y no dio tiempo a
+    // notarlo— se abre otra y se sigue, en vez de mandar al usuario a
+    // reiniciar la herramienta.
+    try {
+      await irAlReporte(page, config, avisar);
+    } catch (err) {
+      if (!navegadorCerrado(err)) throw err;
+      avisar("La ventana de SAP se había cerrado; abro otra.");
+      sesion = null;
+      ({ page, contexto, descargas, config } = await prepararSesion());
+      estado.fase = "descargando";
+      await irAlReporte(page, config, avisar);
+    }
 
     for (const [i, lote] of lotes.entries()) {
       estado.actual = lote;
@@ -102,6 +130,10 @@ async function ejecutarTanda(lotes, opciones = {}) {
           { omitirMM: opciones.omitirMM }
         );
       } catch (err) {
+        // Sin ventana no hay nada que reintentar: los lotes que faltan
+        // fallarían todos igual y llenarían la lista de errores repetidos.
+        if (navegadorCerrado(err)) throw err;
+
         estado.resultados.push({
           lote,
           producto: "—",
@@ -122,7 +154,14 @@ async function ejecutarTanda(lotes, opciones = {}) {
     avisar(`Listo: ${ok} documento(s) descargado(s).`);
   } catch (err) {
     estado.fase = "error";
-    estado.error = err.message.split("\n")[0];
+    // El mensaje de Playwright para una ventana cerrada no le dice nada a
+    // quien está descargando lotes. Se traduce a lo que hay que hacer.
+    if (navegadorCerrado(err)) {
+      sesion = null;
+      estado.error = "Se cerró la ventana de SAP. Pulsa Descargar otra vez y la abro de nuevo.";
+    } else {
+      estado.error = err.message.split("\n")[0];
+    }
     avisar(`Error: ${estado.error}`);
   }
 }
