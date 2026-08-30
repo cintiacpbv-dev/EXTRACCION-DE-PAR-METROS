@@ -40,11 +40,17 @@ const SEPARACION = 7; // hueco entre dos operaciones, por donde va la flecha
 
 const TAM_TITULO = 15; // medios puntos
 const TAM_LINEA = 14;
+const TAM_NOTA = 13;
 
 // El rótulo de una operación unitaria: una caja con su nombre a la izquierda,
 // sobre las cajas de los pasos que la componen.
 const ALTO_ROTULO_GRUPO = 6;
 const MARGEN_GRUPO = 4;
+
+// Sitio que se deja libre al pie de la columna izquierda, donde va la leyenda
+// de abreviaturas. Va en todas las hojas, así que se reserva en todas: sin
+// esto, lo último que se listaba al margen le caía encima.
+const RESERVA_PIE = 22;
 
 // La fila de pesada, que encabeza todas las hojas del formato.
 const FILA_PESADA = { y: 3, alto: 8 };
@@ -81,6 +87,15 @@ function lineasDeInsumos(insumos) {
   return insumos.map((i) => ({ texto: `• ${comoElEsquema(i)}`, izquierda: true, tam: TAM_LINEA }));
 }
 
+/**
+ * Las indicaciones que acompañan a una operación sin ser otra operación:
+ * enjuagar el recipiente, incorporar despacio, apagar la agitación. El formato
+ * las pone en letra pequeña y sin recuadro junto a la caja.
+ */
+function lineasDeNotas(notas) {
+  return notas.map((n) => ({ texto: comoElEsquema(n), cursiva: true, tam: TAM_NOTA }));
+}
+
 // La leyenda de abreviaturas que el formato lleva abajo a la izquierda. Sólo
 // nombra las que aparecen: una hoja sin presiones no explica qué es P°.
 const ABREVIATURAS = [
@@ -112,8 +127,16 @@ function necesitaRotuloDeEtapa(esquema) {
   return !esquema.operaciones[0]?.grupo;
 }
 
-function fondoDe(cajas) {
-  return cajas.reduce((n, c) => Math.max(n, c.y + Math.max(c.alto, c.altoIns)), 0);
+/**
+ * Hasta dónde baja la columna de la izquierda.
+ *
+ * La leyenda y los controles viven ahí, así que lo que puede estorbarles es lo
+ * que se lista al margen, no las cajas de operación: éstas van en la columna de
+ * la derecha y pueden llegar hasta abajo sin tocarlas. Mirando el alto de toda
+ * la hoja, la última caja se iba a una página nueva ella sola sin necesidad.
+ */
+function fondoIzquierdo(cajas) {
+  return cajas.reduce((n, c) => (c.altoIns > 0 ? Math.max(n, c.y + c.altoIns) : n), 0);
 }
 
 /**
@@ -147,16 +170,25 @@ function paginarEtapa(esquema, reserva) {
     const insumos = op.insumos || [];
     const lineasIns = lineasDeInsumos(insumos);
     const altoIns = insumos.length > 0 ? altoDeCaja(lineasIns, COL_APOYO.ancho) : 0;
-    const altoFila = Math.max(alto, altoIns + 3);
 
-    if (y + altoFila > LIENZO_ALTO - 6 && actual.length > 0) {
+    // Las notas van bajo la caja, en el hueco que ya deja la flecha.
+    const notas = op.notas || [];
+    const lineasNot = lineasDeNotas(notas);
+    const altoNot = notas.length > 0 ? altoDeCaja(lineasNot, COL_PROCESO.ancho) - RELLENO_CAJA : 0;
+    const altoFila = Math.max(alto + altoNot, altoIns + 3);
+
+    // La columna de la derecha llega casi hasta el marco; la de la izquierda
+    // se para antes, porque abajo está la leyenda.
+    const cabe = y + altoFila <= LIENZO_ALTO - 6 && y + altoIns <= LIENZO_ALTO - RESERVA_PIE;
+
+    if (!cabe && actual.length > 0) {
       paginas.push(actual);
       actual = [];
       y = PRIMERA_FILA + (op.grupo ? ALTO_ROTULO_GRUPO + 1 : 0);
       grupoAbierto = op.grupo || null;
     }
 
-    actual.push({ op, lineas, alto, y, lineasIns, altoIns });
+    actual.push({ op, lineas, alto, y, lineasIns, altoIns, lineasNot, altoNot });
     y += altoFila + SEPARACION;
   }
 
@@ -166,7 +198,7 @@ function paginarEtapa(esquema, reserva) {
   // llega hasta abajo, la última caja pasa a una hoja nueva en vez de que se
   // le monte el texto encima.
   const ultima = paginas[paginas.length - 1];
-  if (ultima && ultima.length > 1 && fondoDe(ultima) + reserva > LIENZO_ALTO) {
+  if (ultima && ultima.length > 1 && fondoIzquierdo(ultima) + reserva > LIENZO_ALTO) {
     const caja = ultima.pop();
     caja.y = PRIMERA_FILA + (caja.op.grupo ? ALTO_ROTULO_GRUPO + 1 : 0);
     paginas.push([caja]);
@@ -284,6 +316,7 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
     formas.push(cajaRotulo({ id: id++, y: tramo.cajas[0].y - ALTO_ROTULO_GRUPO - 1, texto: tramo.grupo }));
   }
 
+
   for (const [i, caja] of cajas.entries()) {
     formas.push(
       cuadro({
@@ -313,10 +346,24 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
       formas.push(flecha({ id: id++, x1: COL_APOYO.x, y1: yLinea, x2: COL_PROCESO.x, y2: yLinea }));
     }
 
+    // La nota, bajo la caja y sin recuadro, al lado de la flecha que baja.
+    if (caja.altoNot > 0) {
+      formas.push(
+        rotulo({
+          id: id++,
+          x: COL_PROCESO.x - 2,
+          y: caja.y + caja.alto + 0.5,
+          ancho: COL_PROCESO.ancho,
+          alto: caja.altoNot,
+          lineas: caja.lineasNot,
+        })
+      );
+    }
+
     if (i < cajas.length - 1) {
       const centro = COL_PROCESO.x + COL_PROCESO.ancho / 2;
       formas.push(
-        flecha({ id: id++, x1: centro, y1: caja.y + caja.alto, x2: centro, y2: cajas[i + 1].y })
+        flecha({ id: id++, x1: centro, y1: caja.y + caja.alto + caja.altoNot, x2: centro, y2: cajas[i + 1].y })
       );
     }
   }
@@ -340,7 +387,9 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
     ];
     const ancho = COL_APOYO.ancho + 8;
     const alto = altoDeCaja(lineas, ancho);
-    const y = fondo - alto;
+    fondo -= alto;
+    const y = fondo;
+    fondo -= 4;
     formas.push(cuadro({ id: id++, x: COL_APOYO.x, y, ancho, alto, lineas, recto: true }));
 
     if (cajas.length > 0) {
@@ -381,12 +430,15 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
         tam: TAM_LINEA,
       })),
     ];
+    // Al margen izquierdo, encima de la leyenda: en la columna de la derecha
+    // se montaba encima de la última operación.
     const alto = altoDeCaja(lineas, COL_APOYO.ancho);
+    fondo -= alto;
     formas.push(
       cuadro({
         id: id++,
-        x: COL_PROCESO.x,
-        y: Math.max(PRIMERA_FILA, LIENZO_ALTO - alto - 3),
+        x: COL_APOYO.x,
+        y: Math.max(PRIMERA_FILA, fondo),
         ancho: COL_APOYO.ancho,
         alto,
         lineas,

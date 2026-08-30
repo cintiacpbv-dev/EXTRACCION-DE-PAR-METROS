@@ -13,6 +13,7 @@ import { detectInsumos } from "../parsers/insumos.js";
 import { extractMeta } from "../parsers/meta.js";
 import { nombreDeOperacion } from "./nombres.js";
 import { cajasDePasos, pasosPorSeccion, unidadesPorCodigo } from "./pasos.js";
+import { ETAPA as ETAPA_ACONDICIONADO, operacionesDeAcondicionado } from "./acondicionado.js";
 
 // Secciones que no son operaciones del proceso: papeleo, alistar la sala y
 // las máquinas, desmontar, y los recuentos del final.
@@ -211,8 +212,35 @@ function tiemposDeSeccion(textoSeccion) {
   return salida;
 }
 
+/**
+ * Cómo se llama, entre las secciones que ya conoce el detector de parámetros,
+ * el paso que abre sección.
+ *
+ * El registro escribe el mismo encabezado de dos maneras según dónde aparezca:
+ * el paso dice "4.5.- ENCAPSULADO:" y el cuadro de parámetros "ENCAPSULADO";
+ * dice "SECADO N° 1" donde el cuadro dice "SECADO N° 1 (PRODUCTOS
+ * HIDROFILICOS)". Compararlos tal cual dejaba esas secciones sin texto, y sin
+ * texto no hay dónde buscar el equipo: por eso ENCAPSULADO, SECADO e
+ * INSPECCION salían sin su renglón en cursiva.
+ */
+function resolverSeccion(conocidas) {
+  return (titulo) => {
+    const limpio = titulo.replace(/:$/, "").trim().toUpperCase();
+    if (!limpio || limpio.length > 70) return null;
+    if (conocidas.has(limpio)) return limpio;
+
+    const sinParentesis = limpio.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    if (conocidas.has(sinParentesis)) return sinParentesis;
+
+    // "SECADO N° 1" -> "SECADO N° 1 (PRODUCTOS HIDROFILICOS)". Sólo vale si
+    // una sola sección empieza así: con dos, no se sabría cuál es.
+    const empiezanIgual = [...conocidas].filter((s) => s.startsWith(`${sinParentesis} (`));
+    return empiezanIgual.length === 1 ? empiezanIgual[0] : null;
+  };
+}
+
 /** El texto de cada sección, para poder buscar en ella los equipos. */
-function textoPorSeccion(pages) {
+function textoPorSeccion(pages, esEncabezado) {
   const porSeccion = new Map();
   let seccion = null;
 
@@ -220,10 +248,7 @@ function textoPorSeccion(pages) {
     for (const linea of page.lines) {
       const t = String(linea.text || "");
       const m = t.match(/^(\d+(?:\.\d+)*)\s*\.-\s*(.+)$/);
-      if (m) {
-        const titulo = m[2].replace(/\s*\([^)]*\)\s*$/, "").trim().toUpperCase();
-        if (titulo && titulo.length <= 70) seccion = titulo;
-      }
+      if (m) seccion = esEncabezado(m[2]) || seccion;
       if (!seccion) continue;
       porSeccion.set(seccion, `${porSeccion.get(seccion) || ""} ${t}`);
     }
@@ -240,7 +265,6 @@ export function esquemaDeRegistro(pages) {
   const meta = extractMeta(flat, pages);
   const params = detectParameters(pages);
   const equipos = detectEquipos(pages);
-  const textos = textoPorSeccion(pages);
 
   const unidades = unidadesPorCodigo(pages);
   const insumosDeEtapa = detectInsumos(pages).filter((i) => i.descripcion);
@@ -252,13 +276,15 @@ export function esquemaDeRegistro(pages) {
     porSeccion.get(p.section).push(p);
   }
 
+  // Qué paso abre sección se decide comparándolo con las secciones que ya
+  // encontró el detector genérico, con el mismo criterio para el texto y para
+  // los pasos: si no, cada uno guardaría lo suyo bajo un nombre distinto.
+  const esEncabezado = resolverSeccion(new Set(porSeccion.keys()));
+  const textos = textoPorSeccion(pages, esEncabezado);
+
   // Los pasos numerados de cada sección, para poder partir una operación
-  // unitaria en las cajas que el esquema dibuja. Se reconoce que un paso abre
-  // sección comparándolo con las que ya encontró el detector genérico.
-  const pasos = pasosPorSeccion(pages, (titulo) => {
-    const limpio = titulo.replace(/\s*\([^)]*\)\s*$/, "").replace(/:$/, "").trim().toUpperCase();
-    return limpio && limpio.length <= 70 && porSeccion.has(limpio) ? limpio : null;
-  });
+  // unitaria en las cajas que el esquema dibuja.
+  const pasos = pasosPorSeccion(pages, esEncabezado);
 
   // Los rangos del alistado se guardan para la caja de la etapa.
   const deAjuste = [];
@@ -269,7 +295,24 @@ export function esquemaDeRegistro(pages) {
   const etapa = (meta.stage || "").toUpperCase();
   const operaciones = [];
 
-  for (const [seccion, suyos] of porSeccion) {
+  // El acondicionado no se recorre por secciones: el registro lo escribe casi
+  // todo dentro de una sola y en prosa, así que salían dos cajas donde el
+  // formato tiene ocho. Su cadena de operaciones es fija (ver acondicionado.js).
+  if (etapa === ETAPA_ACONDICIONADO) {
+    operaciones.push(
+      ...operacionesDeAcondicionado(pages, {
+        params,
+        equipos: equipos.map((e) => e.descripcion),
+        insumos: insumosDeEtapa.map((i) => ({
+          nombre: i.descripcion,
+          cantidad: `${i.cantidad ?? i.cantidadRecibida ?? ""} ${i.unidad ?? i.unidadRecibida ?? ""}`.trim(),
+        })),
+      })
+    );
+  }
+
+  // Las demás etapas sí se recorren sección a sección.
+  for (const [seccion, suyos] of operaciones.length > 0 ? [] : porSeccion) {
     const esLaEtapa = seccion === etapa;
     if (!esLaEtapa) {
       if (!SI_ES_OPERACION.test(seccion) && NO_ES_OPERACION.test(seccion)) continue;
@@ -313,6 +356,7 @@ export function esquemaDeRegistro(pages) {
           insumos: caja.insumos,
           lineas: caja.lineas,
           equipo: caja.equipo,
+          notas: caja.notas,
         });
       }
       continue;

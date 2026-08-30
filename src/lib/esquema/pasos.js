@@ -174,12 +174,56 @@ function verboDe(texto) {
   return encontrado ? encontrado[1] : null;
 }
 
+// Lo que el esquema anota al margen de una caja: no es otra operación, es cómo
+// se hace la que ya está. En el formato van en letra pequeña y sin recuadro
+// junto a la caja que acompañan —"Enjuagar 3 veces la bolsa con 0.166 kg de
+// Polietilenglicol 400 en cada enjuague", "Apagar agitación".
+//
+// No son pasos aparte: el registro las escribe dentro del propio paso, detrás
+// de la instrucción principal ("...MANTENER EN CONSTANTE AGITACION. EN PARALELO
+// ENJUAGAR LA BOLSA DEL PASO 4.4.6..."), así que hay que sacarlas de dentro de
+// la frase.
+const NOTAS = /\b(ENJUAGAR|APAGAR|TRASVASAR|RECIRCULAR)\b/i;
+// Un punto sólo cierra la frase si lo que sigue abre otra. En "cada enjuague
+// con aprox. 0.166 kg" el punto es de la abreviatura, y cortar ahí dejaba la
+// nota terminada en "aprox.".
+const FIN_DE_FRASE = /(?<=\.)\s+(?=[A-ZÁÉÍÓÚÑ])/;
+
+// Dónde acaba la nota dentro de su frase: en el punto siguiente, o donde
+// empieza el papeleo del formulario.
+const FIN_DE_NOTA = /\.\s+(?=[A-ZÁÉÍÓÚÑ])|(?=\b(?:REALIZADO|VERIFICADO|HORA|FECHA)\b)/;
+
+/** Las indicaciones que este paso deja al margen, si las hay. */
+function notasDelPaso(texto) {
+  const limpio = texto.replace(/\s+/g, " ").trim();
+  const salida = [];
+
+  // Cada frase por separado: la nota es una de ellas, no el paso entero. "EN
+  // PARALELO" también abre nota, aunque venga sin punto delante.
+  for (const frase of limpio.split(FIN_DE_FRASE).flatMap((f) => f.split(/\bEN\s+PARALELO\s+/i))) {
+    const m = frase.match(NOTAS);
+    if (!m) continue;
+
+    const desde = frase.slice(m.index);
+    const nota = desde.split(FIN_DE_NOTA)[0].trim().replace(/[,;]$/, "");
+    // Ni un jirón suelto ni el procedimiento entero.
+    if (nota.length < 15 || nota.length > 200) continue;
+    salida.push(nota);
+  }
+
+  return [...new Set(salida)];
+}
+
 /**
  * Las cajas en que se parte una operación unitaria.
  *
  * Un paso entra si aporta algo que dibujar: lo que se le echa, un rango o el
  * equipo. Los que sólo anotan una hora o un visto bueno se quedan fuera.
  * Cuando dos cajas comparten verbo se numeran, como en el formato.
+ *
+ * Los pasos que no son una operación sino una indicación sobre la anterior
+ * —enjuagar el recipiente, incorporar despacio, apagar la agitación— se
+ * guardan como nota de la caja a la que acompañan.
  */
 export function cajasDePasos(pasos, { equiposDeTexto, unidadDe = () => "" }) {
   const cajas = [];
@@ -187,14 +231,20 @@ export function cajasDePasos(pasos, { equiposDeTexto, unidadDe = () => "" }) {
   for (const paso of pasos) {
     const texto = paso.renglones.join(" ");
     const verbo = verboDe(texto);
-    if (!verbo) continue;
+    const notas = notasDelPaso(texto);
+
+    // Un paso que sólo deja una indicación se cuelga de la caja anterior.
+    if (!verbo) {
+      if (notas.length > 0 && cajas.length > 0) cajas[cajas.length - 1].notas.push(...notas);
+      continue;
+    }
 
     const insumos = insumosDelPaso(paso.renglones, unidadDe);
     const lineas = rangosDelPaso(texto);
     const equipo = equiposDeTexto(texto);
     if (insumos.length === 0 && lineas.length === 0 && equipo.length === 0) continue;
 
-    cajas.push({ verbo, insumos, lineas, equipo });
+    cajas.push({ verbo, insumos, lineas, equipo, notas });
   }
 
   // "DISOLVER", "DISOLVER (2)"… sólo se numera lo que se repite.

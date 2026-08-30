@@ -62,9 +62,11 @@ export function criteriosAcondicionado(pages) {
   const criterios = {};
 
   // "ENCAJADO: ARMAR LA CAJA, COLOCAR 20 SOBRES Y UN FOLLETO DOBLADO, CERRAR
-  // LA CAJA" -> "20 SOBRES Y UN FOLLETO DOBLADO".
+  // LA CAJA" -> "20 SOBRES Y UN FOLLETO DOBLADO". Lo que va después de cerrar
+  // la caja es cómo se hace, no qué lleva dentro; el registro lo separa con
+  // coma o con punto y coma según el producto.
   const encajado = pasoQueDice(lineas, /ENCAJADO\s*:/i);
-  const contenido = encajado.match(/COLOCAR\s+(.+?)(?:,\s*CERRAR|\.\s|$)/i);
+  const contenido = encajado.match(/COLOCAR\s+(.+?)(?:[,;]\s*CERRAR|\.\s|$)/i);
   if (contenido) criterios.contenidoPorCaja = contenido[1].trim();
 
   // "LA DISTRIBUCIÓN INDICADA: 03 DE ALTO, 04 DE ANCHO Y 12 DE LARGO" -> se
