@@ -220,7 +220,7 @@ function tramosDeGrupo(cajas) {
   return tramos;
 }
 
-/** Una caja de rótulo: el nombre de una etapa o de una operación unitaria. */
+/** Una caja de rótulo: el nombre de una etapa, en su recuadro. */
 function cajaRotulo({ id, y, texto }) {
   return cuadro({
     id,
@@ -231,6 +231,40 @@ function cajaRotulo({ id, y, texto }) {
     lineas: [{ texto, negrita: true, tam: TAM_TITULO }],
     recto: true,
   });
+}
+
+/**
+ * El recuadro de una operación unitaria: un marco de rayas alrededor de todas
+ * sus cajas, con el nombre subrayado dentro, arriba a la izquierda.
+ *
+ * Así lo llevan PROSTASIL, FLUIBRONCOL, PYRIDIUM y SOLUNA. DOLORAL lo pone en
+ * una caja aparte al margen, pero es el único de los siete.
+ */
+function marcoDeGrupo({ id, tramo }) {
+  const arriba = tramo.cajas[0].y - ALTO_ROTULO_GRUPO - 1;
+  const ultima = tramo.cajas[tramo.cajas.length - 1];
+  const abajo = ultima.y + Math.max(ultima.alto + ultima.altoNot, ultima.altoIns);
+
+  return [
+    cuadro({
+      id,
+      x: COL_APOYO.x - 2,
+      y: arriba,
+      ancho: COL_PROCESO.x + COL_PROCESO.ancho - COL_APOYO.x + 4,
+      alto: abajo - arriba + 2.5,
+      lineas: [],
+      discontinuo: true,
+      recto: true,
+    }),
+    rotulo({
+      id: id + 1,
+      x: COL_APOYO.x,
+      y: arriba + 0.5,
+      ancho: 100,
+      alto: ALTO_ROTULO_GRUPO,
+      lineas: [{ texto: tramo.grupo, negrita: true, subrayado: true, izquierda: true, tam: TAM_TITULO }],
+    }),
+  ];
 }
 
 /**
@@ -311,9 +345,10 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
     formas.push(cajaRotulo({ id: id++, y: PRIMERA_FILA, texto: esquema.etapa }));
   }
 
-  // El rótulo de cada operación unitaria, sobre las cajas de sus pasos.
+  // El recuadro de cada operación unitaria, alrededor de las cajas de sus pasos.
   for (const tramo of tramosDeGrupo(cajas)) {
-    formas.push(cajaRotulo({ id: id++, y: tramo.cajas[0].y - ALTO_ROTULO_GRUPO - 1, texto: tramo.grupo }));
+    formas.push(...marcoDeGrupo({ id, tramo }));
+    id += 2;
   }
 
 
@@ -346,10 +381,10 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
       formas.push(flecha({ id: id++, x1: COL_APOYO.x, y1: yLinea, x2: COL_PROCESO.x, y2: yLinea }));
     }
 
-    // La nota, bajo la caja y sin recuadro, al lado de la flecha que baja.
+    // La nota, en su recuadro bajo la caja, al lado de la flecha que baja.
     if (caja.altoNot > 0) {
       formas.push(
-        rotulo({
+        cuadro({
           id: id++,
           x: COL_PROCESO.x - 2,
           y: caja.y + caja.alto + 0.5,
