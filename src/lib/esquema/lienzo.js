@@ -54,15 +54,33 @@ function parrafo({
  * Un cuadro del diagrama.
  *
  * `x`, `y`, `ancho` y `alto` van en milímetros desde la esquina superior
- * izquierda del lienzo. `discontinuo` dibuja el borde a rayas, que es como el
- * formato marca las agrupaciones y las notas al margen.
+ * izquierda del lienzo.
+ *
+ * El instructivo IVAL-P201-00 fija qué línea lleva cada figura: las
+ * operaciones unitarias, la predeterminada; el cuadro que agrupa operaciones,
+ * tipo "guion" (`discontinuo`); y las indicaciones del proceso, la leyenda y
+ * el almacenamiento, tipo "punto redondo" a 0.25 pto (`punteado`).
  */
-export function cuadro({ id, x, y, ancho, alto, lineas, discontinuo = false, sinBorde = false, recto = false }) {
+export function cuadro({
+  id,
+  x,
+  y,
+  ancho,
+  alto,
+  lineas,
+  discontinuo = false,
+  punteado = false,
+  sinBorde = false,
+  recto = false,
+}) {
+  // 3175 EMU son 0.25 pto, el ancho que el instructivo pide para el punteado
+  // y el mismo que ya llevaban las demás figuras.
+  const trazo = punteado ? "sysDot" : discontinuo ? "dash" : "solid";
   const borde = sinBorde
     ? `<a:ln w="3175"><a:noFill/></a:ln>`
     : `<a:ln w="3175" cap="flat" cmpd="sng" algn="ctr">` +
       `<a:solidFill><a:sysClr val="windowText" lastClr="000000"/></a:solidFill>` +
-      `<a:prstDash val="${discontinuo ? "dash" : "solid"}"/></a:ln>`;
+      `<a:prstDash val="${trazo}"/></a:ln>`;
 
   return (
     `<wps:wsp><wps:cNvPr id="${id}" name="Cuadro ${id}"/><wps:cNvSpPr/><wps:spPr>` +

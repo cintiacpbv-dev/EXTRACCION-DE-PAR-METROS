@@ -169,9 +169,17 @@ function insumosDelPaso(renglones, unidadDe) {
   return salida;
 }
 
+// El instructivo IVAL-P201-00 pide indicar "manual" o "visual" en el nombre
+// cuando la operación la hace un operador y no una máquina: por eso el formato
+// dice "DISOLVER MANUALMENTE (1)" y no "DISOLVER (1)". Se exige la palabra
+// entera —"MANUALMENTE", "de forma manual"— y no el adjetivo suelto, que
+// aparece en nombres de equipo ("Selladora de bolsa manual Miyako").
+const ES_MANUAL = /\bMANUALMENTE\b|\b(?:EN|DE)\s+FORMA\s+MANUAL\b/i;
+
 function verboDe(texto) {
   const encontrado = VERBOS.find(([re]) => re.test(texto));
-  return encontrado ? encontrado[1] : null;
+  if (!encontrado) return null;
+  return ES_MANUAL.test(texto) ? `${encontrado[1]} MANUALMENTE` : encontrado[1];
 }
 
 // Lo que el esquema anota al margen de una caja: no es otra operación, es cómo

@@ -38,9 +38,13 @@ const ALTO_RENGLON = 3.4;
 const RELLENO_CAJA = 2.6;
 const SEPARACION = 7; // hueco entre dos operaciones, por donde va la flecha
 
-const TAM_TITULO = 15; // medios puntos
+// Tamaños en medios puntos. El instructivo IVAL-P201-00 pide para las
+// operaciones unitarias letra 8 o 7 —hasta un mínimo de 6— y para las
+// indicaciones del proceso un nivel por debajo. La leyenda va en 6.
+const TAM_TITULO = 15;
 const TAM_LINEA = 14;
 const TAM_NOTA = 13;
+const TAM_LEYENDA = 12;
 
 // El rótulo de una operación unitaria: una caja con su nombre a la izquierda,
 // sobre las cajas de los pasos que la componen.
@@ -111,8 +115,8 @@ function leyendaDeHoja(cajas) {
   if (usadas.length === 0) return [];
 
   return [
-    { texto: "Leyenda:", negrita: true, cursiva: true, izquierda: true, tam: TAM_LINEA },
-    ...usadas.map((t) => ({ texto: t, izquierda: true, tam: TAM_LINEA })),
+    { texto: "Leyenda:", negrita: true, subrayado: true, izquierda: true, tam: TAM_LEYENDA },
+    ...usadas.map((t) => ({ texto: t, izquierda: true, tam: TAM_LEYENDA })),
   ];
 }
 
@@ -381,7 +385,9 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
       formas.push(flecha({ id: id++, x1: COL_APOYO.x, y1: yLinea, x2: COL_PROCESO.x, y2: yLinea }));
     }
 
-    // La nota, en su recuadro bajo la caja, al lado de la flecha que baja.
+    // La nota, en su recuadro de puntos bajo la caja, al lado de la flecha que
+    // baja: el instructivo pide para las indicaciones del proceso un
+    // rectángulo con línea "punto redondo" y el texto en cursiva.
     if (caja.altoNot > 0) {
       formas.push(
         cuadro({
@@ -391,6 +397,8 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
           ancho: COL_PROCESO.ancho,
           alto: caja.altoNot,
           lineas: caja.lineasNot,
+          punteado: true,
+          recto: true,
         })
       );
     }
@@ -411,7 +419,7 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
   if (leyenda.length > 0) {
     const alto = altoDeCaja(leyenda, 44);
     fondo -= alto;
-    formas.push(cuadro({ id: id++, x: COL_APOYO.x, y: fondo, ancho: 44, alto, lineas: leyenda }));
+    formas.push(cuadro({ id: id++, x: COL_APOYO.x, y: fondo, ancho: 44, alto, lineas: leyenda, punteado: true, recto: true }));
     fondo -= 4;
   }
 
@@ -425,7 +433,7 @@ function lienzoDeHoja({ esquema, cajas, primera, ultima, idBase }) {
     fondo -= alto;
     const y = fondo;
     fondo -= 4;
-    formas.push(cuadro({ id: id++, x: COL_APOYO.x, y, ancho, alto, lineas, recto: true }));
+    formas.push(cuadro({ id: id++, x: COL_APOYO.x, y, ancho, alto, lineas, recto: true, punteado: true }));
 
     if (cajas.length > 0) {
       const medio = y + alto / 2;
