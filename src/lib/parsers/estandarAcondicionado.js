@@ -104,6 +104,13 @@ export function conEstandarAcondicionado(params, pages, stage) {
         setpoint: criterio,
         // Sin criterio en el registro la casilla queda vacía, no "Referencial".
         sinRango: !criterio,
+        // Cuántos blísteres van en la caja, cómo se distribuyen en la de
+        // embalaje y cuántas caben en la parihuela no los decide quien valida:
+        // los declara el registro de cada lote. Por eso la columna del lote se
+        // rellena con lo que dice su propio registro, y no queda en blanco
+        // esperando que alguien lo copie a mano.
+        value: criterio,
+        enBlanco: !criterio,
       });
     }
   }

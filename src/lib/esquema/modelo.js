@@ -32,7 +32,7 @@ const NO_ES_OPERACION =
 // Algunos pasos que el detector toma por encabezado son frases del
 // procedimiento, no nombres de operación. Se reconocen porque llevan dentro un
 // verbo de comprobación.
-const ES_FRASE_RE = /(VERIFICAR|VERIFIQUE|ASEGURAR|REGISTRAR|ANOTAR|CONTABILIZAR)/i;
+const ES_FRASE_RE = /\b(VERIFICAR|VERIFIQUE|ASEGURAR|REGISTRAR|ANOTAR|CONTABILIZAR)\b/i;
 
 // Un renglón que no describe cómo se opera, aunque traiga "setpoint".
 const NO_ES_RANGO = /^(VERIFICADO POR|REALIZADO POR|CODIGO|NOTA|OPCION)/i;

@@ -34,6 +34,13 @@ const MAX_BLOCK_ROWS = 8;
 // este límite.
 const SIGNATURE_X_MIN = 465;
 
+// El rótulo del recuadro de firma. Unos registros lo parten en dos trozos
+// ("Realizado" y "Por") y otros lo escriben de una pieza ("Realizado Por"):
+// exigir el trozo suelto dejaba a estos últimos sin ningún recuadro, y por
+// tanto sin nadie en el cuadro de personal. Es lo que pasaba con los
+// registros de EVACLEAN.
+const ES_REALIZADO = /^Realizado\b/i;
+
 // El control inspectivo lo hace personal de control de calidad, que no
 // interviene en el acondicionado: entra a la línea, toma sus muestras y se
 // va. Sus firmas no cuentan como personal del proceso, así que el paso que
@@ -95,21 +102,26 @@ export function detectPersonnel(pages) {
       const encabezado = matchSectionHeading(texto);
       if (encabezado) seccion = encabezado.title;
 
-      const realizadoSeg = lines[i].segments.find((s) => s.str === "Realizado");
+      const realizadoSeg = lines[i].segments.find((s) => ES_REALIZADO.test(s.str.trim()));
       if (!realizadoSeg || pasoAjeno) continue;
 
       const vbSeg = lines[i].segments.find((s) => s.str === "VB");
       const threshold = vbSeg ? vbSeg.x - COLUMN_MARGIN : Infinity;
+
+      // Dónde empieza la columna de firmas lo dice el propio rótulo. El
+      // registro de EVACLEAN la abre en x=449, antes del límite fijo, y sus
+      // nombres se descartaban como si fueran texto del paso.
+      const xMinimo = Math.min(SIGNATURE_X_MIN, realizadoSeg.x - 4);
 
       const opTokens = [];
       const supTokens = [];
 
       for (let j = i + 1, rows = 0; j < lines.length && rows < MAX_BLOCK_ROWS; j++, rows++) {
         const segs = lines[j].segments;
-        if (segs.some((s) => s.str === "Realizado")) break; // empieza el siguiente bloque
+        if (segs.some((s) => ES_REALIZADO.test(s.str.trim()))) break; // empieza el siguiente bloque
 
         for (const seg of segs) {
-          if (seg.x < SIGNATURE_X_MIN) continue; // texto normal del paso, no es del recuadro
+          if (seg.x < xMinimo) continue; // texto normal del paso, no es del recuadro
           const tok = seg.str.trim();
           if (!tok || !isNameToken(tok)) continue;
           (seg.x >= threshold ? supTokens : opTokens).push(tok);
