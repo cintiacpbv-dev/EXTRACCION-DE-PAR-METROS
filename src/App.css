@@ -1946,62 +1946,24 @@
 }
 
 /* ---- Consulta a la bibliografía (aplicación embebida) --------------- */
-/* Ocupa el alto que sobre de la página: es una sección para trabajar
-   adentro, no una tarjeta más que se hojea de arriba abajo. */
-/* Sin el borde ni el fondo propio de una tarjeta: con la app de dentro
-   pintando el mismo negro que esta página, un marco alrededor sólo
-   recordaría que hay una frontera —justo lo que no debe notarse. */
-.card--consulta {
-  display: flex;
-  flex-direction: column;
+/* Sin el relleno de página que llevan las demás vistas: cualquier margen
+   alrededor del iframe es sitio que delata que hay una página metida
+   dentro de otra, en vez de ocupar la pantalla entera. */
+.main--consulta {
+  padding: 0;
+  gap: 0;
+  max-width: none;
+}
+
+/* Ni borde, ni radio, ni fondo propio: la aplicación de dentro ya pinta su
+   negro sobre todo el rectángulo, así que cualquier marco alrededor sólo
+   serviría para delatar la frontera entre las dos páginas. */
+.consulta-marco {
   flex: 1;
   min-height: 0;
-  padding: 0;
-  gap: 12px;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.consulta-cab {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.consulta-cab__titulo {
-  font-size: 16px;
-  margin-bottom: 3px;
-}
-
-/* Sin borde, sin radio, sin fondo propio: la aplicación de dentro ya pinta
-   su negro sobre todo el rectángulo, así que cualquier marco alrededor sólo
-   serviría para delatar que hay una página dentro de la página. */
-.consulta-marco {
-  position: relative;
-  flex: 1;
-  min-height: 420px;
-  background: var(--bg);
-}
-
-.consulta-marco iframe {
-  position: absolute;
-  inset: 0;
   width: 100%;
-  height: 100%;
   border: 0;
-}
-
-.consulta-marco__espera {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-  color: var(--text-muted);
+  background: var(--bg);
 }
 
 /* ---- 1. Cabecera de producto -------------------------------------- */

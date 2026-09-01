@@ -843,7 +843,10 @@ export default function App() {
         </span>
       </header>
 
-      <main className="main">
+      {/* Sin relleno cuando lo de dentro es Consulta PDF: ese hueco es
+          exactamente lo que delataba que había una página metida dentro de
+          otra, en vez de ocupar la pantalla entera. */}
+      <main className={`main ${view === "consulta" ? "main--consulta" : ""}`}>
         {/* Los avisos viven al nivel de la página, no dentro de la tarjeta de
             carga: cuando estaban ahí, todo lo que se anunciaba desde la
             biblioteca —imagen guardada, producto eliminado— no se llegaba a
@@ -1131,15 +1134,20 @@ export default function App() {
         )}
       </main>
 
-      <footer className="footer">
-        {view === "product" || view === "consulta" ? (
-          <button className="link-back link-back--footer" onClick={backToLibrary}>
-            <IconGrid size={13} /> Volver a tus análisis
-          </button>
-        ) : (
-          "El detector lee la estructura del propio registro, así que admite nuevos productos, etapas y parámetros sin tocar el código."
-        )}
-      </footer>
+      {/* Consulta PDF no lleva pie: es lo último que separaba el iframe del
+          borde de la pantalla, y la vuelta ya está a un clic en la barra
+          de arriba. */}
+      {view !== "consulta" && (
+        <footer className="footer">
+          {view === "product" ? (
+            <button className="link-back link-back--footer" onClick={backToLibrary}>
+              <IconGrid size={13} /> Volver a tus análisis
+            </button>
+          ) : (
+            "El detector lee la estructura del propio registro, así que admite nuevos productos, etapas y parámetros sin tocar el código."
+          )}
+        </footer>
+      )}
 
       {imagenAbierta && (
         <ProductImagePicker
