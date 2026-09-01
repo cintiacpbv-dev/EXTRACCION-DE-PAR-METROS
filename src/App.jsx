@@ -616,6 +616,7 @@ export default function App() {
 
     if (supabaseEnabled) {
       let avisoMigracion = false;
+      let avisoPersonalRepetido = false;
       let avisoReceta = false;
       let avisoTamano = false;
       let avisoEquipos = false;
@@ -646,6 +647,20 @@ export default function App() {
         // otra): sin la receta, o sin el tamaño de lote, faltan migraciones
         // distintas y conviene decir cuál.
         const faltan = res.columnasFaltantes || [];
+
+        // La misma persona entra dos veces a propósito —el total de la etapa
+        // y su operación concreta— y hasta correr esta migración esas dos
+        // filas chocan entre sí: se guardó el total, sin el reparto por
+        // operación (lotizado / acondicionado). Es un aviso aparte de
+        // "seccion" porque ahí sí se guarda algo, sólo que incompleto.
+        if (faltan.includes("personal-repetido") && !avisoPersonalRepetido) {
+          avisoPersonalRepetido = true;
+          pushMessage(
+            "Se guardó el personal, pero sin repartirlo por operación: falta ejecutar supabase_migration_v12.sql para que el cuadro de acondicionado separe el lotizado del acondicionado propiamente dicho.",
+            "info"
+          );
+        }
+
         if (faltan.includes("receta") && !avisoReceta) {
           avisoReceta = true;
           pushMessage(

@@ -416,8 +416,17 @@ export async function syncDocumentToSupabase(doc) {
       // total de la etapa, que es lo que esas filas guardaban antes.
       let { error } = await supabase.from("batch_personnel").insert(personnelRows);
 
-      if (columnaAusente(error) === "seccion") {
-        columnasFaltantes = [...columnasFaltantes, "seccion"];
+      // La misma persona entra dos veces a propósito —una como total de la
+      // etapa (seccion en blanco) y otra bajo la operación en la que
+      // firmó—, y hasta la migración v12 la regla de "no repetido" no
+      // distinguía una fila de la otra: Postgres las veía como la misma fila
+      // repetida y rechazaba el grupo entero. El síntoma es justo el que se
+      // reportó: el cuadro de personal de acondicionado se quedaba vacío, no
+      // sólo sin el reparto por operación.
+      const porRegla = error?.code === "23505" && /batch_personnel.*_key/i.test(error.message || "");
+
+      if (columnaAusente(error) === "seccion" || porRegla) {
+        columnasFaltantes = [...columnasFaltantes, porRegla ? "personal-repetido" : "seccion"];
         const soloTotales = personnelRows
           .filter((f) => f.seccion === null)
           .map((f) => ({ batch_id: f.batch_id, stage: f.stage, role: f.role, name: f.name, count: f.count }));
