@@ -1,65 +1,86 @@
-/* Paleta clara de trabajo, tipografía IBM Plex.
-   La app se compromete deliberadamente con un único tema claro: es una
-   herramienta de planta que se usa junto a documentos impresos en papel
-   blanco, así que cada color se declara de forma explícita y no se hereda
-   del tema del sistema (ver color-scheme más abajo).
+/* Paleta oscura de trabajo, tipografía IBM Plex.
+   La app pasa de comprometerse con un único tema claro a comprometerse con
+   uno oscuro: no es un tema que se alterna con el sistema, es el que tiene
+   la aplicación. Cada color se declara de forma explícita, como antes.
 
-   Los colores están al servicio de la lectura, no al revés. El fondo es un
-   gris muy claro para que las tarjetas blancas se recorten sobre él; el
-   azul pizarra es el color de acción; y los tres acentos —azul, verde
-   pizarra y ámbar— sólo se usan para distinguir apartados y estados. Las
-   tablas de veinte lotes se leen mucho rato seguido: nada saturado. */
+   La paleta toma el lenguaje de Claude: fondo carbón cálido —no azul
+   ni gris frío—, tinta color hueso, y un único acento: la terracota que usa
+   Claude para lo que hay que notar. El resto de acentos (verde, ámbar,
+   rojo) son la misma familia cálida, sólo que girada de matiz; nada
+   saturado ni frío se cuela en una tabla que se lee mucho rato seguido. */
 :root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --surface-soft: #f4f6f9;
-  --surface-tint: #e9edf3;
-  --border: #e2e6ed;
-  --border-strong: #c4cbd8;
+  --bg: #1a1918;
+  --surface: #232221;
+  --surface-soft: #201f1e;
+  --surface-tint: #2c2b29;
+  --border: #38362f;
+  --border-strong: #4a4740;
 
-  /* Tinta gris azulada en vez de negro puro: sobre fondo claro el negro
-     absoluto vibra y endurece la lectura de tablas densas. */
-  --text: #1e2532;
-  --text-soft: #4c5566;
-  --text-muted: #636c7d;
+  /* La barra superior flota sobre el contenido al hacer scroll: translúcida
+     y desenfocada, no un panel opaco más. */
+  --surface-glass: rgba(26, 25, 24, 0.82);
 
-  /* Azul pizarra: el color de acción. El claro es relleno; los oscuros son
-     tinta sobre blanco y el degradado de los botones. */
-  --sky: #4a6491;
-  --sky-dark: #3a5075;
-  --sky-deep: #2b3c59;
-  --sky-soft: #e9eef6;
+  /* Hueso cálido en vez de blanco puro: sobre fondo carbón, el blanco
+     absoluto vibra igual que el negro puro vibraba sobre fondo claro. */
+  --text: #ece7de;
+  --text-soft: #beb6a9;
+  --text-muted: #9a9285;
 
-  /* Verde pizarra y terracota, del mismo temple que el azul. */
-  --ok: #2f7259;
-  --ok-soft: #e7f2ec;
-  --warn: #a15442;
-  --warn-soft: #faece7;
+  /* Terracota: el acento de Claude, y el único color de acción de la app.
+     El claro es relleno; los oscuros son el degradado de los botones. */
+  --sky: #d97757;
+  --sky-dark: #c15f3c;
+  --sky-deep: #93472c;
+  --sky-soft: #3a2a22;
+  /* Para texto e iconos sobre fondo oscuro, no para rellenos: --sky-dark daba
+     bien de tinta sobre blanco en el tema claro, pero sobre carbón un tono
+     más oscuro es MENOS contraste, no más. Aclarado hasta que hasta el
+     fondo más cálido de la paleta (el de las bandas de sección) pase 4.5:1. */
+  --sky-text: #e08a68;
 
-  /* Ámbar y verde azulado: los acentos de apoyo, para separar apartados sin
-     recurrir siempre al azul. */
-  --ambar: #8a6524;
-  --ambar-soft: #fbf3e4;
-  --verde: #2b6b6b;
-  --verde-soft: #e6f1f1;
+  /* Verde salvia y terracota rojiza, del mismo temple cálido que el acento. */
+  --ok: #7fae8e;
+  --ok-soft: #23342a;
+  --ok-border: #3a4f3f;
+  --warn: #d98a72;
+  --warn-soft: #3a2925;
+  --warn-border: #543a32;
 
-  /* Sombras muy suaves, teñidas del azul de la paleta: la separación entre
-     tarjeta y fondo la da el propio fondo gris, no una sombra marcada. */
-  --shadow-sm: 0 1px 2px rgba(43, 60, 89, 0.05);
-  --shadow: 0 1px 2px rgba(43, 60, 89, 0.05), 0 3px 10px rgba(43, 60, 89, 0.05);
-  --shadow-lg: 0 2px 4px rgba(43, 60, 89, 0.05), 0 12px 30px rgba(43, 60, 89, 0.09);
-  --ring: 0 0 0 3px rgba(74, 100, 145, 0.22);
+  /* Ámbar y verde azulado apagado: los acentos de apoyo, para separar
+     apartados sin recurrir siempre a la terracota. */
+  --ambar: #d3ac6e;
+  --ambar-soft: #362c1f;
+  --ambar-border: #4d3f2b;
+  --verde: #7fb0ac;
+  --verde-soft: #22302f;
 
-  --radius: 10px;
-  --radius-sm: 7px;
+  /* Rojo de verdad, para lo que borra o descarta —distinto del "warn"
+     terracota, que es el tono de los avisos y no de la destrucción. */
+  --rojo: #e0796a;
+  --rojo-soft: #3a2521;
+
+  /* Texto siempre claro sobre el acento, esté donde esté: icono con fondo
+     degradado, botón primario. */
+  --on-accent: #fdf8f2;
+
+  /* Sobre fondo oscuro una sombra no se ve como separación: se ve como
+     mancha. La separación la da el borde; la sombra sólo redondea el canto
+     y por eso es casi imperceptible. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.24), 0 4px 14px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.3), 0 16px 36px rgba(0, 0, 0, 0.34);
+  --ring: 0 0 0 3px rgba(217, 119, 87, 0.35);
+
+  --radius: 14px;
+  --radius-sm: 9px;
 
   --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Consolas, "Courier New", monospace;
 
   /* Los controles nativos (select, scrollbars) deben seguir el tema de la
-     página, no el del sistema operativo: sin esto se pintan oscuros y
-     quedan ilegibles sobre el fondo claro. */
-  color-scheme: light;
+     página, no el del sistema operativo: sin esto se pintan claros y
+     quedan fuera de lugar sobre el fondo oscuro. */
+  color-scheme: dark;
 }
 
 * {
@@ -125,7 +146,7 @@ code {
   background: var(--sky-soft);
 }
 
-/* Barras de desplazamiento discretas, en el mismo celeste del resto. */
+/* Barras de desplazamiento discretas, en la misma terracota del resto. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
