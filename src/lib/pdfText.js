@@ -59,24 +59,47 @@ function buildLines(textContent) {
  */
 export async function extractPdfText(file) {
   const buffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const loadingTask = pdfjsLib.getDocument({ data: buffer });
+  const pdf = await loadingTask.promise;
 
-  const pages = [];
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const textContent = await page.getTextContent();
-    pages.push({
-      index: i,
-      lines: buildLines(textContent),
-      // Las casillas de verificación del formulario no son texto: son
-      // imágenes pequeñas. Sin ellas no hay forma de saber cuál de las
-      // opciones de un "OPCION ELEGIDA" marcó el operario.
-      casillas: await casillasDePagina(pdfjsLib, page),
-    });
+  try {
+    const pages = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      try {
+        const textContent = await page.getTextContent();
+        pages.push({
+          index: i,
+          lines: buildLines(textContent),
+          // Las casillas de verificación del formulario no son texto: son
+          // imágenes pequeñas. Sin ellas no hay forma de saber cuál de las
+          // opciones de un "OPCION ELEGIDA" marcó el operario.
+          casillas: await casillasDePagina(pdfjsLib, page),
+        });
+      } finally {
+        // Cada página que se decodifica deja en el documento su propia caché
+        // de imágenes y de glifos (las casillas de verificación son
+        // imágenes). Sin liberarla, esa memoria se queda ahí hasta que se
+        // destruya el documento entero — y una tanda de treinta RMD la iba
+        // acumulando sin soltarla nunca.
+        page.cleanup();
+      }
+    }
+
+    const rawText = pages.map((p) => p.lines.map((l) => l.text).join("\n")).join("\n\n");
+    const flatText = rawText.replace(/\s+/g, " ").trim();
+
+    return { pages, rawText, flatText, numPages: pdf.numPages };
+  } finally {
+    // El documento abre su propio worker —un hilo aparte con su copia de los
+    // datos— y sin destruirlo ese hilo se queda vivo para siempre. Analizar
+    // una tanda de RMD descargados de SAP dejaba un worker por archivo
+    // acumulándose sin cerrarse nunca, hasta que la pestaña se quedaba sin
+    // memoria y el navegador la cerraba.
+    //
+    // Quien lo destruye es la tarea de carga (`loadingTask`), no el documento
+    // resuelto (`pdf`): en esta versión de pdf.js, `PDFDocumentProxy` no tiene
+    // su propio `destroy`.
+    await loadingTask.destroy();
   }
-
-  const rawText = pages.map((p) => p.lines.map((l) => l.text).join("\n")).join("\n\n");
-  const flatText = rawText.replace(/\s+/g, " ").trim();
-
-  return { pages, rawText, flatText, numPages: pdf.numPages };
 }
