@@ -29,6 +29,7 @@ import {
 } from "./components/Icons.jsx";
 import ArchivosOmitidos from "./components/ArchivosOmitidos.jsx";
 import ConsultaPdf from "./components/ConsultaPdf.jsx";
+import { construirPreguntaValidacion } from "./lib/consultaPdf.js";
 import { processPdfFile } from "./lib/parsers/index.js";
 import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
 import { analisisPrevio, huellaDeArchivo, olvidarAnalisis, recordarAnalisis } from "./lib/analizados.js";
@@ -118,6 +119,10 @@ function etiquetaDe(file, etiquetas) {
 export default function App() {
   const [documents, setDocuments] = useState([]);
   const [view, setView] = useState("library"); // "library" | "product" | "consulta"
+  // Pregunta con la que se abre el chat de Consulta PDF al validar contra la
+  // bibliografía; null cuando se entra por el enlace de la barra, sin
+  // pregunta (se ve la portada, como siempre).
+  const [consultaQuery, setConsultaQuery] = useState(null);
   const [producto, setProducto] = useState(null);
   // true entre "Nuevo análisis" y la primera carga exitosa: la vista de
   // producto se muestra en blanco, sin caer sobre uno ya existente.
@@ -373,7 +378,8 @@ export default function App() {
     writeRoute("library", null, false);
   }
 
-  function openConsulta() {
+  function openConsulta(pregunta) {
+    setConsultaQuery(pregunta ? { pregunta, nonce: Date.now() } : null);
     setView("consulta");
     writeRoute("consulta", null, false);
   }
@@ -781,6 +787,15 @@ export default function App() {
     }
   }
 
+  function handleValidarBibliografia() {
+    const pregunta = construirPreguntaValidacion(table, productoActivo, stageActiva);
+    if (!pregunta) {
+      pushMessage("No hay parámetros con rango para validar contra la bibliografía.", "error");
+      return;
+    }
+    openConsulta(pregunta);
+  }
+
   async function handleCopy() {
     if (!table) return;
     const text = tableToClipboardText(table);
@@ -830,7 +845,7 @@ export default function App() {
           <nav className="topnav">
             <button
               className={`topnav__link ${view === "consulta" ? "is-active" : ""}`}
-              onClick={openConsulta}
+              onClick={() => openConsulta()}
             >
               <IconMessageSquare size={15} /> <span>Consulta PDF</span>
             </button>
@@ -871,7 +886,7 @@ export default function App() {
         {loading ? (
           <div className="empty-state">Cargando…</div>
         ) : view === "consulta" ? (
-          <ConsultaPdf />
+          <ConsultaPdf query={consultaQuery} />
         ) : view === "library" ? (
           <ProductLibrary
             productos={resumenProductos}
@@ -1116,6 +1131,15 @@ export default function App() {
                     </div>
                   )}
 
+                  <button
+                    className="btn btn--ghost"
+                    onClick={handleValidarBibliografia}
+                    disabled={!table}
+                    title="Abre Consulta PDF con una pregunta armada a partir de estos parámetros críticos"
+                  >
+                    <IconMessageSquare size={16} />
+                    Validar contra bibliografía
+                  </button>
                   <button className="btn btn--ghost" onClick={handleExportFormatoA09} disabled={!productoActivo}>
                     <IconFileText size={16} />
                     FORMATO A09
