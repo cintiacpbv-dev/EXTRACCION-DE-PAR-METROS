@@ -4,6 +4,14 @@ import { documentKey, firstWord, slotKey } from "./productIdentity.js";
 const LOCAL_KEY = "deteccion-parametros:documentos:v2";
 const LOCAL_ELIMINADOS = "deteccion-parametros:eliminados:v1";
 
+// Cómo se guardan, en una sola fila, todas las secciones en las que firmó una
+// misma persona. La tabla no puede tener dos filas con el mismo lote, etapa,
+// rol y nombre —eso es lo que impide guardar dos veces a alguien por
+// error—, así que quien firma en más de una operación (o en el total y en su
+// operación) va en una única fila con las secciones unidas por esta marca en
+// vez de una fila por sección.
+const SEPARADOR_SECCIONES = " ||| ";
+
 /** Producto (primera palabra) + lote + etapa + tipo de documento. */
 export function docKey(doc) {
   return documentKey(doc);
@@ -387,28 +395,50 @@ export async function syncDocumentToSupabase(doc) {
   if (delPersonnelErr) {
     personnelWarning = delPersonnelErr.message;
   } else {
-    // Además del total de la etapa se guarda una fila por sección del
-    // registro (seccion = null es el total). El informe de acondicionado
-    // separa a quien imprimió las cajas de quien acondicionó, y eso no se
-    // puede reconstruir después a partir del total.
-    const deBloque = (bloque, seccion) => [
-      ...(bloque?.operarios || []).map((p) => ({ ...p, role: "operario", seccion })),
-      ...(bloque?.supervisores || []).map((p) => ({ ...p, role: "supervisor", seccion })),
-    ];
+    // Una fila por persona y rol, no una por persona-y-sección: la tabla no
+    // admite dos filas con el mismo lote, etapa, rol y nombre, y quien firma
+    // en más de una operación —o en el total y en su operación— generaría
+    // justo eso. Antes se guardaba una fila para el total (seccion en
+    // blanco) y otra por cada sección en la que firmó, y las dos chocaban
+    // entre sí: Postgres rechazaba el grupo entero y el cuadro de personal
+    // se quedaba sin nadie, no sólo sin el reparto por operación.
+    //
+    // Aquí se junta todo antes de guardar: cada persona aporta como mucho una
+    // fila, con las secciones en las que firmó unidas en una sola casilla.
+    const clave = (rol, nombre) => `${rol}::${nombre}`;
+    const conteos = new Map();
+    const seccionesDe = new Map();
 
-    const personnelRows = [
-      ...deBloque(doc.personnel, null),
-      ...Object.entries(doc.personnel?.porSeccion || {}).flatMap(([seccion, bloque]) =>
-        deBloque(bloque, seccion)
-      ),
-    ].map((p) => ({
-      batch_id: batchRow.id,
-      stage: doc.stage,
-      role: p.role,
-      name: p.name,
-      count: p.count,
-      seccion: p.seccion,
-    }));
+    const anotar = (bloque, rol, seccion) => {
+      for (const p of bloque?.[rol === "operario" ? "operarios" : "supervisores"] || []) {
+        const k = clave(rol, p.name);
+        conteos.set(k, Math.max(conteos.get(k) || 0, p.count));
+        if (seccion) {
+          if (!seccionesDe.has(k)) seccionesDe.set(k, new Set());
+          seccionesDe.get(k).add(seccion);
+        }
+      }
+    };
+
+    for (const rol of ["operario", "supervisor"]) {
+      anotar(doc.personnel, rol, null);
+      for (const [seccion, bloque] of Object.entries(doc.personnel?.porSeccion || {})) {
+        anotar(bloque, rol, seccion);
+      }
+    }
+
+    const personnelRows = [...conteos.entries()].map(([k, count]) => {
+      const [role, name] = k.split("::");
+      const secciones = seccionesDe.get(k);
+      return {
+        batch_id: batchRow.id,
+        stage: doc.stage,
+        role,
+        name,
+        count,
+        seccion: secciones?.size > 0 ? [...secciones].sort().join(SEPARADOR_SECCIONES) : null,
+      };
+    });
 
     if (personnelRows.length > 0) {
       // "seccion" llegó con la migración v11. Sin ella la columna no existe y
@@ -416,20 +446,15 @@ export async function syncDocumentToSupabase(doc) {
       // total de la etapa, que es lo que esas filas guardaban antes.
       let { error } = await supabase.from("batch_personnel").insert(personnelRows);
 
-      // La misma persona entra dos veces a propósito —una como total de la
-      // etapa (seccion en blanco) y otra bajo la operación en la que
-      // firmó—, y hasta la migración v12 la regla de "no repetido" no
-      // distinguía una fila de la otra: Postgres las veía como la misma fila
-      // repetida y rechazaba el grupo entero. El síntoma es justo el que se
-      // reportó: el cuadro de personal de acondicionado se quedaba vacío, no
-      // sólo sin el reparto por operación.
-      const porRegla = error?.code === "23505" && /batch_personnel.*_key/i.test(error.message || "");
-
-      if (columnaAusente(error) === "seccion" || porRegla) {
-        columnasFaltantes = [...columnasFaltantes, porRegla ? "personal-repetido" : "seccion"];
-        const soloTotales = personnelRows
-          .filter((f) => f.seccion === null)
-          .map((f) => ({ batch_id: f.batch_id, stage: f.stage, role: f.role, name: f.name, count: f.count }));
+      if (columnaAusente(error) === "seccion") {
+        columnasFaltantes = [...columnasFaltantes, "seccion"];
+        const soloTotales = personnelRows.map((f) => ({
+          batch_id: f.batch_id,
+          stage: f.stage,
+          role: f.role,
+          name: f.name,
+          count: f.count,
+        }));
         ({ error } = await supabase.from("batch_personnel").insert(soloTotales));
       }
 
@@ -575,26 +600,31 @@ export async function loadDocumentsFromSupabase() {
     });
   }
 
+  const agregarA = (lista, row) => {
+    const yaEsta = lista.find((p) => p.name === row.name);
+    if (yaEsta) yaEsta.count = Math.max(yaEsta.count, row.count);
+    else lista.push({ name: row.name, count: row.count });
+  };
+
   for (const row of personnelRows || []) {
     const batch = byId.get(row.batch_id);
     if (!batch) continue;
 
     const doc = ensureDoc(batch, row.stage, null);
 
-    // Las filas sin sección son el total de la etapa; las demás, quién firmó
-    // dentro de cada operación del registro (migración v11).
-    let bloque = doc.personnel;
-    if (row.seccion) {
-      if (!doc.personnel.porSeccion[row.seccion]) {
-        doc.personnel.porSeccion[row.seccion] = { operarios: [], supervisores: [] };
-      }
-      bloque = doc.personnel.porSeccion[row.seccion];
-    }
+    // Cada fila guarda a una persona una sola vez, con las secciones en las
+    // que firmó unidas en una casilla (o ninguna, si sólo aparece en el
+    // total). Entra en el total de la etapa siempre, y además en cada una de
+    // sus secciones (migración v11).
+    agregarA(row.role === "supervisor" ? doc.personnel.supervisores : doc.personnel.operarios, row);
 
-    const list = row.role === "supervisor" ? bloque.supervisores : bloque.operarios;
-    const yaEsta = list.find((p) => p.name === row.name);
-    if (yaEsta) yaEsta.count = Math.max(yaEsta.count, row.count);
-    else list.push({ name: row.name, count: row.count });
+    for (const seccion of row.seccion ? row.seccion.split(SEPARADOR_SECCIONES) : []) {
+      if (!doc.personnel.porSeccion[seccion]) {
+        doc.personnel.porSeccion[seccion] = { operarios: [], supervisores: [] };
+      }
+      const bloque = doc.personnel.porSeccion[seccion];
+      agregarA(row.role === "supervisor" ? bloque.supervisores : bloque.operarios, row);
+    }
   }
 
   for (const row of equiposRows || []) {
