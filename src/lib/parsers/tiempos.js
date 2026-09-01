@@ -18,8 +18,16 @@ const FECHA_HORA_RE = /^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?/;
 // y las máquinas, y el desmontaje de después. Duran minutos y no dicen nada
 // de cuánto se tarda en fabricar, envasar o acondicionar un lote, así que no
 // llevan tiempo ni cuentan para el total de la etapa.
-const SECCION_SIN_TIEMPO_RE =
-  /^(DOCUMENTACION|DOCUMENTACIÓN|PREPARACION|PREPARACIÓN|SET\s*UP\s*\(\s*POST)/i;
+//
+// "Set up" no viene siempre con el mismo nombre entre paréntesis —en
+// Acondicionado es "(POST - PROCESO)", pero en Fabricación aparece también
+// como "(PRE - PROCESO)" (que en Pyridium engloba todo el tableteado: ahí
+// dentro sí importan sus parámetros —velocidad, presión, dureza—, sólo su
+// tiempo de changeover no debe sumarse al total) y como "(DESPEJE Y LIMPIEZA
+// DE EQUIPOS Y SALA)"— así que cualquier sección que empiece con "SET UP"
+// queda fuera del tiempo, sea cual sea lo que diga entre paréntesis.
+export const SECCION_SIN_TIEMPO_RE =
+  /^(DOCUMENTACION|DOCUMENTACIÓN|PREPARACION|PREPARACIÓN|SET\s*UP\b)/i;
 
 export const SECCION_TOTAL = "TIEMPO TOTAL DE LA ETAPA";
 

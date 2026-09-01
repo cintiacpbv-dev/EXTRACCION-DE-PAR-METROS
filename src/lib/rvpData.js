@@ -6,6 +6,7 @@
 // materiales de la sección de insumos.
 
 import { aggregatePersonnel, buildTable, claveLote, listStages } from "./model.js";
+import { SECCION_SIN_TIEMPO_RE } from "./parsers/tiempos.js";
 
 const FECHA_RE = /^(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}:\d{2}))?/;
 
@@ -22,6 +23,12 @@ function soloFecha(valor) {
  * campos que nombran la etapa ("FECHA / HORA INICIO DE ACONDICIONADO"),
  * porque también trae fechas de pasos sueltos (documentación, set up) que no
  * delimitan el proceso; si no existen, se usa la primera y la última vistas.
+ *
+ * Los pasos sueltos se descartan por su sección, no sólo por cómo se
+ * nombran: en Fabricación el "set up" del tableteado trae sus propias
+ * fechas con nombre propio ("FECHA / HORA INICIO DE LA COMPRESIÓN"), que de
+ * otro modo pasarían por el nombre de la etapa y correrían la fecha real de
+ * fabricación varios días.
  */
 export function fechasDeProceso(doc) {
   if (doc.orden?.cabecera) {
@@ -29,7 +36,12 @@ export function fechasDeProceso(doc) {
     if (inicio || fin) return { inicio: soloFecha(inicio), fin: soloFecha(fin) };
   }
 
-  const conFecha = doc.params.filter((p) => typeof p.value === "string" && FECHA_RE.test(p.value));
+  const conFecha = doc.params.filter(
+    (p) =>
+      typeof p.value === "string" &&
+      FECHA_RE.test(p.value) &&
+      !SECCION_SIN_TIEMPO_RE.test(p.section || "")
+  );
 
   const buscar = (re) => {
     const p = conFecha.find((x) => re.test(x.label));
@@ -425,7 +437,14 @@ export function buildRvpModel(documents, familia, { onlyCritical = true, stage =
 }
 
 const SECCION_CONSIDERACIONES = "CONSIDERACIONES GENERALES";
-const ROTULO_MATERIAL = "MATERIAL DE ACONDICIONADO";
+
+// El rótulo nombra la etapa: en Acondicionado son cajas y folletos, pero en
+// Fabricación son materias primas y en Envase, blísteres — "MATERIAL DE
+// ACONDICIONADO" puesto fijo, sea cual sea la etapa, venía de cuando la app
+// sólo conocía esa etapa.
+function rotuloMaterial(stage) {
+  return `MATERIAL DE ${stage || "ACONDICIONADO"}`;
+}
 
 /**
  * El apartado "CONSIDERACIONES GENERALES" del cuadro de parámetros: qué
@@ -468,7 +487,7 @@ export function consideracionesGenerales(documents, familia, stage) {
     }));
 
   return rows.length > 0
-    ? { title: SECCION_CONSIDERACIONES, rotulo: ROTULO_MATERIAL, rows }
+    ? { title: SECCION_CONSIDERACIONES, rotulo: rotuloMaterial(stage), rows }
     : null;
 }
 

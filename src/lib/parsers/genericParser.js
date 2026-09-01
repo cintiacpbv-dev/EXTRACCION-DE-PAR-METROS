@@ -245,6 +245,15 @@ export function detectParameters(pages) {
         continue;
       }
 
+      // La sección INSUMOS ya tiene su propio lector de tabla (parsers/
+      // insumos.js), con las columnas de código, cantidad y UM bien
+      // separadas. Aquí el patrón "etiqueta + relleno + valor" del detector
+      // genérico la lee mal —arrastra código, cantidad pedida y recibida
+      // pegados en un solo valor— y encima algún material puede colar por
+      // "crítico" y duplicar, mal, lo que el cuadro de materiales ya muestra
+      // bien.
+      if (section === "INSUMOS") continue;
+
       // Un paso nuevo cierra el grupo de lecturas anterior: lo que venga
       // después ya no pertenece a la fracción o al nivel que se estaba llenando.
       const startsNewStep = /^\s*\d+(?:\.\d+)*\s*\.-/.test(line.text);
