@@ -34,6 +34,13 @@
   z-index: 20;
 }
 
+.topbar__start {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  min-width: 0;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -44,6 +51,62 @@
   cursor: pointer;
   text-align: left;
   border-radius: var(--radius-sm);
+}
+
+/* La franja que separa "tu detector" de "tu bibliografía": dos aplicaciones
+   con datos propios, pero una sola puerta de entrada. */
+.topnav {
+  display: flex;
+  align-items: center;
+  padding-left: 22px;
+  border-left: 1px solid var(--border);
+}
+
+.topnav__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.topnav__link:hover {
+  background: var(--surface-tint);
+  color: var(--text);
+}
+
+.topnav__link.is-active {
+  background: var(--sky-soft);
+  color: var(--sky-text);
+  font-weight: 600;
+}
+
+/* Con poco ancho, el subtítulo de la marca es lo primero que sobra: sin él,
+   la barra sigue teniendo sitio para el enlace a Consulta PDF y la
+   pastilla de Supabase sin partirse en dos líneas. */
+@media (max-width: 760px) {
+  .brand__text small {
+    display: none;
+  }
+
+  .topbar__start {
+    gap: 14px;
+  }
+
+  .topnav {
+    padding-left: 14px;
+  }
+
+  .topnav__link span {
+    display: none;
+  }
 }
 
 .brand:hover .brand__text strong {
@@ -1876,6 +1939,58 @@
   flex: 1;
   height: 1px;
   background: var(--border);
+}
+
+/* ---- Consulta a la bibliografía (aplicación embebida) --------------- */
+/* Ocupa el alto que sobre de la página: es una sección para trabajar
+   adentro, no una tarjeta más que se hojea de arriba abajo. */
+.card--consulta {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 16px 18px 18px;
+  gap: 12px;
+}
+
+.consulta-cab {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.consulta-cab__titulo {
+  font-size: 16px;
+  margin-bottom: 3px;
+}
+
+.consulta-marco {
+  position: relative;
+  flex: 1;
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-soft);
+}
+
+.consulta-marco iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.consulta-marco__espera {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: var(--text-muted);
 }
 
 /* ---- 1. Cabecera de producto -------------------------------------- */

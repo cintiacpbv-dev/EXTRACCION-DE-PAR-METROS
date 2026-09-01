@@ -25,8 +25,10 @@ import {
   IconFilter,
   IconUpload,
   IconChevronDown,
+  IconMessageSquare,
 } from "./components/Icons.jsx";
 import ArchivosOmitidos from "./components/ArchivosOmitidos.jsx";
+import ConsultaPdf from "./components/ConsultaPdf.jsx";
 import { processPdfFile } from "./lib/parsers/index.js";
 import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
 import { analisisPrevio, huellaDeArchivo, olvidarAnalisis, recordarAnalisis } from "./lib/analizados.js";
@@ -78,6 +80,7 @@ import "./App.css";
 function readRoute() {
   const hash = window.location.hash.replace(/^#\/?/, "");
   if (hash === "nuevo") return { view: "product", producto: null, blank: true };
+  if (hash === "consulta") return { view: "consulta", producto: null, blank: false };
   if (hash.startsWith("producto/")) {
     return {
       view: "product",
@@ -89,6 +92,7 @@ function readRoute() {
 }
 
 function routeHash(view, producto, blank) {
+  if (view === "consulta") return "#/consulta";
   if (view !== "product") return "#/";
   return blank || !producto ? "#/nuevo" : `#/producto/${encodeURIComponent(producto)}`;
 }
@@ -113,7 +117,7 @@ function etiquetaDe(file, etiquetas) {
 
 export default function App() {
   const [documents, setDocuments] = useState([]);
-  const [view, setView] = useState("library"); // "library" | "product"
+  const [view, setView] = useState("library"); // "library" | "product" | "consulta"
   const [producto, setProducto] = useState(null);
   // true entre "Nuevo análisis" y la primera carga exitosa: la vista de
   // producto se muestra en blanco, sin caer sobre uno ya existente.
@@ -222,6 +226,8 @@ export default function App() {
       if (route.blank) {
         setView("product");
         setBlank(true);
+      } else if (route.view === "consulta") {
+        setView("consulta");
       } else if (route.view === "product" && route.producto) {
         if (familias.includes(route.producto)) {
           setView("product");
@@ -365,6 +371,11 @@ export default function App() {
     setView("library");
     setBlank(false);
     writeRoute("library", null, false);
+  }
+
+  function openConsulta() {
+    setView("consulta");
+    writeRoute("consulta", null, false);
   }
 
   /**
@@ -801,15 +812,31 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <button className="brand" onClick={backToLibrary} title="Ir a tus análisis">
-          <span className="brand__mark">
-            <IconFlask size={20} />
-          </span>
-          <span className="brand__text">
-            <strong>Detección de Parámetros</strong>
-            <small>Extracción y validación comparativa de registros de manufactura</small>
-          </span>
-        </button>
+        <div className="topbar__start">
+          <button className="brand" onClick={backToLibrary} title="Ir a tus análisis">
+            <span className="brand__mark">
+              <IconFlask size={20} />
+            </span>
+            <span className="brand__text">
+              <strong>Detección de Parámetros</strong>
+              <small>Extracción y validación comparativa de registros de manufactura</small>
+            </span>
+          </button>
+
+          {/* La consulta a la bibliografía vive en su propia aplicación
+              —tiene su propia base de datos y sus propias claves de IA—,
+              pero se llega a ella desde aquí como una sección más, no como
+              un enlace suelto. */}
+          <nav className="topnav">
+            <button
+              className={`topnav__link ${view === "consulta" ? "is-active" : ""}`}
+              onClick={openConsulta}
+            >
+              <IconMessageSquare size={15} /> <span>Consulta PDF</span>
+            </button>
+          </nav>
+        </div>
+
         <span className={`badge ${supabaseEnabled ? "badge--cloud" : "badge--local"}`}>
           {supabaseEnabled ? <IconCloud size={15} /> : <IconDrive size={15} />}
           {supabaseEnabled ? "Supabase conectado" : "Guardado local"}
@@ -840,6 +867,8 @@ export default function App() {
 
         {loading ? (
           <div className="empty-state">Cargando…</div>
+        ) : view === "consulta" ? (
+          <ConsultaPdf />
         ) : view === "library" ? (
           <ProductLibrary
             productos={resumenProductos}
@@ -1103,7 +1132,7 @@ export default function App() {
       </main>
 
       <footer className="footer">
-        {view === "product" ? (
+        {view === "product" || view === "consulta" ? (
           <button className="link-back link-back--footer" onClick={backToLibrary}>
             <IconGrid size={13} /> Volver a tus análisis
           </button>
