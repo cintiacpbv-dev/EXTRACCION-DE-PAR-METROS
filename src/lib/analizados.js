@@ -17,6 +17,22 @@
 
 const CLAVE = "detparam.analizados.v1";
 
+// Con qué versión del lector se analizó un archivo.
+//
+// Apartar lo ya analizado ahorra trabajo, pero también impide rehacerlo — y
+// justo eso hizo falta cuando el lector aprendió a reconocer los recuadros de
+// firma que se rotulan "Realizado Por": los registros de EVACLEAN se habían
+// analizado sin nadie, y al volver a soltarlos se apartaban sin mirarlos, de
+// modo que el cuadro de personal seguía saliendo vacío.
+//
+// Subir este número invalida lo apuntado: lo que se analizó con un lector
+// anterior se vuelve a analizar solo, sin que haya que acordarse de pedirlo.
+//
+//   1  primera versión
+//   2  el lector reconoce el rótulo "Realizado Por" de una pieza y deduce de
+//      él dónde empieza la columna de firmas
+const VERSION_LECTOR = 2;
+
 // Cuántos archivos se recuerdan. De sobra para varias validaciones seguidas,
 // y con tope para que el registro no crezca sin fin.
 const MAXIMO = 4000;
@@ -58,7 +74,11 @@ function guardar(mapa) {
 
 /** Lo que se sabe de un archivo ya analizado, o null si es la primera vez. */
 export function analisisPrevio(huella) {
-  return leer()[huella] || null;
+  const previo = leer()[huella];
+  // Analizado con un lector viejo es como no analizado: lo que aquel no supo
+  // ver, éste puede.
+  if (!previo || previo.version !== VERSION_LECTOR) return null;
+  return previo;
 }
 
 /** Apunta que este archivo ya se analizó, y con qué resultado. */
@@ -70,6 +90,7 @@ export function recordarAnalisis(huella, { producto, lote, stage, fileName }) {
     stage: stage || "",
     fileName: fileName || "",
     fecha: new Date().toISOString(),
+    version: VERSION_LECTOR,
   };
   guardar(mapa);
 }
