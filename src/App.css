@@ -1886,6 +1886,10 @@
 
 .param-table tr.section-row td {
   background: var(--ambar-soft);
+  /* El texto naranja de ".section-row td" está pensado para su propio
+     fondo (--sky-soft); sobre este ámbar más cálido pierde contraste, así
+     que aquí se empareja con el suyo. */
+  color: var(--ambar);
 }
 
 .param-table tbody tr:hover td {
@@ -1944,13 +1948,20 @@
 /* ---- Consulta a la bibliografía (aplicación embebida) --------------- */
 /* Ocupa el alto que sobre de la página: es una sección para trabajar
    adentro, no una tarjeta más que se hojea de arriba abajo. */
+/* Sin el borde ni el fondo propio de una tarjeta: con la app de dentro
+   pintando el mismo negro que esta página, un marco alrededor sólo
+   recordaría que hay una frontera —justo lo que no debe notarse. */
 .card--consulta {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  padding: 16px 18px 18px;
+  padding: 0;
   gap: 12px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .consulta-cab {
@@ -1966,14 +1977,14 @@
   margin-bottom: 3px;
 }
 
+/* Sin borde, sin radio, sin fondo propio: la aplicación de dentro ya pinta
+   su negro sobre todo el rectángulo, así que cualquier marco alrededor sólo
+   serviría para delatar que hay una página dentro de la página. */
 .consulta-marco {
   position: relative;
   flex: 1;
   min-height: 420px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: var(--surface-soft);
+  background: var(--bg);
 }
 
 .consulta-marco iframe {

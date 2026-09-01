@@ -3,40 +3,42 @@
    uno oscuro: no es un tema que se alterna con el sistema, es el que tiene
    la aplicación. Cada color se declara de forma explícita, como antes.
 
-   La paleta toma el lenguaje de Claude: fondo carbón cálido —no azul
-   ni gris frío—, tinta color hueso, y un único acento: la terracota que usa
-   Claude para lo que hay que notar. El resto de acentos (verde, ámbar,
-   rojo) son la misma familia cálida, sólo que girada de matiz; nada
-   saturado ni frío se cuela en una tabla que se lee mucho rato seguido. */
+   El fondo es negro de verdad, no un gris oscuro disfrazado —como el de
+   Consulta PDF—, y el acento es el mismo naranja vivo que usa esa
+   aplicación para lo que hay que notar. El resto de acentos (verde, ámbar,
+   rojo) son otra familia de matiz, para distinguir apartados sin recurrir
+   siempre al naranja; nada frío se cuela en una tabla que se lee mucho
+   rato seguido. */
 :root {
-  --bg: #1a1918;
-  --surface: #232221;
-  --surface-soft: #201f1e;
-  --surface-tint: #2c2b29;
-  --border: #38362f;
-  --border-strong: #4a4740;
+  --bg: #000000;
+  --surface: #0d0d0c;
+  --surface-soft: #070706;
+  --surface-tint: #161513;
+  --border: #242320;
+  --border-strong: #38362f;
 
   /* La barra superior flota sobre el contenido al hacer scroll: translúcida
      y desenfocada, no un panel opaco más. */
-  --surface-glass: rgba(26, 25, 24, 0.82);
+  --surface-glass: rgba(0, 0, 0, 0.82);
 
-  /* Hueso cálido en vez de blanco puro: sobre fondo carbón, el blanco
-     absoluto vibra igual que el negro puro vibraba sobre fondo claro. */
+  /* Hueso cálido en vez de blanco puro: sobre negro, el blanco absoluto
+     vibra igual que el negro puro vibraba sobre fondo claro. */
   --text: #ece7de;
   --text-soft: #beb6a9;
   --text-muted: #9a9285;
 
-  /* Terracota: el acento de Claude, y el único color de acción de la app.
-     El claro es relleno; los oscuros son el degradado de los botones. */
-  --sky: #d97757;
-  --sky-dark: #c15f3c;
-  --sky-deep: #93472c;
-  --sky-soft: #3a2a22;
-  /* Para texto e iconos sobre fondo oscuro, no para rellenos: --sky-dark daba
-     bien de tinta sobre blanco en el tema claro, pero sobre carbón un tono
-     más oscuro es MENOS contraste, no más. Aclarado hasta que hasta el
-     fondo más cálido de la paleta (el de las bandas de sección) pase 4.5:1. */
-  --sky-text: #e08a68;
+  /* Naranja vivo —el mismo que usa Consulta PDF—, el único color de acción
+     de la app. El claro es el que se ve (iconos, insignias); los oscuros
+     son el degradado de los botones, donde lo que importa es que el texto
+     blanco de encima tenga su contraste. */
+  --sky: #ea580c;
+  --sky-dark: #c2410c;
+  --sky-deep: #9a3412;
+  --sky-soft: #2a1206;
+  /* Sobre negro el naranja vivo ya tiene de sobra los 4.5:1 que pide el
+     texto —no hace falta aclararlo aparte, como sí hacía falta sobre el
+     carbón de antes—, así que texto e iconos usan el mismo tono. */
+  --sky-text: #ea580c;
 
   /* Verde salvia y terracota rojiza, del mismo temple cálido que el acento. */
   --ok: #7fae8e;
@@ -69,7 +71,7 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.24), 0 4px 14px rgba(0, 0, 0, 0.28);
   --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.3), 0 16px 36px rgba(0, 0, 0, 0.34);
-  --ring: 0 0 0 3px rgba(217, 119, 87, 0.35);
+  --ring: 0 0 0 3px rgba(234, 88, 12, 0.35);
 
   --radius: 14px;
   --radius-sm: 9px;
