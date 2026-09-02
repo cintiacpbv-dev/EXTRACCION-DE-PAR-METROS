@@ -4,13 +4,12 @@
 import { calcularIPR, clasificarSRI, filaVacia } from "./model.js";
 
 // Gemini tarda en redactar cada fila (medido en producción: ~3 s por
-// parámetro, y el primer lote de una función recién despertada puede tardar
-// bastante más — más de 90 s con 20 parámetros de un tirón). Una sola
-// llamada con la etapa completa (hasta 80 parámetros) se arriesga a que
-// Vercel corte la función a medio camino, y quien está esperando no ve nada
-// hasta que se cae. Por eso se manda en lotes chicos: cada uno termina
-// rápido, y el progreso se ve avanzar en vez de una espera muda.
-const TAMANO_LOTE = 8;
+// parámetro, con picos de lentitud bastante mayores según el momento) y una
+// clave sin cuota puede hacer que el servidor pruebe varias antes de
+// responder. Lotes chicos dejan margen para todo eso dentro de los 60 s de
+// la función (ver vercel.json y api/analisis-riesgo.js) y, si uno falla, no
+// se arrastra a los demás.
+const TAMANO_LOTE = 5;
 
 function partir(lista, tamano) {
   const lotes = [];
@@ -60,21 +59,38 @@ function aFila(f, etapa) {
  * riesgo/model.js) — con el IPR y el SRI ya calculados, aunque también se
  * reescriben como fórmula al exportar.
  *
+ * Un lote que falla (por ejemplo un 504 cuando Gemini está lento) se
+ * reintenta una vez; si vuelve a fallar, se anota en `errores` y se sigue
+ * con el resto — un tramo lento no debe tirar abajo todo lo que ya se
+ * redactó bien.
+ *
  * `onLote(filasDelLote, hecho, total)` es opcional: se llama apenas vuelve
- * cada lote, para pintar filas conforme llegan en vez de esperar a que
- * termine la etapa completa — y para no perder lo ya redactado si un lote
- * de más adelante falla.
+ * cada lote (haya salido bien o no), para pintar filas conforme llegan en
+ * vez de esperar a que termine la etapa completa.
  */
 export async function analizarRiesgoConGemini({ producto, etapa, parametros, onLote }) {
   const lotes = partir(parametros, TAMANO_LOTE);
   const todasLasFilas = [];
+  const errores = [];
 
   for (const [i, lote] of lotes.entries()) {
-    const filasCrudas = await pedirLote({ producto, etapa, parametros: lote });
-    const filas = filasCrudas.map((f) => aFila(f, etapa));
+    let filas = [];
+    try {
+      const crudas = await pedirLote({ producto, etapa, parametros: lote });
+      filas = crudas.map((f) => aFila(f, etapa));
+    } catch {
+      // Un reintento inmediato: casi siempre alcanza cuando el problema fue
+      // una clave lenta o sin cuota justo esa vez.
+      try {
+        const crudas = await pedirLote({ producto, etapa, parametros: lote });
+        filas = crudas.map((f) => aFila(f, etapa));
+      } catch (e2) {
+        errores.push({ lote: i + 1, total: lotes.length, mensaje: e2.message });
+      }
+    }
     todasLasFilas.push(...filas);
     onLote?.(filas, i + 1, lotes.length);
   }
 
-  return todasLasFilas;
+  return { filas: todasLasFilas, errores };
 }

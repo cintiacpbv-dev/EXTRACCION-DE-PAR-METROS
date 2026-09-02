@@ -39,10 +39,16 @@ export default function RiesgoView() {
   const [filas, setFilas] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
-  const [error, setError] = useState(null);
+  // Una lista, no un único mensaje: si Fabricación sale bien y Envase falla,
+  // el aviso de Envase no debe tapar el resultado de Fabricación, y ambos
+  // tienen que poder verse a la vez.
+  const [avisos, setAvisos] = useState([]);
+
+  function avisar(texto) {
+    setAvisos((prev) => [...prev, texto]);
+  }
 
   async function cargarRegistros(files) {
-    setError(null);
     setCargando(true);
     try {
       const nuevos = [];
@@ -51,17 +57,17 @@ export default function RiesgoView() {
         try {
           const resultado = await processPdfFile(file);
           if (resultado.kind !== "registro") {
-            setError(`${file.name} es una Orden de Producción, no un Registro de Manufactura — se omitió.`);
+            avisar(`${file.name} es una Orden de Producción, no un Registro de Manufactura — se omitió.`);
             continue;
           }
           const { producto, etapa, parametros } = parametrosDe(resultado);
           if (parametros.length === 0) {
-            setError(`${file.name}: no se detectó ningún parámetro crítico en ${etapa || "esta etapa"}.`);
+            avisar(`${file.name}: no se detectó ningún parámetro crítico en ${etapa || "esta etapa"}.`);
             continue;
           }
           nuevos.push({ id: `${file.name}::${Date.now()}::${i}`, fileName: file.name, producto, etapa, parametros });
         } catch (e) {
-          setError(`${file.name}: ${e.message}`);
+          avisar(`${file.name}: ${e.message}`);
         }
       }
       setDocumentos((prev) => [...prev, ...nuevos]);
@@ -76,28 +82,32 @@ export default function RiesgoView() {
   }
 
   async function generarBorrador() {
-    setError(null);
     setCargando(true);
     try {
       for (const [i, doc] of documentos.entries()) {
         const prefijo = documentos.length > 1 ? `${doc.etapa} (${i + 1} de ${documentos.length}) — ` : "";
         setBusyLabel(`${prefijo}redactando…`);
         try {
-          await analizarRiesgoConGemini({
+          const { errores } = await analizarRiesgoConGemini({
             producto: doc.producto,
             etapa: doc.etapa,
             parametros: doc.parametros,
             // Cada lote de Gemini tarda su rato — se pinta apenas llega, en
             // vez de tener el botón congelado varios minutos sin señales de
-            // vida, y si un lote más adelante falla no se pierde lo ya
-            // redactado.
+            // vida. Un lote que falla (ya reintentado una vez del otro lado)
+            // no tira abajo el resto: sigue con los siguientes.
             onLote: (filasLote, hecho, total) => {
               setBusyLabel(`${prefijo}redactando… (lote ${hecho} de ${total})`);
-              setFilas((prev) => [...prev, ...filasLote]);
+              if (filasLote.length > 0) setFilas((prev) => [...prev, ...filasLote]);
             },
           });
+          for (const err of errores) {
+            avisar(
+              `${doc.etapa}: no se pudo redactar el lote ${err.lote} de ${err.total} (${err.mensaje}) — el resto de la etapa sí se generó; puedes agregar esas filas a mano o volver a generar el borrador.`
+            );
+          }
         } catch (e) {
-          setError(`${doc.etapa}: ${e.message}`);
+          avisar(`${doc.etapa}: ${e.message}`);
         }
       }
     } finally {
@@ -120,14 +130,13 @@ export default function RiesgoView() {
   }
 
   async function exportar() {
-    setError(null);
     try {
       const producto = documentos[0]?.producto || "Producto";
       const etapas = [...new Set(documentos.map((d) => d.etapa))].join(" / ");
       const ok = await exportRiesgoToExcel(filas, { producto, etapa: etapas });
-      if (!ok) setError("No hay filas para exportar.");
+      if (!ok) avisar("No hay filas para exportar.");
     } catch (e) {
-      setError(e.message);
+      avisar(e.message);
     }
   }
 
@@ -152,10 +161,17 @@ export default function RiesgoView() {
         hint="Sirve la plantilla sin llenar: sólo hace falta la estructura de parámetros, no valores de un lote."
       />
 
-      {error && (
-        <p className="protocolo-error">
-          <IconAlert size={14} /> {error}
-        </p>
+      {avisos.length > 0 && (
+        <div className="riesgo-avisos">
+          {avisos.map((texto, i) => (
+            <p key={i} className="protocolo-error">
+              <IconAlert size={14} /> {texto}
+            </p>
+          ))}
+          <button className="btn btn--ghost btn--icon" onClick={() => setAvisos([])} title="Descartar avisos">
+            Descartar avisos
+          </button>
+        </div>
       )}
 
       {documentos.length > 0 && (

@@ -19,9 +19,22 @@ function clavesDisponibles() {
   return claves.filter(Boolean);
 }
 
-/** Sin cuota o con la clave rechazada, vale la pena probar la siguiente. */
-function esErrorDeCuotaOClave(status) {
-  return status === 429 || status === 403;
+/** Sin cuota, clave rechazada, o un error transitorio del propio Gemini:
+ * en los tres casos vale la pena probar con otra clave. */
+function vaLaPenaProbarOtraClave(status) {
+  return status === 429 || status === 403 || status >= 500;
+}
+
+/** `fetch` con límite de tiempo: una clave que no responde no debe comerse
+ * todo el presupuesto de la función — se corta y se prueba la siguiente. */
+async function fetchConLimite(url, opciones, timeoutMs) {
+  const controlador = new AbortController();
+  const temporizador = setTimeout(() => controlador.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opciones, signal: controlador.signal });
+  } finally {
+    clearTimeout(temporizador);
+  }
 }
 
 // Configurable por variable de entorno (GEMINI_MODEL) porque Google retira
@@ -30,6 +43,13 @@ function esErrorDeCuotaOClave(status) {
 // sin tener que tocar ni volver a desplegar el código.
 const MODELO = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const MAX_PARAMETROS = 80; // una llamada, no una por parámetro — y con límite, por costo.
+
+// La función tiene 60 s (vercel.json). Cada clave se corta a los 25 s si no
+// respondió, y no se empieza una clave nueva pasados los 50 s desde que
+// arrancó la función: mejor devolver un error claro con margen que dejar
+// que Vercel mate la función a medio camino y responda un 504 en blanco.
+const TIMEOUT_POR_INTENTO_MS = 25000;
+const PRESUPUESTO_TOTAL_MS = 50000;
 
 const RESPONSE_SCHEMA = {
   type: "array",
@@ -120,21 +140,30 @@ export default async function handler(req, res) {
   });
 
   let ultimoError = null;
+  const inicio = Date.now();
 
   for (const [i, clave] of claves.entries()) {
+    if (Date.now() - inicio > PRESUPUESTO_TOTAL_MS) {
+      res.status(504).json({
+        error: `Gemini está respondiendo lento en este momento (se agotó el tiempo tras probar ${i} de ${claves.length} claves). Probablemente funcione si generas el borrador de nuevo.`,
+      });
+      return;
+    }
+
     try {
-      const respuesta = await fetch(
+      const respuesta = await fetchConLimite(
         `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent?key=${clave}`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: cuerpoPeticion }
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: cuerpoPeticion },
+        TIMEOUT_POR_INTENTO_MS
       );
 
       if (!respuesta.ok) {
         const detalle = await respuesta.text().catch(() => "");
         ultimoError = `Gemini respondió con error (${respuesta.status}): ${detalle.slice(0, 300)}`;
-        // Sin cuota o clave rechazada: se prueba la siguiente clave, si hay
-        // otra. Cualquier otro error (petición mal formada, etc.) no mejora
-        // probando otra clave, así que se corta ahí.
-        if (esErrorDeCuotaOClave(respuesta.status) && i < claves.length - 1) continue;
+        // Sin cuota, clave rechazada, o error transitorio del propio Gemini:
+        // se prueba la siguiente clave, si hay otra. Un error de petición mal
+        // formada no mejora probando otra clave, así que ahí se corta.
+        if (vaLaPenaProbarOtraClave(respuesta.status) && i < claves.length - 1) continue;
         res.status(502).json({ error: ultimoError });
         return;
       }
@@ -157,7 +186,13 @@ export default async function handler(req, res) {
       res.status(200).json({ filas });
       return;
     } catch (err) {
-      ultimoError = `No se pudo llamar a Gemini: ${err.message}`;
+      // Un aborto por tiempo no descarta la clave para siempre, sólo dice
+      // que ahora mismo tardó de más: se prueba la siguiente sin más aviso
+      // que dejarlo en ultimoError por si ninguna responde a tiempo.
+      ultimoError =
+        err.name === "AbortError"
+          ? `La clave ${i + 1} no respondió en ${TIMEOUT_POR_INTENTO_MS / 1000}s.`
+          : `No se pudo llamar a Gemini: ${err.message}`;
     }
   }
 
