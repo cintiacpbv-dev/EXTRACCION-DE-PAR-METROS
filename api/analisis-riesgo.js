@@ -13,10 +13,27 @@
 // revise, corrija y firme. Ninguna fila se exporta sin que alguien la haya
 // visto en el panel antes de bajar el Excel.
 
-/** Las claves configuradas, en el orden en que se van a probar. */
+/**
+ * Las claves configuradas, en orden aleatorio.
+ *
+ * Probarlas siempre en el mismo orden (1, 2, 3…) significa que, si la
+ * primera anda lenta o sin cuota justo ahora, TODAS las peticiones se
+ * atascan ahí antes de llegar a una que sí sirve — y como cada intento
+ * puede tardar bastante (Gemini no siempre responde rápido), no alcanza el
+ * tiempo para llegar muy lejos en la lista. Mezclar el orden reparte la
+ * carga entre las seis en vez de machacar siempre a la misma primero.
+ */
 function clavesDisponibles() {
-  const claves = [process.env.GEMINI_API_KEY, ...Array.from({ length: 9 }, (_, i) => process.env[`GEMINI_API_KEY_${i + 2}`])];
-  return claves.filter(Boolean);
+  const claves = [
+    process.env.GEMINI_API_KEY,
+    ...Array.from({ length: 9 }, (_, i) => process.env[`GEMINI_API_KEY_${i + 2}`]),
+  ].filter(Boolean);
+
+  for (let i = claves.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [claves[i], claves[j]] = [claves[j], claves[i]];
+  }
+  return claves;
 }
 
 /** Sin cuota, clave rechazada, o un error transitorio del propio Gemini:
@@ -44,12 +61,18 @@ async function fetchConLimite(url, opciones, timeoutMs) {
 const MODELO = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const MAX_PARAMETROS = 80; // una llamada, no una por parámetro — y con límite, por costo.
 
-// La función tiene 60 s (vercel.json). Cada clave se corta a los 25 s si no
-// respondió, y no se empieza una clave nueva pasados los 50 s desde que
-// arrancó la función: mejor devolver un error claro con margen que dejar
-// que Vercel mate la función a medio camino y responda un 504 en blanco.
-const TIMEOUT_POR_INTENTO_MS = 25000;
-const PRESUPUESTO_TOTAL_MS = 50000;
+// La función tiene 60 s (vercel.json). Probado en producción: incluso con
+// pocos parámetros, dos intentos seguidos de 25 s cada uno se quedaron sin
+// responder — Gemini puede tardar bastante más de lo que tarda en el caso
+// normal (~3 s por parámetro), así que cortar corto y probar muchas claves
+// en fila dentro de la misma llamada sólo reparte el mismo presupuesto en
+// intentos cada vez más chicos, ninguno con margen real para terminar. Mejor
+// darle a un intento casi todo el tiempo disponible, y que el reintento (ver
+// analizarConGemini.js, que ya reintenta una vez) caiga en una llamada
+// nueva —con su propio presupuesto entero— probablemente con otra clave.
+const PRESUPUESTO_TOTAL_MS = 55000;
+const TIMEOUT_MAXIMO_POR_INTENTO_MS = 45000;
+const MINIMO_PARA_INTENTAR_MS = 8000;
 
 const RESPONSE_SCHEMA = {
   type: "array",
@@ -143,7 +166,8 @@ export default async function handler(req, res) {
   const inicio = Date.now();
 
   for (const [i, clave] of claves.entries()) {
-    if (Date.now() - inicio > PRESUPUESTO_TOTAL_MS) {
+    const restante = PRESUPUESTO_TOTAL_MS - (Date.now() - inicio);
+    if (restante < MINIMO_PARA_INTENTAR_MS) {
       res.status(504).json({
         error: `Gemini está respondiendo lento en este momento (se agotó el tiempo tras probar ${i} de ${claves.length} claves). Probablemente funcione si generas el borrador de nuevo.`,
       });
@@ -154,15 +178,15 @@ export default async function handler(req, res) {
       const respuesta = await fetchConLimite(
         `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent?key=${clave}`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: cuerpoPeticion },
-        TIMEOUT_POR_INTENTO_MS
+        Math.min(restante, TIMEOUT_MAXIMO_POR_INTENTO_MS)
       );
 
       if (!respuesta.ok) {
         const detalle = await respuesta.text().catch(() => "");
         ultimoError = `Gemini respondió con error (${respuesta.status}): ${detalle.slice(0, 300)}`;
         // Sin cuota, clave rechazada, o error transitorio del propio Gemini:
-        // se prueba la siguiente clave, si hay otra. Un error de petición mal
-        // formada no mejora probando otra clave, así que ahí se corta.
+        // se prueba la siguiente clave, si queda tiempo y hay otra. Un error
+        // de petición mal formada no mejora probando otra clave.
         if (vaLaPenaProbarOtraClave(respuesta.status) && i < claves.length - 1) continue;
         res.status(502).json({ error: ultimoError });
         return;
@@ -187,11 +211,12 @@ export default async function handler(req, res) {
       return;
     } catch (err) {
       // Un aborto por tiempo no descarta la clave para siempre, sólo dice
-      // que ahora mismo tardó de más: se prueba la siguiente sin más aviso
-      // que dejarlo en ultimoError por si ninguna responde a tiempo.
+      // que ahora mismo tardó de más: se prueba la siguiente si queda
+      // tiempo, sin más aviso que dejarlo en ultimoError por si ninguna
+      // responde a tiempo.
       ultimoError =
         err.name === "AbortError"
-          ? `La clave ${i + 1} no respondió en ${TIMEOUT_POR_INTENTO_MS / 1000}s.`
+          ? `Gemini no respondió en ${Math.round(Math.min(restante, TIMEOUT_MAXIMO_POR_INTENTO_MS) / 1000)}s.`
           : `No se pudo llamar a Gemini: ${err.message}`;
     }
   }
