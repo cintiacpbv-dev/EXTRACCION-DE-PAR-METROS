@@ -79,9 +79,16 @@ const SECTION_NOTE_RE = /\s*\((?:Colocar|Llenar|Marcar|Registrar)[^)]*\)\s*$/i;
 // Encabezado que agrupa las lecturas siguientes: "FRACCION N° 2:", "NIVEL N° 3:".
 const QUALIFIER_RE = /^(.{2,40}?)\s*N[°º]\s*(\d+)\s*:$/i;
 
+// "Lote:", "Inicio:" y "Fin:" son de la cabecera que repite cada página, con
+// o sin valor. Con valor no hay duda ("Lote: 2032586"), pero en un registro
+// maestro sin llenar —como el que sube Análisis de Riesgo, que no tiene
+// lote— el campo queda vacío ("Lote:" a secas): antes eso exigía al menos
+// un carácter después de los dos puntos, así que la etiqueta vacía no se
+// reconocía como cabecera y se colaba como si fuera un parámetro más,
+// arrastrando la sección donde cayera cada nueva página.
 function isHeaderLine(text) {
   return (
-    HEADER_MARKERS.some((m) => text.includes(m)) || /^\s*(Lote|Inicio|Fin):\s*[\d:\s-]+$/.test(text)
+    HEADER_MARKERS.some((m) => text.includes(m)) || /^\s*(Lote|Inicio|Fin):\s*[\d:\s-]*$/.test(text)
   );
 }
 
