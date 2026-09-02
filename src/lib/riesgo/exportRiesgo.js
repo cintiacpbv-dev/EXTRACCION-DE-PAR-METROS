@@ -66,9 +66,17 @@ const ANCHOS = {
   [COL.sri2]: 8,
 };
 
+// exceljs ya antepone el "=" al guardar una celda de fórmula — pasárselo
+// también en el string escrito aquí lo duplicaba ("==IF(...)"), que Excel no
+// evalúa como fórmula sino que lo deja como texto plano. Se limpia acá, una
+// sola vez, en vez de tener que acordarse en cada fórmula nueva que se
+// agregue más adelante.
 function celda(ws, r, c, valor, { bold = false, fill, align = "left", wrap = true, size = TAM } = {}) {
   const cell = ws.getCell(r, c);
-  cell.value = valor;
+  cell.value =
+    valor && typeof valor === "object" && typeof valor.formula === "string"
+      ? { formula: valor.formula.replace(/^=+/, "") }
+      : valor;
   cell.font = { name: FUENTE, size, bold };
   cell.alignment = { horizontal: align, vertical: "middle", wrapText: wrap };
   cell.border = BORDES;

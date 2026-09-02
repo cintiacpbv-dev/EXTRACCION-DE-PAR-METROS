@@ -86,18 +86,23 @@ export default function RiesgoView() {
     try {
       for (const [i, doc] of documentos.entries()) {
         const prefijo = documentos.length > 1 ? `${doc.etapa} (${i + 1} de ${documentos.length}) — ` : "";
-        setBusyLabel(`${prefijo}redactando…`);
+        let generadas = 0;
+        setBusyLabel(`${prefijo}redactando… (0 de ${doc.parametros.length} parámetros)`);
         try {
           const { errores } = await analizarRiesgoConGemini({
             producto: doc.producto,
             etapa: doc.etapa,
             parametros: doc.parametros,
-            // Cada lote de Gemini tarda su rato — se pinta apenas llega, en
-            // vez de tener el botón congelado varios minutos sin señales de
-            // vida. Un lote que falla (ya reintentado una vez del otro lado)
-            // no tira abajo el resto: sigue con los siguientes.
-            onLote: (filasLote, hecho, total) => {
-              setBusyLabel(`${prefijo}redactando… (lote ${hecho} de ${total})`);
+            // Varios lotes de Gemini corren a la vez — se pintan conforme
+            // van llegando, en vez de tener el botón congelado varios
+            // minutos sin señales de vida. El conteo es de PARÁMETROS, no
+            // de lotes: es la cifra que dice de verdad si falta mucho o
+            // está por terminar, y evita bajar el Excel a mitad de camino
+            // pensando que ya está completo. Un lote que falla (ya
+            // reintentado una vez del otro lado) no tira abajo el resto.
+            onLote: (filasLote) => {
+              generadas += filasLote.length;
+              setBusyLabel(`${prefijo}redactando… (${generadas} de ${doc.parametros.length} parámetros)`);
               if (filasLote.length > 0) setFilas((prev) => [...prev, ...filasLote]);
             },
           });
@@ -130,6 +135,16 @@ export default function RiesgoView() {
   }
 
   async function exportar() {
+    // El borrador de una etapa con muchos parámetros tarda varios minutos:
+    // exportar a mitad de camino es válido (parte del cuadro, revisado, es
+    // mejor que nada), pero que sea porque se eligió, no porque no se notó
+    // que todavía faltaba.
+    if (cargando) {
+      const seguir = window.confirm(
+        `Todavía se está redactando el borrador (${busyLabel}). ¿Exportar solo lo que ya se generó?`
+      );
+      if (!seguir) return;
+    }
     try {
       const producto = documentos[0]?.producto || "Producto";
       const etapas = [...new Set(documentos.map((d) => d.etapa))].join(" / ");

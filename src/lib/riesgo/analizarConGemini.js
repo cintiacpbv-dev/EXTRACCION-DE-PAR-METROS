@@ -11,6 +11,14 @@ import { calcularIPR, clasificarSRI, filaVacia } from "./model.js";
 // se arrastra a los demás.
 const TAMANO_LOTE = 5;
 
+// Una etapa con muchos parámetros (Fabricación puede pasar de 60) parte en
+// una docena de lotes; uno detrás de otro eso son varios minutos de espera
+// —tiempo de sobra para que alguien exporte antes de que termine, como pasó
+// con FLUIXX (10 de 59 filas: se bajó el Excel a mitad de camino). Corriendo
+// unos cuantos lotes a la vez baja la espera real sin mandar las seis
+// claves de golpe.
+const LOTES_EN_PARALELO = 3;
+
 function partir(lista, tamano) {
   const lotes = [];
   for (let i = 0; i < lista.length; i += tamano) lotes.push(lista.slice(i, i + tamano));
@@ -64,16 +72,22 @@ function aFila(f, etapa) {
  * con el resto — un tramo lento no debe tirar abajo todo lo que ya se
  * redactó bien.
  *
+ * Varios lotes se piden a la vez (ver LOTES_EN_PARALELO), así que terminan
+ * en el orden en que responde Gemini, no necesariamente en el orden de la
+ * lista original — no importa para el cuadro, que ya se edita a mano.
+ *
  * `onLote(filasDelLote, hecho, total)` es opcional: se llama apenas vuelve
- * cada lote (haya salido bien o no), para pintar filas conforme llegan en
- * vez de esperar a que termine la etapa completa.
+ * cada lote (haya salido bien o no), con cuántos van hechos en total, para
+ * pintar filas conforme llegan y mostrar un progreso real en vez de un
+ * botón congelado varios minutos.
  */
 export async function analizarRiesgoConGemini({ producto, etapa, parametros, onLote }) {
   const lotes = partir(parametros, TAMANO_LOTE);
   const todasLasFilas = [];
   const errores = [];
+  let completados = 0;
 
-  for (const [i, lote] of lotes.entries()) {
+  async function procesarLote(lote, indice) {
     let filas = [];
     try {
       const crudas = await pedirLote({ producto, etapa, parametros: lote });
@@ -85,12 +99,26 @@ export async function analizarRiesgoConGemini({ producto, etapa, parametros, onL
         const crudas = await pedirLote({ producto, etapa, parametros: lote });
         filas = crudas.map((f) => aFila(f, etapa));
       } catch (e2) {
-        errores.push({ lote: i + 1, total: lotes.length, mensaje: e2.message });
+        errores.push({ lote: indice + 1, total: lotes.length, mensaje: e2.message });
       }
     }
     todasLasFilas.push(...filas);
-    onLote?.(filas, i + 1, lotes.length);
+    completados += 1;
+    onLote?.(filas, completados, lotes.length);
   }
+
+  // Cola con cupo fijo: cada "trabajador" toma el siguiente lote libre en
+  // cuanto termina el suyo, hasta que no queden más.
+  let siguiente = 0;
+  async function trabajador() {
+    while (siguiente < lotes.length) {
+      const indice = siguiente++;
+      await procesarLote(lotes[indice], indice);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(LOTES_EN_PARALELO, lotes.length) }, trabajador)
+  );
 
   return { filas: todasLasFilas, errores };
 }
