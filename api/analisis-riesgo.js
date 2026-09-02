@@ -24,8 +24,12 @@ function esErrorDeCuotaOClave(status) {
   return status === 429 || status === 403;
 }
 
-const MODELO = "gemini-2.5-flash";
-const MAX_PARAMETROS = 40; // una llamada, no una por parámetro — y con límite, por costo.
+// Configurable por variable de entorno (GEMINI_MODEL) porque Google retira
+// modelos sin avisar —"gemini-2.5-flash" dejó de estar disponible para
+// cuentas nuevas de un día para otro—; así el nombre se actualiza en Vercel
+// sin tener que tocar ni volver a desplegar el código.
+const MODELO = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+const MAX_PARAMETROS = 80; // una llamada, no una por parámetro — y con límite, por costo.
 
 const RESPONSE_SCHEMA = {
   type: "array",

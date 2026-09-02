@@ -9,7 +9,7 @@ import SapPanel from "./components/SapPanel.jsx";
 import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
 import Formato3Panel from "./components/Formato3Panel.jsx";
 import Formato01Panel from "./components/Formato01Panel.jsx";
-import AnalisisRiesgoPanel from "./components/AnalisisRiesgoPanel.jsx";
+import RiesgoView from "./components/RiesgoView.jsx";
 import BarraProgreso from "./components/BarraProgreso.jsx";
 import {
   IconCloud,
@@ -83,6 +83,7 @@ function readRoute() {
   const hash = window.location.hash.replace(/^#\/?/, "");
   if (hash === "nuevo") return { view: "product", producto: null, blank: true };
   if (hash === "consulta") return { view: "consulta", producto: null, blank: false };
+  if (hash === "riesgo") return { view: "riesgo", producto: null, blank: false };
   if (hash.startsWith("producto/")) {
     return {
       view: "product",
@@ -95,6 +96,7 @@ function readRoute() {
 
 function routeHash(view, producto, blank) {
   if (view === "consulta") return "#/consulta";
+  if (view === "riesgo") return "#/riesgo";
   if (view !== "product") return "#/";
   return blank || !producto ? "#/nuevo" : `#/producto/${encodeURIComponent(producto)}`;
 }
@@ -234,6 +236,8 @@ export default function App() {
         setBlank(true);
       } else if (route.view === "consulta") {
         setView("consulta");
+      } else if (route.view === "riesgo") {
+        setView("riesgo");
       } else if (route.view === "product" && route.producto) {
         if (familias.includes(route.producto)) {
           setView("product");
@@ -383,6 +387,11 @@ export default function App() {
     setConsultaQuery(pregunta ? { pregunta, nonce: Date.now() } : null);
     setView("consulta");
     writeRoute("consulta", null, false);
+  }
+
+  function openRiesgo() {
+    setView("riesgo");
+    writeRoute("riesgo", null, false);
   }
 
   /**
@@ -850,6 +859,15 @@ export default function App() {
             >
               <IconMessageSquare size={15} /> <span>Consulta PDF</span>
             </button>
+            {/* Sección propia, no un panel más de un producto: el registro
+                que se sube aquí suele ser la plantilla sin llenar, y no hace
+                falta tener ya un análisis cargado para usarla. */}
+            <button
+              className={`topnav__link ${view === "riesgo" ? "is-active" : ""}`}
+              onClick={openRiesgo}
+            >
+              <IconAlert size={15} /> <span>Análisis de Riesgo</span>
+            </button>
           </nav>
         </div>
 
@@ -862,7 +880,7 @@ export default function App() {
       {/* Sin relleno cuando lo de dentro es Consulta PDF: ese hueco es
           exactamente lo que delataba que había una página metida dentro de
           otra, en vez de ocupar la pantalla entera. */}
-      <main className={`main ${view === "consulta" ? "main--consulta" : ""}`}>
+      <main className={`main ${view === "consulta" ? "main--consulta" : ""} ${view === "riesgo" ? "main--riesgo" : ""}`}>
         {/* Los avisos viven al nivel de la página, no dentro de la tarjeta de
             carga: cuando estaban ahí, todo lo que se anunciaba desde la
             biblioteca —imagen guardada, producto eliminado— no se llegaba a
@@ -888,6 +906,8 @@ export default function App() {
           <div className="empty-state">Cargando…</div>
         ) : view === "consulta" ? (
           <ConsultaPdf query={consultaQuery} />
+        ) : view === "riesgo" ? (
+          <RiesgoView />
         ) : view === "library" ? (
           <ProductLibrary
             productos={resumenProductos}
@@ -1048,10 +1068,6 @@ export default function App() {
             {/* El esquema lee sus propios registros: describe el proceso, no
                 un lote, así que no depende de lo que haya cargado el análisis. */}
             <Formato01Panel />
-
-            {!blank && productDocs.length > 0 && (
-              <AnalisisRiesgoPanel table={table} producto={productoActivo} etapa={stageActiva} />
-            )}
 
             {!blank && <h2 className="seccion-titulo">Resultados del análisis</h2>}
 

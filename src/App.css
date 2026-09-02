@@ -2192,18 +2192,7 @@
   color: var(--rojo);
 }
 
-/* ---- Análisis de riesgo (AMFE) -------------------------------------
-   El icono va en rojo/terracota, del mismo temple que "warn": el riesgo es
-   justo lo que esta herramienta existe para señalar. */
-.sap-panel--riesgo {
-  box-shadow: none;
-}
-
-.sap-panel--riesgo .sap-icono {
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-
+/* ---- Análisis de riesgo (AMFE) -------------------------------------- */
 .riesgo-acciones {
   display: flex;
   gap: 10px;
@@ -2306,4 +2295,54 @@
   padding: 4px 8px;
   font-size: 15px;
   line-height: 1;
+}
+
+/* ---- Análisis de riesgo, como sección propia ------------------------ */
+.riesgo-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.riesgo-view__intro h1 {
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+
+.riesgo-view__intro p {
+  max-width: 760px;
+}
+
+.riesgo-docs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.riesgo-doc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12.5px;
+}
+
+.riesgo-doc-chip button {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  line-height: 0;
+}
+
+.riesgo-doc-chip button:hover {
+  color: var(--rojo);
+}
+
+.riesgo-nota {
+  font-size: 12px;
 }
