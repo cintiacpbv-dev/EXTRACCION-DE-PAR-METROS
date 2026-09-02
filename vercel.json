@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/analisis-riesgo.js": {
+      "maxDuration": 60
+    }
+  }
+}

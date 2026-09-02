@@ -79,21 +79,27 @@ export default function RiesgoView() {
     setError(null);
     setCargando(true);
     try {
-      const nuevasFilas = [];
       for (const [i, doc] of documentos.entries()) {
-        setBusyLabel(`Redactando ${doc.etapa} con Gemini (${i + 1} de ${documentos.length})…`);
+        const prefijo = documentos.length > 1 ? `${doc.etapa} (${i + 1} de ${documentos.length}) — ` : "";
+        setBusyLabel(`${prefijo}redactando…`);
         try {
-          const filasDoc = await analizarRiesgoConGemini({
+          await analizarRiesgoConGemini({
             producto: doc.producto,
             etapa: doc.etapa,
             parametros: doc.parametros,
+            // Cada lote de Gemini tarda su rato — se pinta apenas llega, en
+            // vez de tener el botón congelado varios minutos sin señales de
+            // vida, y si un lote más adelante falla no se pierde lo ya
+            // redactado.
+            onLote: (filasLote, hecho, total) => {
+              setBusyLabel(`${prefijo}redactando… (lote ${hecho} de ${total})`);
+              setFilas((prev) => [...prev, ...filasLote]);
+            },
           });
-          nuevasFilas.push(...filasDoc);
         } catch (e) {
           setError(`${doc.etapa}: ${e.message}`);
         }
       }
-      setFilas((prev) => [...prev, ...nuevasFilas]);
     } finally {
       setCargando(false);
       setBusyLabel("");
