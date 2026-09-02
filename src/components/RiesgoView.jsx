@@ -221,10 +221,13 @@ export default function RiesgoView() {
                 <th>Causa</th>
                 <th>O</th>
                 <th>Controles existentes</th>
+                <th>Documentos relacionados</th>
                 <th>D</th>
                 <th>IPR</th>
                 <th>SRI</th>
                 <th>Acciones a tomar</th>
+                <th>Responsable(s)</th>
+                <th>Plazo</th>
                 <th />
               </tr>
             </thead>
@@ -278,6 +281,13 @@ export default function RiesgoView() {
                         onChange={(e) => actualizarCampo(i, "controles", e.target.value)}
                       />
                     </td>
+                    <td>
+                      <textarea
+                        value={f.documentos}
+                        placeholder="POE, instructivo…"
+                        onChange={(e) => actualizarCampo(i, "documentos", e.target.value)}
+                      />
+                    </td>
                     <td className="riesgo-col-num">
                       <select value={f.deteccion} onChange={(e) => actualizarCampo(i, "deteccion", e.target.value)}>
                         <option value="" />
@@ -298,6 +308,20 @@ export default function RiesgoView() {
                       <textarea
                         value={f.accionesATomar}
                         onChange={(e) => actualizarCampo(i, "accionesATomar", e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={f.responsable}
+                        placeholder="Nombre"
+                        onChange={(e) => actualizarCampo(i, "responsable", e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={f.plazo}
+                        placeholder="AAAA-MM"
+                        onChange={(e) => actualizarCampo(i, "plazo", e.target.value)}
                       />
                     </td>
                     <td>
