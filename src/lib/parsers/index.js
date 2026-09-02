@@ -8,6 +8,7 @@ import { conOpciones } from "./opcionesParams.js";
 import { conAmbientales } from "./ambientales.js";
 import { conEstandarAcondicionado } from "./estandarAcondicionado.js";
 import { conTiempos } from "./tiempos.js";
+import { conMolienda } from "./molienda.js";
 import { esOrdenDeProduccion, parseOrden } from "./orden.js";
 
 /**
@@ -57,7 +58,7 @@ export async function processPdfFile(file) {
 
   const meta = extractMeta(flatText, pages);
   const params = conEstandarAcondicionado(
-    conAmbientales(conOpciones(conTiempos(detectParameters(pages)), pages)),
+    conAmbientales(conOpciones(conTiempos(conMolienda(detectParameters(pages))), pages)),
     pages,
     meta.stage
   );
