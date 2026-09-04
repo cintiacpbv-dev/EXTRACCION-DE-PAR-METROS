@@ -163,15 +163,42 @@ export function materialesPorLote(documents, familia) {
 
   // Insumos declarados en la orden de cada lote y etapa, indexados por código
   // de material, para cruzarlos con la lista que trae el registro.
+  //
+  // Un mismo código puede tener más de una entrada: el material se recibió
+  // de dos lotes del proveedor distintos y ambos se consumieron en el mismo
+  // lote de producción (ejemplo real: dióxido de titanio, un lote de un
+  // proveedor y el resto de otro). Guardar sólo la última pisaba a la
+  // primera sin dejar rastro — el material se veía en el cuadro con un solo
+  // lote, como si el otro no se hubiera usado.
   const ordenPorLoteEtapa = new Map();
   for (const doc of documents) {
     if (doc.familia !== familia || !doc.orden) continue;
     const porCodigo = new Map();
-    for (const ins of doc.orden.insumos) porCodigo.set(ins.codigo, ins);
+    for (const ins of doc.orden.insumos) {
+      if (!porCodigo.has(ins.codigo)) porCodigo.set(ins.codigo, []);
+      porCodigo.get(ins.codigo).push(ins);
+    }
     ordenPorLoteEtapa.set(`${claveLote(doc)}::${doc.stage}`, porCodigo);
   }
 
   const registrosCubiertos = new Set();
+
+  // Una entrada por cada lote de material que aportó a este insumo —normalmente
+  // una sola, pero puede haber dos o más—; si la orden no dice nada de este
+  // código, la fila de siempre con lo que trae el registro.
+  const filasDeInsumo = (base, codigo, entradasOrden) => {
+    if (entradasOrden?.length > 0) {
+      return entradasOrden.map((insOrden) => ({
+        ...base,
+        codigo,
+        loteMaterial: insOrden.loteMaterial || "",
+        cantidad: `${insOrden.cantidadEntregada ?? ""} ${insOrden.unidad}`.trim(),
+        consumo: insOrden.consumo ?? null,
+        merma: insOrden.mermaProceso ?? null,
+      }));
+    }
+    return [{ ...base, codigo, loteMaterial: "" }];
+  };
 
   for (const doc of documents) {
     if (doc.familia !== familia || doc.kind === "orden") continue;
@@ -182,23 +209,24 @@ export function materialesPorLote(documents, familia) {
     if (doc.insumos?.length > 0) {
       for (const ins of doc.insumos) {
         registrosCubiertos.add(claveLoteEtapa);
-        const insOrden = enOrden?.get(ins.codigo);
-        filas.push({
-          nombre: ins.descripcion,
-          codigo: ins.codigo,
-          loteMaterial: insOrden?.loteMaterial || "",
-          proveedor: "",
-          fabricante: "",
-          fechaVencimiento: "",
-          cantidad: insOrden
-            ? `${insOrden.cantidadEntregada ?? ""} ${insOrden.unidad}`.trim()
-            : `${ins.cantidadRecibida ?? ins.cantidad ?? ""} ${ins.unidadRecibida || ins.unidad || ""}`.trim(),
-          consumo: insOrden?.consumo ?? null,
-          merma: insOrden?.mermaProceso ?? null,
-          lote: doc.lote,
-          stage: doc.stage,
-          producto: doc.producto,
-        });
+        filas.push(
+          ...filasDeInsumo(
+            {
+              nombre: ins.descripcion,
+              proveedor: "",
+              fabricante: "",
+              fechaVencimiento: "",
+              cantidad: `${ins.cantidadRecibida ?? ins.cantidad ?? ""} ${ins.unidadRecibida || ins.unidad || ""}`.trim(),
+              consumo: null,
+              merma: null,
+              lote: doc.lote,
+              stage: doc.stage,
+              producto: doc.producto,
+            },
+            ins.codigo,
+            enOrden?.get(ins.codigo)
+          )
+        );
       }
       continue;
     }
@@ -213,21 +241,24 @@ export function materialesPorLote(documents, familia) {
       if (!m) continue; // firmas y verificaciones de la misma sección
 
       registrosCubiertos.add(claveLoteEtapa);
-      const insOrden = enOrden?.get(m[1]);
-      filas.push({
-        nombre: p.label,
-        codigo: m[1],
-        loteMaterial: insOrden?.loteMaterial || "",
-        proveedor: "",
-        fabricante: "",
-        fechaVencimiento: "",
-        cantidad: insOrden ? `${insOrden.cantidadEntregada ?? ""} ${insOrden.unidad}`.trim() : m[2].trim(),
-        consumo: insOrden?.consumo ?? null,
-        merma: insOrden?.mermaProceso ?? null,
-        lote: doc.lote,
-        stage: doc.stage,
-        producto: doc.producto,
-      });
+      filas.push(
+        ...filasDeInsumo(
+          {
+            nombre: p.label,
+            proveedor: "",
+            fabricante: "",
+            fechaVencimiento: "",
+            cantidad: m[2].trim(),
+            consumo: null,
+            merma: null,
+            lote: doc.lote,
+            stage: doc.stage,
+            producto: doc.producto,
+          },
+          m[1],
+          enOrden?.get(m[1])
+        )
+      );
     }
   }
 
