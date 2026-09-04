@@ -255,9 +255,28 @@ export function materialesPorLote(documents, familia) {
     }
   }
 
-  return filas.sort(
-    (a, b) => a.nombre.localeCompare(b.nombre) || a.lote.localeCompare(b.lote)
-  );
+  // El orden de la lista es el de la fórmula del producto —el principio
+  // activo primero, luego los excipientes en el orden en que se pesan—, que
+  // es el orden en que la Orden de Producción los imprime; no es
+  // alfabético. Cualquier orden de cualquier lote sirve de referencia
+  // (dentro de la misma etapa): la fórmula no cambia de un lote a otro del
+  // mismo producto. Un material que no aparezca en ninguna orden —el
+  // registro trae algo que la orden no declaró— se queda al final, en vez
+  // de desordenar a los demás.
+  const posicionEnOrden = new Map();
+  for (const doc of documents) {
+    if (doc.familia !== familia || !doc.orden) continue;
+    doc.orden.insumos.forEach((ins, i) => {
+      const clave = `${doc.stage}::${ins.codigo}`;
+      if (!posicionEnOrden.has(clave)) posicionEnOrden.set(clave, i);
+    });
+  }
+
+  return filas.sort((a, b) => {
+    const posA = posicionEnOrden.get(`${a.stage}::${a.codigo}`) ?? Infinity;
+    const posB = posicionEnOrden.get(`${b.stage}::${b.codigo}`) ?? Infinity;
+    return posA - posB || a.nombre.localeCompare(b.nombre) || a.lote.localeCompare(b.lote);
+  });
 }
 
 /** Rendimiento oficial declarado en la orden, por lote y etapa. */
