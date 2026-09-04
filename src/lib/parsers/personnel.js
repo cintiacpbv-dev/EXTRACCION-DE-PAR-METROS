@@ -54,6 +54,14 @@ const ES_REALIZADO = /^Realizado\b/i;
 const PASO_AJENO_RE = /PERSONAL\s+DE\s+CONTROL\s+DE(\s+CALIDAD)?\b|CONTROL\s+INSPECTIVO/i;
 const PASO_RE = /^\d+(\.\d+)*\s*\.-/;
 
+// El tableteado no tiene un encabezado propio: vive bajo "SET UP", el mismo
+// que el changeover de la máquina antes y después del proceso. Dentro de esa
+// misma sección, el paso "FECHA / HORA INICIO DE LA COMPRESIÓN" separa el
+// armado y la verificación de equipos (despeje) de la compresión en sí — a
+// partir de esa línea, las firmas van a una sub-sección aparte, hasta que
+// cambie el encabezado de verdad.
+const INICIO_COMPRESION_RE = /^FECHA\s*\/\s*HORA\s+INICIO\s+DE(L)?\s+(LA\s+)?(COMPRESI[OÓ]N|TABLETEADO)\b/i;
+
 function isNameToken(tok) {
   return NAME_TOKEN_RE.test(tok) && !SKIP_WORDS.has(tok) && !DATE_RE.test(tok) && !TIME_RE.test(tok);
 }
@@ -88,6 +96,10 @@ export function detectPersonnel(pages) {
   // días de por medio.
   const porSeccion = new Map();
   let seccion = null;
+  // Vacío mientras se arma y verifica el equipo; pasa a "COMPRESION" en
+  // cuanto se ve el inicio de la compresión, y se limpia otra vez al
+  // cambiar de encabezado.
+  let subActividad = "";
   // Si el paso en curso es de gente ajena al proceso, sus firmas se descartan.
   let pasoAjeno = false;
 
@@ -100,7 +112,14 @@ export function detectPersonnel(pages) {
       if (PASO_RE.test(texto)) pasoAjeno = PASO_AJENO_RE.test(texto);
 
       const encabezado = matchSectionHeading(texto);
-      if (encabezado) seccion = encabezado.title;
+      if (encabezado) {
+        seccion = encabezado.title;
+        subActividad = "";
+      }
+      // El paso trae su numeración delante ("4.4.67.- FECHA / HORA INICIO
+      // DE LA COMPRESIÓN..."): sin quitarla, el ancla de inicio de la
+      // expresión nunca llega a "FECHA".
+      if (INICIO_COMPRESION_RE.test(texto.replace(PASO_RE, "").trim())) subActividad = "COMPRESION";
 
       const realizadoSeg = lines[i].segments.find((s) => ES_REALIZADO.test(s.str.trim()));
       if (!realizadoSeg || pasoAjeno) continue;
@@ -135,10 +154,15 @@ export function detectPersonnel(pages) {
       addAll(supervisores, sups);
 
       if (seccion) {
-        if (!porSeccion.has(seccion)) {
-          porSeccion.set(seccion, { operarios: new Map(), supervisores: new Map() });
+        // Con sub-actividad, la firma va a su propia clave ("SET UP (PRE -
+        // PROCESO) · COMPRESION"), aparte de la del armado/verificación —
+        // así el informe puede pedir sólo la compresión sin arrastrar al
+        // que sólo preparó el equipo.
+        const clave = subActividad ? `${seccion} · ${subActividad}` : seccion;
+        if (!porSeccion.has(clave)) {
+          porSeccion.set(clave, { operarios: new Map(), supervisores: new Map() });
         }
-        const bloque = porSeccion.get(seccion);
+        const bloque = porSeccion.get(clave);
         addAll(bloque.operarios, ops);
         addAll(bloque.supervisores, sups);
       }

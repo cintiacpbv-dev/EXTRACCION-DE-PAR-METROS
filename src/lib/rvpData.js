@@ -301,6 +301,30 @@ const BLOQUES_OPERARIOS = [
   },
 ];
 
+// Lo mismo para Fabricación, en sus propios tres trabajos: la granulación
+// hasta el secado, la mezcla final ya seco el granulado, y el tableteado
+// (comprimir en sí, no el armado ni la verificación de la máquina —ver el
+// corte de sub-actividad "· COMPRESION" en parsers/personnel.js). "MEZCLA"
+// va con límite de palabra para no confundirse con "TAMIZADO Y MEZCLA", que
+// es parte de la granulación húmeda, no de la mezcla final.
+const BLOQUES_OPERARIOS_FABRICACION = [
+  {
+    etiqueta: "Granulación - Secado",
+    re: /^(FABRICACION|PREPARACION\s+DE\s+LA\s+SOLUCION\s+GRANULANTE|TAMIZADO\s+Y\s+MEZCLA|AMASADO|GRANULACI[OÓ]N\s+H[UÚ]MEDA|SECADO|GRANULACI[OÓ]N\s+SECA)\b/i,
+  },
+  // Lubricación no lleva fila propia de personal —sólo de tiempo, ver
+  // tiemposDeFabricacion— porque el informe de referencia no la muestra ahí.
+  { etiqueta: "Mezcla final", re: /^MEZCLA(\s+FINAL)?\b/i },
+  {
+    etiqueta: "Tableteado",
+    re: /COMPRESI[OÓ]N|TABLETEADO/i,
+    // El tableteado siempre lo hizo alguien: si el registro no separa la
+    // compresión del resto de "SET UP", esta fila recoge al que quedó sin
+    // reclamar en ningún otro bloque de la etapa.
+    respaldo: true,
+  },
+];
+
 /** Los nombres de un bloque de secciones, sin repetir y en orden. */
 function nombresDe(personnel, bloque, rol) {
   if (!bloque?.re) return (personnel?.[rol] || []).map((p) => p.name);
@@ -351,10 +375,16 @@ export function personalPorLote(documents, familia) {
     const docs = documents.filter((d) => d.familia === familia && d.stage === stage && d.kind !== "orden");
     const lotes = [...new Set(docs.map(claveLote))].sort();
 
-    // Acondicionado siempre sale con sus dos operaciones, aunque en estos
-    // lotes no conste ninguna: el cuadro del informe tiene las dos, y la que
-    // no se hizo se queda en blanco.
-    const bloques = stage === "ACONDICIONADO" ? BLOQUES_OPERARIOS : [{ etiqueta: stage, re: null }];
+    // Acondicionado y Fabricación siempre salen con sus propias operaciones,
+    // aunque en estos lotes no conste ninguna: el cuadro del informe las
+    // tiene todas, y la que no se hizo se queda en blanco. Cualquier otra
+    // etapa sigue con la fila única de siempre.
+    const bloques =
+      stage === "ACONDICIONADO"
+        ? BLOQUES_OPERARIOS
+        : stage === "FABRICACION"
+          ? BLOQUES_OPERARIOS_FABRICACION
+          : [{ etiqueta: stage, re: null }];
 
     const porLote = {};
     for (const lote of lotes) {
@@ -431,6 +461,16 @@ export function buildRvpModel(documents, familia, { onlyCritical = true, stage =
         tabla.sections = [consideraciones, ...tabla.sections];
         tabla.rowCount += consideraciones.rows.length;
       }
+      // Sólo Fabricación lleva el resumen de tiempos por tramo (granulación
+      // seca/lubricación/mezcla final, y compresión) — Acondicionado y las
+      // demás etapas quedan exactamente como estaban.
+      if (etapa === "FABRICACION") {
+        const tiempos = tiemposDeFabricacion(alcance, familia);
+        if (tiempos) {
+          tabla.sections = [...tabla.sections, tiempos];
+          tabla.rowCount += tiempos.rows.length;
+        }
+      }
       return tabla;
     }),
   };
@@ -489,5 +529,95 @@ export function consideracionesGenerales(documents, familia, stage) {
   return rows.length > 0
     ? { title: SECCION_CONSIDERACIONES, rotulo: rotuloMaterial(stage), rows }
     : null;
+}
+
+// --- Tiempos por tramo de Fabricación ---------------------------------
+//
+// Granulación seca, Lubricación y Mezcla final van seguidas, ya seco el
+// granulado, y sus horas de inicio/final viven cada una bajo su propia
+// sección — se combinan en un solo tramo (el primer inicio, el último
+// final). La Compresión (tableteado) es un trabajo aparte, a menudo días
+// después, y su encabezado en el registro es literalmente "SET UP" —el
+// mismo que usa el changeover de la máquina—, así que sus fechas no salen
+// de la sección: salen del propio nombre del paso ("FECHA / HORA INICIO DE
+// LA COMPRESIÓN"), sea cual sea la sección donde caiga.
+const SECCION_GRANULACION_MEZCLA_RE =
+  /^(PREPARACION\s+DE\s+LA\s+SOLUCION\s+GRANULANTE|TAMIZADO\s+Y\s+MEZCLA|AMASADO|GRANULACI[OÓ]N\s+H[UÚ]MEDA|SECADO|GRANULACI[OÓ]N\s+SECA|LUBRICACION|LUBRICACIÓN|MEZCLA)\b/i;
+const COMPRESION_INICIO_RE = /^FECHA\s*\/\s*HORA\s+INICIO\s+DE(L)?\s+(LA\s+)?(COMPRESI[OÓ]N|TABLETEADO)\b/i;
+const COMPRESION_FINAL_RE = /^FECHA\s*\/\s*HORA\s+FINAL\s+DE(L)?\s+(LA\s+)?(COMPRESI[OÓ]N|TABLETEADO)\b/i;
+const SECCION_TIEMPOS_FABRICACION = "TIEMPOS DE FABRICACIÓN";
+
+/**
+ * El primer "HORA INICIO" y el último "HORA FINAL" entre las secciones que
+ * cumplan `re`, tal como los dejó parsers/tiempos.js — sin pasar por
+ * `soloFecha`, porque estas secciones sólo imprimen la hora, no el día.
+ */
+function fechasCombinadasDeSecciones(doc, re) {
+  const dentro = (p) => re.test(p.section || "");
+  const esInicio = (p) => /^HORA INICIO\b/i.test(p.baseLabel || p.label || "");
+  const esFinal = (p) => /^HORA FINAL\b/i.test(p.baseLabel || p.label || "");
+
+  const inicios = doc.params
+    .filter((p) => dentro(p) && esInicio(p) && p.value)
+    .map((p) => p.value)
+    .sort();
+  const finales = doc.params
+    .filter((p) => dentro(p) && esFinal(p) && p.value)
+    .map((p) => p.value)
+    .sort();
+
+  if (inicios.length === 0 && finales.length === 0) return null;
+  return { inicio: inicios[0] || "", fin: finales[finales.length - 1] || "" };
+}
+
+/** Fecha y hora de la compresión, por el nombre del propio paso, no por sección. */
+function fechasDeCompresion(doc) {
+  const inicio = doc.params.find((p) => COMPRESION_INICIO_RE.test(p.label || p.baseLabel || ""));
+  const final = doc.params.find((p) => COMPRESION_FINAL_RE.test(p.label || p.baseLabel || ""));
+  if (!inicio && !final) return null;
+  return { inicio: inicio?.value || "", fin: final?.value || "" };
+}
+
+/**
+ * La sección extra de tiempos que se agrega sólo al cuadro de Fabricación
+ * (ver buildRvpModel) — Acondicionado y las demás etapas no la llevan.
+ */
+export function tiemposDeFabricacion(documents, familia) {
+  const docs = documents.filter((d) => d.familia === familia && d.stage === "FABRICACION" && d.kind !== "orden");
+  if (docs.length === 0) return null;
+
+  const porGranMezcla = {};
+  const porCompresion = {};
+  for (const doc of docs) {
+    const lote = claveLote(doc);
+    const gm = fechasCombinadasDeSecciones(doc, SECCION_GRANULACION_MEZCLA_RE);
+    if (gm) porGranMezcla[lote] = gm;
+    const cp = fechasDeCompresion(doc);
+    if (cp) porCompresion[lote] = cp;
+  }
+
+  const soloValor = (mapa, campo) =>
+    Object.fromEntries(Object.entries(mapa).map(([lote, fechas]) => [lote, fechas[campo]]).filter(([, v]) => v));
+
+  const fila = (id, label, values) => ({
+    id,
+    section: SECCION_TIEMPOS_FABRICACION,
+    label,
+    setpoint: "",
+    sinRango: true,
+    unit: "",
+    valueType: "text",
+    category: "critico",
+    values,
+  });
+
+  const rows = [
+    fila("tiempo-fab::gm-inicio", "Inicio Granulación Seca / Lubricación / Mezcla Final", soloValor(porGranMezcla, "inicio")),
+    fila("tiempo-fab::gm-final", "Final Granulación Seca / Lubricación / Mezcla Final", soloValor(porGranMezcla, "fin")),
+    fila("tiempo-fab::cp-inicio", "Inicio Compresión (Tableteado)", soloValor(porCompresion, "inicio")),
+    fila("tiempo-fab::cp-final", "Final Compresión (Tableteado)", soloValor(porCompresion, "fin")),
+  ].filter((r) => Object.keys(r.values).length > 0);
+
+  return rows.length > 0 ? { title: SECCION_TIEMPOS_FABRICACION, rows } : null;
 }
 
