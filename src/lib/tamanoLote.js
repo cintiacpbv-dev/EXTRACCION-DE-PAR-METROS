@@ -79,9 +79,22 @@ export function tamanosPorFamilia(documents, familiaDe) {
   const porLote = tamanoPorLote(documents);
   const familias = new Map();
 
+  // Una familia armada sólo con Acondicionado —sin ningún registro de
+  // Fabricación de por medio, de ningún lote— no tiene forma de saber su
+  // escala de verdad: Acondicionado no fabrica nada, sólo declara cuántas
+  // cajas o sobres salieron, y esa cifra cambia con la receta de empaque
+  // aunque el producto sea exactamente el mismo, con el mismo nombre y la
+  // misma presentación. Partir el análisis por eso es peor que no
+  // partirlo, así que estas familias no se separan por tamaño: todos sus
+  // lotes van a un solo análisis.
+  const familiasConFabricacion = new Set(
+    documents.filter((d) => d.stage === "FABRICACION").map((d) => familiaDe(d))
+  );
+
   for (const doc of documents) {
     const familia = familiaDe(doc);
     if (!familias.has(familia)) familias.set(familia, new Set());
+    if (!familiasConFabricacion.has(familia)) continue;
     const tamano = porLote.get(doc.lote);
     if (tamano) familias.get(familia).add(tamano);
   }
