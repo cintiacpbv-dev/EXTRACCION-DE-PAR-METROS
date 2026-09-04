@@ -85,6 +85,11 @@ export function conTiempos(params) {
   let bloques = 0;
   let primero = null;
   let ultimo = null;
+  // Suma de lo que duró cada bloque por su cuenta, sin las esperas entre
+  // uno y el siguiente — las horas de trabajo activo, que es lo que
+  // reportan a mano en los informes de validación ("t: 15 h 50 min",
+  // sumando cada sesión donde el proceso se corta y retoma otro día).
+  let minutosActivos = 0;
 
   for (const p of params) {
     salida.push(p);
@@ -107,6 +112,7 @@ export function conTiempos(params) {
     }
 
     bloques += 1;
+    minutosActivos += t - abierto.t;
     if (primero === null || abierto.t < primero.t) primero = { t: abierto.t, valor: abierto.valor };
     if (ultimo === null || t > ultimo.t) ultimo = { t, valor: p.value };
 
@@ -124,12 +130,22 @@ export function conTiempos(params) {
   // separados por días —Fabricación granula, espera y luego mezcla— este total
   // incluye la espera, así que acompaña a los tiempos de cada bloque en vez de
   // sustituirlos.
+  //
+  // Al lado va el tiempo de trabajo activo: la suma de lo que duró cada
+  // bloque por su cuenta, sin las esperas de por medio — es al que se refiere
+  // un informe de validación cuando dice "t: 15 h 50 min" para un proceso que
+  // se cortó y retomó otro día. No sustituye al transcurrido: uno cuenta la
+  // espera y el otro no, y los dos hacen falta para leer el lote completo.
   if (bloques > 1 && primero && ultimo) {
     const total = formatoDuracion(ultimo.t - primero.t);
+    const activo = formatoDuracion(minutosActivos);
     if (total !== null) {
       salida.push(fila({ section: SECCION_TOTAL, label: "HORA INICIO", value: primero.valor, orden: 0 }));
       salida.push(fila({ section: SECCION_TOTAL, label: "HORA FINAL", value: ultimo.valor, orden: 0 }));
       salida.push(fila({ section: SECCION_TOTAL, label: "TIEMPO TRANSCURRIDO", value: total, orden: 0 }));
+      if (activo !== null) {
+        salida.push(fila({ section: SECCION_TOTAL, label: "TIEMPO DE TRABAJO ACTIVO", value: activo, orden: 0 }));
+      }
     }
   }
 
