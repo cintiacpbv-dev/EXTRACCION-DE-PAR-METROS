@@ -8,12 +8,13 @@ Corre **en tu computadora** y usa **tu propia sesión** de SAP.
 
 ## Por qué no está dentro de la página web
 
-La aplicación es una página estática y SAP está en la red interna de la
-empresa, así que la página no puede alcanzarlo. Tampoco puede incrustarlo:
-SAP envía la cabecera `X-Frame-Options` justamente para impedir que otro
-sitio lo meta en un iframe, y aunque cargara, la política de mismo origen
-del navegador impide leer o pulsar nada dentro de ese marco. Por eso la
-automatización tiene que ejecutarse aquí, fuera del navegador de la app.
+SAP GUI para HTML sí está en internet público (no en una red interna), pero
+la aplicación es una página estática servida desde otro dominio, y SAP envía
+la cabecera `X-Frame-Options` justamente para impedir que otro sitio lo meta
+en un iframe; aunque cargara, la política de mismo origen del navegador
+impide leer o pulsar nada dentro de ese marco desde afuera. Por eso la
+automatización no puede vivir dentro de la página de la app — pero sí puede
+correr dentro de la propia pestaña de SAP, ver [`descargar-navegador.js`](#sin-instalar-nada-desde-cualquier-pc-o-celular) más abajo.
 
 ## Tus credenciales no se guardan en ninguna parte
 
@@ -21,6 +22,31 @@ El script no pide usuario ni contraseña. Abre un Chrome con un perfil propio
 (la carpeta `.perfil-sap`), tú inicias sesión a mano la primera vez —con SSO
 o segundo factor si los hay— y esa sesión queda en esa carpeta, que está
 excluida del repositorio. Nada viaja a Supabase ni a ningún servidor.
+
+## Sin instalar nada, desde cualquier PC o celular
+
+[`descargar-navegador.js`](descargar-navegador.js) hace lo mismo que
+`APLICACION.bat` para un solo lote, pero pegado directamente en la consola
+del navegador (F12 → pestaña *Console*) mientras estás en la pantalla del
+Reporte Sobre de Lote Digital, ya logueada. No instala Node ni Playwright ni
+abre otro Chrome: usa la misma pestaña y la misma sesión que ya tienes
+abierta, así que funciona en cualquier PC sin permisos de administrador, y
+también en el navegador del celular (en Android, con uno que permita
+consola/extensiones, como Kiwi Browser).
+
+También puede guardarse como marcador (bookmarklet) pegando el código con
+prefijo `javascript:` en la URL de un marcador nuevo, para lanzarlo con un
+clic en vez de abrir la consola cada vez.
+
+La diferencia técnica con la versión de escritorio: en vez de leer el PDF de
+la respuesta de red (algo que sólo Playwright puede interceptar), toma la
+dirección del visor que SAP abre al pulsar el icono y la vuelve a pedir con
+`fetch` usando tu misma sesión — el archivo sale igual de completo.
+
+Es la opción a usar cuando no tienes tu computadora habitual a mano; para
+descargar muchos lotes de una sentada en tu propia PC sigue siendo más
+cómodo `APLICACION.bat`, que hace listas completas sin repetir el paso a
+mano por cada uno.
 
 ## Cómo se usa
 

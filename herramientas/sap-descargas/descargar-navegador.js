@@ -1,0 +1,286 @@
+// Descarga los PDF (OP y RMD) de un lote directamente desde el navegador,
+// sin instalar nada: ni Node, ni Playwright, ni el .bat. Corre dentro de la
+// misma pestaña donde ya tienes SAP abierto y logueado, usando tu propia
+// sesión — igual que hace APLICACION.bat, pero sin necesitar permisos de
+// administrador en la PC ni un Chromium aparte.
+//
+// CÓMO USARLO
+// -----------
+// 1. Abre SAP (fiori.medifarma.com.pe) e inicia sesión como siempre.
+// 2. Entra a la transacción "Reporte Sobre de Lote Digital" (la misma que
+//    usa el .bat) hasta ver la pantalla con el campo para escribir el lote.
+// 3. Abre la consola del navegador:
+//      - PC: F12 (o clic derecho -> Inspeccionar) y pestaña "Console".
+//      - Celular (Kiwi Browser u otro Chromium con soporte de extensiones,
+//        o la consola remota de Chrome DevTools): igual, pestaña Console.
+// 4. Pega todo este archivo en la consola y presiona Enter.
+// 5. Te va a preguntar el número de lote (con un cuadro de diálogo) y
+//    empieza solo: busca, lee la rejilla de resultados y descarga cada PDF
+//    (OP y RMD de cada etapa) a la carpeta de Descargas del navegador.
+//
+// También puede guardarse como marcador (bookmarklet): crea un marcador
+// nuevo y pega como URL "javascript:" seguido de todo este código sin
+// saltos de línea. Al hacer clic en el marcador estando en la pantalla de
+// SAP, hace lo mismo que pegarlo en la consola.
+//
+// POR QUÉ FUNCIONA EN CUALQUIER PC SIN PERMISOS DE ADMINISTRADOR
+// ----------------------------------------------------------------
+// Esto es JavaScript que corre DENTRO de la pestaña del navegador que ya
+// tienes abierta, usando tu sesión de SAP ya iniciada. No instala software,
+// no abre otro navegador, no necesita Node ni Playwright: es exactamente lo
+// mismo que hace la consola de "Inspeccionar elemento", que cualquier
+// navegador trae de fábrica y cualquier usuario puede abrir sin ser
+// administrador de la PC.
+
+(async () => {
+  const SEL_LOTE = ['input[title="Número de lote"]', 'input[title*="lote" i]'];
+  const SEL_CONSULTA = ['[title="Ejecutar <objeto>"]', '*[id$="6:7"]'];
+  const COLUMNAS_PDF = ["Producción-OP", "Producción-RMD"];
+  const ESPERA_REJILLA_MS = 5000;
+  const ESPERA_VISOR_MS = 12000;
+
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // La transacción vive dentro de un iframe de SAP GUI para HTML (WebGUI),
+  // no en la página principal de Fiori. Se busca entre todos los iframes,
+  // incluidos los anidados, el que tenga esa URL.
+  function marcoSap() {
+    const vistos = [window];
+    for (let i = 0; i < vistos.length; i++) {
+      const w = vistos[i];
+      let doc;
+      try {
+        doc = w.document;
+      } catch {
+        continue; // otro origen: no es el nuestro, se ignora
+      }
+      if (/webgui/i.test(w.location.href)) return doc;
+      for (const frame of doc.querySelectorAll("iframe")) {
+        try {
+          if (frame.contentWindow) vistos.push(frame.contentWindow);
+        } catch {
+          /* iframe de otro origen, se ignora */
+        }
+      }
+    }
+    return null;
+  }
+
+  function localizar(doc, selectores) {
+    for (const sel of selectores) {
+      const el = doc.querySelector(sel);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  // Dispara los eventos que SAP GUI para HTML espera para notar que un
+  // campo cambió, ya que asignar ".value" a secas no dispara nada.
+  function escribir(input, texto) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, texto);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function leerRejilla(doc) {
+    const celdas = [...doc.querySelectorAll('[id^="grid#"]')];
+    if (celdas.length === 0) return null;
+
+    const partes = celdas[0].id.match(/^(grid#[^#]+#)(\d+),(\d+)$/);
+    if (!partes) return null;
+    const prefijo = partes[1];
+
+    const cabecera = {};
+    const filas = new Set();
+
+    for (const c of celdas) {
+      const m = c.id.match(/^grid#[^#]+#(\d+),(\d+)$/);
+      if (!m) continue;
+      const fila = Number(m[1]);
+      const col = Number(m[2]);
+      const texto = (c.innerText || c.textContent || "").trim();
+      if (fila === 0) {
+        if (texto) cabecera[texto] = col;
+      } else {
+        filas.add(fila);
+      }
+    }
+
+    const etiquetas = {};
+    for (const fila of filas) {
+      const trozos = [];
+      for (let col = 0; col <= 4; col++) {
+        const el = doc.getElementById(prefijo + fila + "," + col);
+        const t = el ? (el.innerText || "").trim() : "";
+        if (t && !/^\d+$/.test(t)) trozos.push(t);
+      }
+      etiquetas[fila] = trozos.slice(0, 2).join("-");
+    }
+
+    return { prefijo, cabecera, filas: [...filas].sort((a, b) => a - b), etiquetas };
+  }
+
+  function hayVisorAbierto(doc) {
+    return doc.querySelector('embed[type*="pdf"], object[type*="pdf"], iframe[src*=".pdf"]') !== null;
+  }
+
+  async function cerrarVisor(doc) {
+    if (!hayVisorAbierto(doc)) return true;
+    const candidatos = ['button', '[title="Cancelar"]', '[title="Cerrar"]', '[title="Close"]'];
+    for (const sel of candidatos) {
+      for (const el of doc.querySelectorAll(sel)) {
+        const texto = (el.innerText || el.title || "").trim().toUpperCase();
+        if (sel === "button" && texto !== "OK") continue;
+        el.click();
+        await espera(700);
+        if (!hayVisorAbierto(doc)) return true;
+      }
+    }
+    doc.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await espera(700);
+    return !hayVisorAbierto(doc);
+  }
+
+  // Encuentra la URL del PDF que acaba de abrirse en el visor incrustado
+  // (SAP lo pone en un <embed>/<object>/<iframe>), en vez de interceptar
+  // la respuesta de red como hace la versión de escritorio: un script en la
+  // página no puede leer las respuestas de red de otros elementos, así que
+  // se lee de dónde el propio visor cargó el archivo.
+  function urlDelVisor(doc) {
+    const el = doc.querySelector('embed[type*="pdf"], object[type*="pdf"], iframe[src*=".pdf"]');
+    if (!el) return null;
+    return el.src || el.data || null;
+  }
+
+  async function esperarVisor(doc, timeoutMs) {
+    const limite = Date.now() + timeoutMs;
+    while (Date.now() < limite) {
+      const url = urlDelVisor(doc);
+      if (url) return url;
+      await espera(300);
+    }
+    return null;
+  }
+
+  function esPdfValido(buffer) {
+    if (!buffer || buffer.byteLength < 5000) return false;
+    const inicio = new TextDecoder("latin1").decode(buffer.slice(0, 5));
+    if (inicio !== "%PDF-") return false;
+    const final = new TextDecoder("latin1").decode(buffer.slice(-1500));
+    return final.includes("%%EOF");
+  }
+
+  function descargarArchivo(buffer, nombre) {
+    const blob = new Blob([buffer], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nombre;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  // --------------------------------------------------------------- inicio ---
+
+  const lote = window.prompt("¿Qué lote quieres descargar?");
+  if (!lote) return;
+
+  let doc = marcoSap();
+  if (!doc) {
+    alert("No encuentro la pantalla de SAP GUI en esta pestaña. Ábrela y vuelve a intentar.");
+    return;
+  }
+
+  const campo = localizar(doc, SEL_LOTE);
+  if (!campo) {
+    alert("No encuentro el campo del lote. ¿Estás en la pantalla del Reporte Sobre de Lote Digital?");
+    return;
+  }
+  escribir(campo, lote);
+
+  const boton = localizar(doc, SEL_CONSULTA);
+  if (!boton) {
+    alert("No encuentro el botón Consulta.");
+    return;
+  }
+  boton.click();
+
+  await espera(ESPERA_REJILLA_MS);
+  doc = marcoSap();
+  if (!doc) {
+    alert("La pantalla de SAP desapareció después de consultar.");
+    return;
+  }
+
+  const rejilla = leerRejilla(doc);
+  if (!rejilla || rejilla.filas.length === 0) {
+    alert("La búsqueda no devolvió ninguna etapa para ese lote.");
+    return;
+  }
+
+  const columnas = COLUMNAS_PDF.map((nombre) => ({ nombre, col: rejilla.cabecera[nombre] })).filter(
+    (c) => c.col !== undefined
+  );
+  if (columnas.length === 0) {
+    alert(`No encontré las columnas ${COLUMNAS_PDF.join(" ni ")} en la rejilla de resultados.`);
+    return;
+  }
+
+  const guardados = [];
+  const fallos = [];
+
+  for (const fila of rejilla.filas) {
+    for (const { nombre, col } of columnas) {
+      const etiqueta = (rejilla.etiquetas[fila] || `fila${fila}`).replace(/[\\/:*?"<>|\s]+/g, "_");
+      const sufijo = nombre.split("-").pop().replace(/[^A-Za-z]+/g, "");
+      const rotulo = `${lote}_${etiqueta}_${sufijo}.pdf`;
+
+      doc = marcoSap() || doc;
+      if (!(await cerrarVisor(doc))) {
+        fallos.push(`${rotulo}: no pude cerrar la ventana del visor anterior`);
+        continue;
+      }
+
+      const celda = doc.getElementById(`${rejilla.prefijo}${fila},${col}`);
+      if (!celda) continue;
+      celda.click();
+
+      const urlPdf = await esperarVisor(doc, ESPERA_VISOR_MS);
+      if (!urlPdf) {
+        console.log(`     · ${rotulo}: no se abrió el PDF`);
+        await cerrarVisor(doc);
+        continue;
+      }
+
+      let buffer = null;
+      try {
+        const respuesta = await fetch(urlPdf, { credentials: "include" });
+        buffer = await respuesta.arrayBuffer();
+      } catch (err) {
+        console.log(`     · ${rotulo}: fallo al descargar (${err.message})`);
+      }
+
+      if (!esPdfValido(buffer)) {
+        const kb = buffer ? Math.round(buffer.byteLength / 1024) : 0;
+        fallos.push(`${rotulo}: lo descargado no es un PDF válido (${kb} kB)`);
+        await cerrarVisor(doc);
+        continue;
+      }
+
+      descargarArchivo(buffer, rotulo);
+      guardados.push(rotulo);
+      console.log(`     · ${rotulo} (${Math.round(buffer.byteLength / 1024)} kB)`);
+
+      await cerrarVisor(doc);
+      await espera(500);
+    }
+  }
+
+  alert(
+    `Listo.\n\nGuardados (${guardados.length}):\n${guardados.join("\n") || "ninguno"}` +
+      (fallos.length ? `\n\nCon problemas (${fallos.length}):\n${fallos.join("\n")}` : "")
+  );
+})();
