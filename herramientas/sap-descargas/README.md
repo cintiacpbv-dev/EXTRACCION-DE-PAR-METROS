@@ -34,6 +34,10 @@ abierta, así que funciona en cualquier PC sin permisos de administrador, y
 también en el navegador del celular (en Android, con uno que permita
 consola/extensiones, como Kiwi Browser).
 
+Admite varios lotes de una vez: el cuadro de diálogo acepta una lista, uno
+por línea (o separados por coma o espacio), y los procesa uno detrás de
+otro sin volver a preguntar.
+
 También puede guardarse como marcador (bookmarklet) pegando el código con
 prefijo `javascript:` en la URL de un marcador nuevo, para lanzarlo con un
 clic en vez de abrir la consola cada vez.

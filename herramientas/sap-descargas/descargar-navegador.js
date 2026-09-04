@@ -183,104 +183,129 @@
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
+  // Busca un lote (rellena el campo, pulsa Consulta, lee la rejilla y baja
+  // cada PDF) y devuelve lo guardado y lo que falló, para ese lote solo.
+  async function descargarLote(lote) {
+    const guardados = [];
+    const fallos = [];
+
+    let doc = marcoSap();
+    if (!doc) {
+      fallos.push(`${lote}: no encuentro la pantalla de SAP GUI en esta pestaña`);
+      return { guardados, fallos };
+    }
+
+    const campo = localizar(doc, SEL_LOTE);
+    if (!campo) {
+      fallos.push(`${lote}: no encuentro el campo del lote`);
+      return { guardados, fallos };
+    }
+    escribir(campo, lote);
+
+    const boton = localizar(doc, SEL_CONSULTA);
+    if (!boton) {
+      fallos.push(`${lote}: no encuentro el botón Consulta`);
+      return { guardados, fallos };
+    }
+    boton.click();
+
+    await espera(ESPERA_REJILLA_MS);
+    doc = marcoSap();
+    if (!doc) {
+      fallos.push(`${lote}: la pantalla de SAP desapareció después de consultar`);
+      return { guardados, fallos };
+    }
+
+    const rejilla = leerRejilla(doc);
+    if (!rejilla || rejilla.filas.length === 0) {
+      fallos.push(`${lote}: la búsqueda no devolvió ninguna etapa`);
+      return { guardados, fallos };
+    }
+
+    const columnas = COLUMNAS_PDF.map((nombre) => ({ nombre, col: rejilla.cabecera[nombre] })).filter(
+      (c) => c.col !== undefined
+    );
+    if (columnas.length === 0) {
+      fallos.push(`${lote}: no encontré las columnas ${COLUMNAS_PDF.join(" ni ")}`);
+      return { guardados, fallos };
+    }
+
+    for (const fila of rejilla.filas) {
+      for (const { nombre, col } of columnas) {
+        const etiqueta = (rejilla.etiquetas[fila] || `fila${fila}`).replace(/[\\/:*?"<>|\s]+/g, "_");
+        const sufijo = nombre.split("-").pop().replace(/[^A-Za-z]+/g, "");
+        const rotulo = `${lote}_${etiqueta}_${sufijo}.pdf`;
+
+        doc = marcoSap() || doc;
+        if (!(await cerrarVisor(doc))) {
+          fallos.push(`${rotulo}: no pude cerrar la ventana del visor anterior`);
+          continue;
+        }
+
+        const celda = doc.getElementById(`${rejilla.prefijo}${fila},${col}`);
+        if (!celda) continue;
+        celda.click();
+
+        const urlPdf = await esperarVisor(doc, ESPERA_VISOR_MS);
+        if (!urlPdf) {
+          console.log(`     · ${rotulo}: no se abrió el PDF`);
+          await cerrarVisor(doc);
+          continue;
+        }
+
+        let buffer = null;
+        try {
+          const respuesta = await fetch(urlPdf, { credentials: "include" });
+          buffer = await respuesta.arrayBuffer();
+        } catch (err) {
+          console.log(`     · ${rotulo}: fallo al descargar (${err.message})`);
+        }
+
+        if (!esPdfValido(buffer)) {
+          const kb = buffer ? Math.round(buffer.byteLength / 1024) : 0;
+          fallos.push(`${rotulo}: lo descargado no es un PDF válido (${kb} kB)`);
+          await cerrarVisor(doc);
+          continue;
+        }
+
+        descargarArchivo(buffer, rotulo);
+        guardados.push(rotulo);
+        console.log(`     · ${rotulo} (${Math.round(buffer.byteLength / 1024)} kB)`);
+
+        await cerrarVisor(doc);
+        await espera(500);
+      }
+    }
+
+    return { guardados, fallos };
+  }
+
   // --------------------------------------------------------------- inicio ---
 
-  const lote = window.prompt("¿Qué lote quieres descargar?");
-  if (!lote) return;
-
-  let doc = marcoSap();
-  if (!doc) {
-    alert("No encuentro la pantalla de SAP GUI en esta pestaña. Ábrela y vuelve a intentar.");
-    return;
-  }
-
-  const campo = localizar(doc, SEL_LOTE);
-  if (!campo) {
-    alert("No encuentro el campo del lote. ¿Estás en la pantalla del Reporte Sobre de Lote Digital?");
-    return;
-  }
-  escribir(campo, lote);
-
-  const boton = localizar(doc, SEL_CONSULTA);
-  if (!boton) {
-    alert("No encuentro el botón Consulta.");
-    return;
-  }
-  boton.click();
-
-  await espera(ESPERA_REJILLA_MS);
-  doc = marcoSap();
-  if (!doc) {
-    alert("La pantalla de SAP desapareció después de consultar.");
-    return;
-  }
-
-  const rejilla = leerRejilla(doc);
-  if (!rejilla || rejilla.filas.length === 0) {
-    alert("La búsqueda no devolvió ninguna etapa para ese lote.");
-    return;
-  }
-
-  const columnas = COLUMNAS_PDF.map((nombre) => ({ nombre, col: rejilla.cabecera[nombre] })).filter(
-    (c) => c.col !== undefined
+  const texto = window.prompt(
+    "¿Qué lote(s) quieres descargar? Uno por línea, o separados por coma/espacio."
   );
-  if (columnas.length === 0) {
-    alert(`No encontré las columnas ${COLUMNAS_PDF.join(" ni ")} en la rejilla de resultados.`);
-    return;
-  }
+  if (!texto) return;
 
-  const guardados = [];
-  const fallos = [];
+  const lotes = [...new Set(texto.split(/[\s,;]+/).map((l) => l.trim()).filter(Boolean))];
+  if (lotes.length === 0) return;
 
-  for (const fila of rejilla.filas) {
-    for (const { nombre, col } of columnas) {
-      const etiqueta = (rejilla.etiquetas[fila] || `fila${fila}`).replace(/[\\/:*?"<>|\s]+/g, "_");
-      const sufijo = nombre.split("-").pop().replace(/[^A-Za-z]+/g, "");
-      const rotulo = `${lote}_${etiqueta}_${sufijo}.pdf`;
+  const guardadosTotal = [];
+  const fallosTotal = [];
 
-      doc = marcoSap() || doc;
-      if (!(await cerrarVisor(doc))) {
-        fallos.push(`${rotulo}: no pude cerrar la ventana del visor anterior`);
-        continue;
-      }
-
-      const celda = doc.getElementById(`${rejilla.prefijo}${fila},${col}`);
-      if (!celda) continue;
-      celda.click();
-
-      const urlPdf = await esperarVisor(doc, ESPERA_VISOR_MS);
-      if (!urlPdf) {
-        console.log(`     · ${rotulo}: no se abrió el PDF`);
-        await cerrarVisor(doc);
-        continue;
-      }
-
-      let buffer = null;
-      try {
-        const respuesta = await fetch(urlPdf, { credentials: "include" });
-        buffer = await respuesta.arrayBuffer();
-      } catch (err) {
-        console.log(`     · ${rotulo}: fallo al descargar (${err.message})`);
-      }
-
-      if (!esPdfValido(buffer)) {
-        const kb = buffer ? Math.round(buffer.byteLength / 1024) : 0;
-        fallos.push(`${rotulo}: lo descargado no es un PDF válido (${kb} kB)`);
-        await cerrarVisor(doc);
-        continue;
-      }
-
-      descargarArchivo(buffer, rotulo);
-      guardados.push(rotulo);
-      console.log(`     · ${rotulo} (${Math.round(buffer.byteLength / 1024)} kB)`);
-
-      await cerrarVisor(doc);
-      await espera(500);
-    }
+  for (const lote of lotes) {
+    console.log(`Lote ${lote}`);
+    const { guardados, fallos } = await descargarLote(lote);
+    guardadosTotal.push(...guardados);
+    fallosTotal.push(...fallos);
+    // Entre un lote y el siguiente conviene una pausa breve: la pantalla
+    // necesita respirar antes de aceptar una nueva búsqueda.
+    if (lotes.indexOf(lote) < lotes.length - 1) await espera(1000);
   }
 
   alert(
-    `Listo.\n\nGuardados (${guardados.length}):\n${guardados.join("\n") || "ninguno"}` +
-      (fallos.length ? `\n\nCon problemas (${fallos.length}):\n${fallos.join("\n")}` : "")
+    `Listo. ${lotes.length} lote(s) procesado(s).\n\n` +
+      `Guardados (${guardadosTotal.length}):\n${guardadosTotal.join("\n") || "ninguno"}` +
+      (fallosTotal.length ? `\n\nCon problemas (${fallosTotal.length}):\n${fallosTotal.join("\n")}` : "")
   );
 })();
