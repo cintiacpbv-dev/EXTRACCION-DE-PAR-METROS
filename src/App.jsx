@@ -890,11 +890,24 @@ export default function App() {
           </nav>
         </div>
 
-        <span className={`badge ${supabaseEnabled ? "badge--cloud" : "badge--local"}`}>
+        <span className={`badge badge--topbar ${supabaseEnabled ? "badge--cloud" : "badge--local"}`}>
           {supabaseEnabled ? <IconCloud size={15} /> : <IconDrive size={15} />}
           {supabaseEnabled ? "Supabase conectado" : "Guardado local"}
         </span>
       </header>
+
+      {/* En celular la insignia de arriba se oculta (el logo, los tres
+          enlaces de secciones y el texto "Supabase conectado" ya no caben
+          en el ancho de la pantalla, y quedaban superpuestos). Esta es su
+          reemplazante: sólo el ícono, flotando en una esquina, fuera de la
+          barra superior — así no le quita sitio a nada. */}
+      <span
+        className={`badge badge--flotante ${supabaseEnabled ? "badge--cloud" : "badge--local"}`}
+        title={supabaseEnabled ? "Supabase conectado" : "Guardado local"}
+        aria-label={supabaseEnabled ? "Supabase conectado" : "Guardado local"}
+      >
+        {supabaseEnabled ? <IconCloud size={16} /> : <IconDrive size={16} />}
+      </span>
 
       {/* Sin relleno cuando lo de dentro es Consulta PDF: ese hueco es
           exactamente lo que delataba que había una página metida dentro de

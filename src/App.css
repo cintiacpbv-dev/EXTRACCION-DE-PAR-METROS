@@ -175,6 +175,37 @@
   color: var(--text-soft);
 }
 
+/* Sólo existe para el celular (ver el media query de abajo): en escritorio
+   la insignia de siempre, dentro de la barra superior, ya se ve entera. */
+.badge--flotante {
+  display: none;
+}
+
+/* Con el logo, los tres enlaces de sección y el texto de esta insignia, la
+   barra ya no entraba en el ancho de un celular: la insignia —que no se
+   achica porque su texto no envuelve— quedaba encimada sobre los últimos
+   íconos de sección y los tapaba. Se oculta aquí y su reemplazo (sólo el
+   ícono, en una esquina, fuera de la barra) es ".badge--flotante". Este
+   media query va DESPUÉS de ".badge"/".badge--flotante" a propósito: con
+   la misma especificidad, el que gana es el que aparece más abajo en el
+   archivo, y puesto antes esta regla perdía contra ".badge { display:
+   inline-flex }" de más arriba. */
+@media (max-width: 760px) {
+  .badge--topbar {
+    display: none;
+  }
+
+  .badge--flotante {
+    display: inline-flex;
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    z-index: 25;
+    padding: 9px;
+    box-shadow: var(--shadow-lg);
+  }
+}
+
 /* ---------- Layout ---------- */
 .main {
   flex: 1;
@@ -3114,9 +3145,18 @@
 }
 
 @media (max-width: 980px) {
+  /* Apiladas en una sola columna, las tres secciones ya no caben en la
+     altura fija de ".app--pantalla-fija" (100vh, overflow: hidden): antes
+     la fila del Asistente quedaba recortada y sin forma de llegar a ella,
+     como si esa sección no existiera. Aquí es ".stat-body" el que
+     scrollea, con cada fila a su alto natural en vez de repartirse el
+     espacio como en escritorio. */
   .stat-body {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(140px, 220px) minmax(320px, 1fr) auto;
+    grid-template-rows: minmax(160px, 240px) minmax(360px, auto) auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 10px;
   }
   .navegador-panel {
     grid-column: 1;
@@ -3129,5 +3169,8 @@
   .assistant-panel {
     grid-column: 1;
     grid-row: 3;
+    /* Ya no comparte alto fijo con las otras columnas: se muestra entero y
+       es la propia página (".stat-body") la que scrollea hasta él. */
+    overflow-y: visible;
   }
 }
