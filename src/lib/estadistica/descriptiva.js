@@ -64,12 +64,19 @@ export function resumenBoxplot(values) {
   return { minimo: bigoteInf, q1, mediana, q3, maximo: bigoteSup, atipicos };
 }
 
-/** Bins de un histograma por la regla de Sturges, como referencia razonable por defecto. */
-export function binsHistograma(values, numBins) {
+/**
+ * Bins de un histograma por la regla de Sturges, como referencia razonable
+ * por defecto. "rango" fuerza el mínimo/máximo del eje en vez de tomarlo de
+ * los datos — hace falta para el histograma de capacidad, donde los
+ * límites de especificación pueden caer fuera del rango de los datos (un
+ * proceso capaz, centrado, es justo cuando eso pasa) y aun así tienen que
+ * verse dentro del gráfico.
+ */
+export function binsHistograma(values, numBins, rango) {
   const numericos = valoresNumericos(values);
   if (numericos.length === 0) return { bins: [], ancho: 0, inicio: 0 };
-  const minimo = Math.min(...numericos);
-  const maximo = Math.max(...numericos);
+  const minimo = Math.min(rango?.minimo ?? Infinity, ...numericos);
+  const maximo = Math.max(rango?.maximo ?? -Infinity, ...numericos);
   const n = numBins || Math.max(1, Math.ceil(Math.log2(numericos.length) + 1));
   const ancho = maximo === minimo ? 1 : (maximo - minimo) / n;
   const bins = new Array(n).fill(0);

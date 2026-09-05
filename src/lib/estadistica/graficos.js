@@ -9,7 +9,7 @@
 // categórica aparte, ya validada para daltonismo y contraste en modo
 // oscuro, mientras que el fondo, la rejilla y el texto sí seguen los
 // tokens de la app para que el gráfico se sienta parte de la página.
-import { estadisticaDescriptiva, resumenBoxplot, binsHistograma } from "./descriptiva.js";
+import { estadisticaDescriptiva, resumenBoxplot, binsHistograma, valoresNumericos } from "./descriptiva.js";
 
 // Paleta categórica validada (dark): azul, naranja, rojo — sólo se usan los
 // primeros tres puestos, que son los que superan el chequeo "todos contra
@@ -59,8 +59,8 @@ function densidadNormal(x, media, desvEst) {
  * pendiente de una fase futura hasta verificarla contra casos conocidos:
  * un algoritmo mal implementado ahí es peor que no tenerlo).
  */
-export function opcionHistograma(values, nombreColumna, numBins) {
-  const { bins, ancho, inicio } = binsHistograma(values, numBins);
+export function opcionHistograma(values, nombreColumna, numBins, rango) {
+  const { bins, ancho, inicio } = binsHistograma(values, numBins, rango);
   const stats = estadisticaDescriptiva(values);
   const etiquetas = bins.map((_, i) => (inicio + i * ancho + ancho / 2).toFixed(2));
 
@@ -194,4 +194,118 @@ export function opcionDispersion(colX, colY, colGrupo) {
     legend: { data: series.map((s) => s.name), textStyle: { color: TEXTO_SUAVE }, top: 24 },
     series,
   };
+}
+
+const VERDE_OK = "#008300";
+
+/** Par de cartas (individuos + rango móvil, o Xbar + R) apiladas una sobre otra. */
+function opcionParDeCartas(superior, inferior, tituloSuperior, tituloInferior, nombreEje) {
+  return {
+    ...BASE,
+    tooltip: { ...BASE.tooltip, trigger: "axis" },
+    grid: [
+      { left: 64, right: 24, top: 48, height: "35%" },
+      { left: 64, right: 24, top: "58%", height: "32%" },
+    ],
+    xAxis: [
+      ejeBase({ type: "category", data: superior.puntos.map((p) => p.i + 1), gridIndex: 0, show: false }),
+      ejeBase({ type: "category", data: inferior.puntos.map((p) => p.i + 1), gridIndex: 1, name: "Muestra", nameLocation: "middle", nameGap: 28 }),
+    ],
+    yAxis: [
+      ejeBase({ type: "value", name: nombreEje[0], gridIndex: 0, scale: true }),
+      ejeBase({ type: "value", name: nombreEje[1], gridIndex: 1, scale: true }),
+    ],
+    title: [
+      { text: tituloSuperior, top: 8, left: 64, textStyle: { color: TEXTO, fontSize: 13, fontWeight: 600 } },
+      { text: tituloInferior, top: "56%", left: 64, textStyle: { color: TEXTO, fontSize: 13, fontWeight: 600 } },
+    ],
+    series: [superior, inferior].map((carta, idx) => ({
+      name: nombreEje[idx],
+      type: "line",
+      xAxisIndex: idx,
+      yAxisIndex: idx,
+      data: carta.puntos.map((p) => ({ value: p.v, itemStyle: p.fuera ? { color: ATIPICO } : undefined })),
+      symbol: "circle",
+      symbolSize: 6,
+      lineStyle: { color: SERIE_1, width: 1.5 },
+      itemStyle: { color: SERIE_1 },
+      markLine: {
+        symbol: "none",
+        label: { color: TEXTO_SUAVE, fontSize: 10 },
+        data: [
+          { yAxis: carta.cl, lineStyle: { color: VERDE_OK, type: "solid", width: 1.5 }, label: { formatter: `LC ${carta.cl.toFixed(3)}` } },
+          { yAxis: carta.ucl, lineStyle: { color: SERIE_2, type: "dashed" }, label: { formatter: `LCS ${carta.ucl.toFixed(3)}` } },
+          { yAxis: carta.lcl, lineStyle: { color: SERIE_2, type: "dashed" }, label: { formatter: `LCI ${carta.lcl.toFixed(3)}` } },
+        ],
+      },
+    })),
+  };
+}
+
+/** Gráfica de control individuos + rango móvil (I-MR). */
+export function opcionIMR(resultado, nombreColumna) {
+  return opcionParDeCartas(
+    resultado.individuos,
+    resultado.rangoMovil,
+    `Individuos — ${nombreColumna}`,
+    "Rango móvil",
+    [nombreColumna, "Rango móvil"]
+  );
+}
+
+/** Gráfica de control Xbar-R. */
+export function opcionXbarR(resultado, nombreColumna) {
+  return opcionParDeCartas(
+    resultado.medias,
+    resultado.rangos,
+    `Xbarra — ${nombreColumna}`,
+    "Rango",
+    [`Media (n=${resultado.tamanoSubgrupo})`, "Rango"]
+  );
+}
+
+/**
+ * Histograma de capacidad: igual que opcionHistograma, pero con los
+ * límites de especificación marcados como referencias verticales, para ver
+ * de un vistazo cuánto del proceso cae fuera de lo permitido.
+ */
+export function opcionCapacidad(values, nombreColumna, { lsl, usl } = {}) {
+  const datos = valoresNumericos(values);
+
+  // El histograma tiene que abarcar los límites de especificación aunque
+  // caigan fuera de los datos —un proceso capaz y bien centrado es
+  // justamente cuando eso pasa—, si no las líneas de LEI/LES quedarían
+  // fuera del área visible y nunca se verían. Con un margen del 5% para
+  // que no queden pegadas al borde del gráfico.
+  const margen = (Math.max(...datos) - Math.min(...datos)) * 0.05 || 1;
+  const rango = {
+    minimo: Math.min(...datos, lsl != null ? lsl - margen : Infinity),
+    maximo: Math.max(...datos, usl != null ? usl + margen : -Infinity),
+  };
+
+  const { bins, ancho, inicio } = binsHistograma(datos, undefined, rango);
+  const base = opcionHistograma(values, nombreColumna, bins.length, rango);
+
+  // El eje del histograma es de categorías (una por bin), no un eje
+  // numérico continuo: "markLine" con xAxis en categorías no acepta el
+  // valor real de LEI/LES, pero sí acepta un índice de categoría —incluso
+  // fraccional—, así que se convierte el valor a la posición de bin que le
+  // corresponde. Los centros de bin son inicio + i·ancho + ancho/2, o sea
+  // que el índice (posiblemente con decimales) es (valor − inicio)/ancho − 0.5.
+  const aIndice = (valor) => (valor - inicio) / ancho - 0.5;
+
+  const lineas = [];
+  if (lsl != null) lineas.push({ xAxis: aIndice(lsl), lineStyle: { color: ATIPICO, type: "dashed", width: 2.5 }, label: { formatter: `LEI ${lsl}`, color: ATIPICO, fontWeight: 600 } });
+  if (usl != null) lineas.push({ xAxis: aIndice(usl), lineStyle: { color: ATIPICO, type: "dashed", width: 2.5 }, label: { formatter: `LES ${usl}`, color: ATIPICO, fontWeight: 600 } });
+
+  base.series[0].markLine = {
+    symbol: "none",
+    label: { color: ATIPICO, fontSize: 11 },
+    data: lineas,
+  };
+
+  const fueraDeRango = datos.filter((v) => (lsl != null && v < lsl) || (usl != null && v > usl)).length;
+  base.__fueraDeRango = fueraDeRango;
+  base.__totalDatos = datos.length;
+  return base;
 }

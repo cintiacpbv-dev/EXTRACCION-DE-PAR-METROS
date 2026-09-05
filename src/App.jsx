@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import UploadZone from "./components/UploadZone.jsx";
 import ParamTable from "./components/ParamTable.jsx";
 import LoadedBatches from "./components/LoadedBatches.jsx";
@@ -10,6 +10,7 @@ import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
 import Formato3Panel from "./components/Formato3Panel.jsx";
 import Formato01Panel from "./components/Formato01Panel.jsx";
 import RiesgoView from "./components/RiesgoView.jsx";
+import EstadisticaView from "./components/EstadisticaViewLazy.jsx";
 import BarraProgreso from "./components/BarraProgreso.jsx";
 import {
   IconCloud,
@@ -80,14 +81,6 @@ import "./App.css";
 // entrar sin ningún hash (el caso normal) ese primer "#/" sí cambia la URL y
 // dispara el evento, de modo que el primer clic se perdía y había que pulsar
 // dos veces para poder cargar archivos.
-
-// La hoja tipo Excel y los gráficos (react-data-grid, ECharts) pesan varios
-// megabytes que Detección de Parámetros y Análisis de Riesgo no necesitan
-// para nada: cargarlos siempre metería ese peso en cada visita a la app,
-// aunque nunca se abra esta sección. Con lazy() sólo se piden al navegar
-// aquí, la primera vez.
-const EstadisticaView = lazy(() => import("./components/EstadisticaView.jsx"));
-
 function readRoute() {
   const hash = window.location.hash.replace(/^#\/?/, "");
   if (hash === "nuevo") return { view: "product", producto: null, blank: true };
