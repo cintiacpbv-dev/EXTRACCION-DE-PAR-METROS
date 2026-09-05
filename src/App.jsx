@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import UploadZone from "./components/UploadZone.jsx";
 import ParamTable from "./components/ParamTable.jsx";
 import LoadedBatches from "./components/LoadedBatches.jsx";
@@ -27,6 +27,7 @@ import {
   IconUpload,
   IconChevronDown,
   IconMessageSquare,
+  IconChartBar,
 } from "./components/Icons.jsx";
 import ArchivosOmitidos from "./components/ArchivosOmitidos.jsx";
 import ConsultaPdf from "./components/ConsultaPdf.jsx";
@@ -79,11 +80,20 @@ import "./App.css";
 // entrar sin ningún hash (el caso normal) ese primer "#/" sí cambia la URL y
 // dispara el evento, de modo que el primer clic se perdía y había que pulsar
 // dos veces para poder cargar archivos.
+
+// La hoja tipo Excel y los gráficos (react-data-grid, ECharts) pesan varios
+// megabytes que Detección de Parámetros y Análisis de Riesgo no necesitan
+// para nada: cargarlos siempre metería ese peso en cada visita a la app,
+// aunque nunca se abra esta sección. Con lazy() sólo se piden al navegar
+// aquí, la primera vez.
+const EstadisticaView = lazy(() => import("./components/EstadisticaView.jsx"));
+
 function readRoute() {
   const hash = window.location.hash.replace(/^#\/?/, "");
   if (hash === "nuevo") return { view: "product", producto: null, blank: true };
   if (hash === "consulta") return { view: "consulta", producto: null, blank: false };
   if (hash === "riesgo") return { view: "riesgo", producto: null, blank: false };
+  if (hash === "estadistica") return { view: "estadistica", producto: null, blank: false };
   if (hash.startsWith("producto/")) {
     return {
       view: "product",
@@ -97,6 +107,7 @@ function readRoute() {
 function routeHash(view, producto, blank) {
   if (view === "consulta") return "#/consulta";
   if (view === "riesgo") return "#/riesgo";
+  if (view === "estadistica") return "#/estadistica";
   if (view !== "product") return "#/";
   return blank || !producto ? "#/nuevo" : `#/producto/${encodeURIComponent(producto)}`;
 }
@@ -238,6 +249,8 @@ export default function App() {
         setView("consulta");
       } else if (route.view === "riesgo") {
         setView("riesgo");
+      } else if (route.view === "estadistica") {
+        setView("estadistica");
       } else if (route.view === "product" && route.producto) {
         if (familias.includes(route.producto)) {
           setView("product");
@@ -392,6 +405,11 @@ export default function App() {
   function openRiesgo() {
     setView("riesgo");
     writeRoute("riesgo", null, false);
+  }
+
+  function openEstadistica() {
+    setView("estadistica");
+    writeRoute("estadistica", null, false);
   }
 
   /**
@@ -835,7 +853,7 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${view === "estadistica" ? "app--pantalla-fija" : ""}`}>
       <header className="topbar">
         <div className="topbar__start">
           <button className="brand" onClick={backToLibrary} title="Ir a tus análisis">
@@ -868,6 +886,14 @@ export default function App() {
             >
               <IconAlert size={15} /> <span>Análisis de Riesgo</span>
             </button>
+            {/* Tampoco depende de un análisis cargado: los datos los trae la
+                propia persona, pegados, tecleados o importados de un archivo. */}
+            <button
+              className={`topnav__link ${view === "estadistica" ? "is-active" : ""}`}
+              onClick={openEstadistica}
+            >
+              <IconChartBar size={15} /> <span>Análisis Estadístico</span>
+            </button>
           </nav>
         </div>
 
@@ -880,7 +906,11 @@ export default function App() {
       {/* Sin relleno cuando lo de dentro es Consulta PDF: ese hueco es
           exactamente lo que delataba que había una página metida dentro de
           otra, en vez de ocupar la pantalla entera. */}
-      <main className={`main ${view === "consulta" ? "main--consulta" : ""} ${view === "riesgo" ? "main--riesgo" : ""}`}>
+      <main
+        className={`main ${view === "consulta" ? "main--consulta" : ""} ${view === "riesgo" ? "main--riesgo" : ""} ${
+          view === "estadistica" ? "main--estadistica" : ""
+        }`}
+      >
         {/* Los avisos viven al nivel de la página, no dentro de la tarjeta de
             carga: cuando estaban ahí, todo lo que se anunciaba desde la
             biblioteca —imagen guardada, producto eliminado— no se llegaba a
@@ -908,6 +938,10 @@ export default function App() {
           <ConsultaPdf query={consultaQuery} />
         ) : view === "riesgo" ? (
           <RiesgoView />
+        ) : view === "estadistica" ? (
+          <Suspense fallback={<div className="empty-state">Cargando…</div>}>
+            <EstadisticaView />
+          </Suspense>
         ) : view === "library" ? (
           <ProductLibrary
             productos={resumenProductos}

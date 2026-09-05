@@ -274,3 +274,14 @@ export function IconExternalLink(props) {
     </Svg>
   );
 }
+
+export function IconChartBar(props) {
+  return (
+    <Svg {...props}>
+      <path d="M3 3v18h18" />
+      <path d="M8 17V11" />
+      <path d="M13 17V7" />
+      <path d="M18 17v-4" />
+    </Svg>
+  );
+}
