@@ -1,9 +1,20 @@
 import { useState } from "react";
 import { useWorkbookStore } from "../lib/estadistica/store.js";
 import { estadisticaDescriptiva } from "../lib/estadistica/descriptiva.js";
-import { opcionBoxplot, opcionDispersion, opcionHistograma, opcionIMR, opcionXbarR, opcionCapacidad } from "../lib/estadistica/graficos.js";
+import {
+  opcionBoxplot,
+  opcionDispersion,
+  opcionHistograma,
+  opcionIMR,
+  opcionXbarR,
+  opcionCapacidad,
+  opcionGageRR,
+  opcionParetoEfectos,
+} from "../lib/estadistica/graficos.js";
 import { tUnaMuestra, tDosMuestras, tPareada, pruebaVarianzas, proporcionUnaMuestra, correlacion } from "../lib/estadistica/pruebas.js";
 import { graficaIndividuosMR, graficaXbarR, capacidadProceso } from "../lib/estadistica/spc.js";
+import { gageRR } from "../lib/estadistica/gageRR.js";
+import { generarDisenoFactorial, analizarFactorial } from "../lib/estadistica/doe.js";
 import { IconAlert, IconFlask } from "./Icons.jsx";
 
 const ACCIONES = [
@@ -55,12 +66,45 @@ const ACCIONES = [
       { key: "subgrupo", label: "Tamaño de subgrupo para Cp/Cpk (opcional; vacío = sólo Pp/Ppk)", tipo: "number", valorInicial: "" },
     ],
   },
+  {
+    id: "gagerr",
+    nombre: "Gage R&R (sistema de medición)",
+    minColumnas: 0,
+    maxColumnas: 0,
+    ayuda:
+      'La hoja debe tener una fila por medición, en "formato largo": una columna con la parte medida, otra con quién la midió, y otra con el valor. Cada operador debe medir cada parte el mismo número de veces.',
+    extras: [
+      { key: "colParte", label: "Columna de Parte", tipo: "columna", valorInicial: "" },
+      { key: "colOperador", label: "Columna de Operador", tipo: "columna", valorInicial: "" },
+      { key: "colMedicion", label: "Columna de Medición", tipo: "columna", valorInicial: "" },
+    ],
+  },
+  {
+    id: "crear_diseno",
+    nombre: "Crear diseño factorial",
+    minColumnas: 0,
+    maxColumnas: 0,
+    ayuda: "Reemplaza la hoja actual por una tabla de corridas nueva, lista para llenar con los resultados reales del experimento.",
+    extras: [
+      { key: "numFactores", label: "Número de factores (2 a 5)", tipo: "number", valorInicial: 2 },
+      { key: "replicas", label: "Réplicas por corrida", tipo: "number", valorInicial: 2 },
+    ],
+  },
+  {
+    id: "analizar_factorial",
+    nombre: "Analizar diseño factorial",
+    minColumnas: 2,
+    maxColumnas: 5,
+    ayuda: 'Marca las columnas de los FACTORES (con valores -1 y 1) y elige aparte cuál es la columna de "Respuesta".',
+    extras: [{ key: "colRespuesta", label: "Columna de respuesta", tipo: "columna", valorInicial: "" }],
+  },
 ];
 
 const GRUPOS = [
   { nombre: "Descriptiva y gráficos", ids: ["descriptiva", "histograma", "boxplot", "dispersion", "correlacion"] },
   { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "varianzas", "proporcion1"] },
-  { nombre: "Control de calidad (SPC)", ids: ["imr", "xbarr", "capacidad"] },
+  { nombre: "Control de calidad (SPC)", ids: ["imr", "xbarr", "capacidad", "gagerr"] },
+  { nombre: "Diseño de experimentos (DOE)", ids: ["crear_diseno", "analizar_factorial"] },
 ];
 
 function formatearNumero(n) {
@@ -112,6 +156,7 @@ export default function AnalysisAssistant() {
   const columns = useWorkbookStore((s) => s.columns);
   const registrarResultado = useWorkbookStore((s) => s.registrarResultado);
   const agregarGrafico = useWorkbookStore((s) => s.agregarGrafico);
+  const cargarHoja = useWorkbookStore((s) => s.cargarHoja);
   const [accionId, setAccionId] = useState(ACCIONES[0].id);
   const [seleccion, setSeleccion] = useState([]);
   const [extras, setExtras] = useState({});
@@ -138,6 +183,12 @@ export default function AnalysisAssistant() {
     const v = extras[key];
     if (v === "" || v == null) return null;
     return tipo === "number" ? Number(v) : v;
+  }
+
+  function columnaExtra(key) {
+    const nombre = extras[key];
+    if (!nombre) return null;
+    return columns.find((c) => c.name === nombre) || null;
   }
 
   function ejecutar() {
@@ -337,6 +388,99 @@ export default function AnalysisAssistant() {
         r.cp == null ? ['Sin tamaño de subgrupo no se puede estimar la variación "dentro" del proceso: sólo se calculan Pp/Ppk.'] : []
       );
       agregarGrafico(`Capacidad — ${c.name}`, opcionCapacidad(c.values, c.name, { lsl, usl }));
+    } else if (accion.id === "gagerr") {
+      const colParte = columnaExtra("colParte");
+      const colOperador = columnaExtra("colOperador");
+      const colMedicion = columnaExtra("colMedicion");
+      if (!colParte || !colOperador || !colMedicion) {
+        setAviso("Elige las tres columnas: Parte, Operador y Medición.");
+        return;
+      }
+      const r = gageRR(colParte.values, colOperador.values, colMedicion.values);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      registrarResultado(`Gage R&R: ${colMedicion.name}`, {
+        encabezados: ["Fuente", "gl", "SC", "CM", "F", "Valor p"],
+        filas: r.tabla.map((t) => [t.fuente, String(t.gl), formatearNumero(t.sc), formatearNumero(t.cm), t.F != null ? formatearNumero(t.F) : "—", t.valorP != null ? formatearP(t.valorP) : "—"]),
+      });
+      registrarResultado(
+        `Componentes de varianza: ${colMedicion.name}`,
+        {
+          encabezados: ["Componente", "Varianza", "Desv. Est.", `Var. de estudio (${r.kStudyVar}σ)`, "% Contribución", "% Var. de estudio"],
+          filas: r.componentes.map((c) => [
+            c.nombre,
+            formatearNumero(c.varianza),
+            formatearNumero(c.desvEst),
+            formatearNumero(c.studyVar),
+            `${formatearNumero(c.porcentajeContribucion)}%`,
+            `${formatearNumero(c.porcentajeStudyVar)}%`,
+          ]),
+        },
+        [
+          `Número de categorías distintas (ndc): ${r.ndc}.`,
+          r.aceptable
+            ? "El sistema de medición se ve aceptable (Gage R&R por debajo del 30% de %Variación de estudio, el corte habitual de AIAG)."
+            : "El sistema de medición NO se ve aceptable (Gage R&R por encima del 30% de %Variación de estudio, el corte habitual de AIAG).",
+        ]
+      );
+      agregarGrafico(`Gage R&R — ${colMedicion.name}`, opcionGageRR(r));
+    } else if (accion.id === "crear_diseno") {
+      const numFactores = valorExtra("numFactores", "number");
+      const replicas = valorExtra("replicas", "number");
+      const d = generarDisenoFactorial(numFactores, replicas);
+      if (d.error) {
+        setAviso(d.error);
+        return;
+      }
+      const columnasNuevas = [
+        ...d.factores.map((f) => ({ name: f, type: "numeric", values: d.corridas.map((c) => c[f]) })),
+        { name: "Réplica", type: "numeric", values: d.corridas.map((c) => c["Réplica"]) },
+        { name: "Orden de corrida", type: "numeric", values: d.corridas.map((c) => c["Orden de corrida"]) },
+        { name: "Respuesta", type: "numeric", values: d.corridas.map(() => null) },
+      ];
+      cargarHoja(columnasNuevas);
+      registrarResultado(`Diseño factorial creado: ${numFactores} factores × ${replicas} réplica(s)`, {
+        encabezados: ["Corridas totales", "Factores"],
+        filas: [[String(d.corridas.length), d.factores.join(", ")]],
+      }, [
+        'Completa la columna "Respuesta" con el resultado real de cada corrida (ejecútalas en el orden de la columna "Orden de corrida", no en el orden en que aparecen en la hoja), y después usa "Analizar diseño factorial".',
+      ]);
+    } else if (accion.id === "analizar_factorial") {
+      const colRespuesta = columnaExtra("colRespuesta");
+      if (!colRespuesta) {
+        setAviso('Elige cuál es la columna de "Respuesta".');
+        return;
+      }
+      const columnasFactor = columnasSeleccionadas.filter((c) => c.id !== colRespuesta.id);
+      if (columnasFactor.length !== columnasSeleccionadas.length) {
+        setAviso('La columna de "Respuesta" no debe estar también marcada como factor.');
+        return;
+      }
+      const noNumericas = columnasFactor.filter((c) => c.type !== "numeric");
+      if (noNumericas.length > 0 || colRespuesta.type !== "numeric") {
+        setAviso("Los factores (en -1 y 1) y la respuesta deben ser columnas numéricas.");
+        return;
+      }
+      const r = analizarFactorial(columnasFactor, colRespuesta.values);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      registrarResultado(
+        `Diseño factorial: ${colRespuesta.name} ~ ${columnasFactor.map((c) => c.name).join(", ")}`,
+        {
+          encabezados: r.hayReplicas ? ["Término", "Orden", "Efecto", "t", "gl", "Valor p"] : ["Término", "Orden", "Efecto"],
+          filas: r.efectos.map((e) =>
+            r.hayReplicas
+              ? [e.etiqueta, String(e.orden), formatearNumero(e.efecto), formatearNumero(e.t), String(e.gl), formatearP(e.valorP)]
+              : [e.etiqueta, String(e.orden), formatearNumero(e.efecto)]
+          ),
+        },
+        r.hayReplicas ? [] : ["Sin corridas repetidas con la misma combinación de factores no hay forma de estimar el error experimental: se muestra la magnitud de los efectos, sin valor p."]
+      );
+      agregarGrafico(`Pareto de efectos — ${colRespuesta.name}`, opcionParetoEfectos(r));
     }
     setSeleccion([]);
   }
@@ -370,12 +514,23 @@ export default function AnalysisAssistant() {
       {accion.extras?.map((e) => (
         <label key={e.key} className="assistant-campo">
           <span>{e.label}</span>
-          <input
-            type={e.tipo}
-            step={e.paso}
-            value={extras[e.key] ?? ""}
-            onChange={(ev) => setExtras((prev) => ({ ...prev, [e.key]: ev.target.value }))}
-          />
+          {e.tipo === "columna" ? (
+            <select value={extras[e.key] ?? ""} onChange={(ev) => setExtras((prev) => ({ ...prev, [e.key]: ev.target.value }))}>
+              <option value="">— elegir columna —</option>
+              {columns.map((c) => (
+                <option key={c.id} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type={e.tipo}
+              step={e.paso}
+              value={extras[e.key] ?? ""}
+              onChange={(ev) => setExtras((prev) => ({ ...prev, [e.key]: ev.target.value }))}
+            />
+          )}
         </label>
       ))}
 
@@ -401,7 +556,7 @@ export default function AnalysisAssistant() {
         </div>
       )}
 
-      <button type="button" className="btn btn--primary" onClick={ejecutar} disabled={seleccion.length === 0}>
+      <button type="button" className="btn btn--primary" onClick={ejecutar} disabled={seleccion.length === 0 && accion.minColumnas > 0}>
         Ejecutar
       </button>
     </aside>

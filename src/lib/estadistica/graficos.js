@@ -309,3 +309,88 @@ export function opcionCapacidad(values, nombreColumna, { lsl, usl } = {}) {
   base.__totalDatos = datos.length;
   return base;
 }
+
+const AMBAR_AVISO = "#c98500";
+
+/**
+ * Gráfico de componentes de varianza del Gage R&R: %Contribución (a la
+ * varianza) y %Variación de estudio por componente — el mismo par de
+ * barras que muestra Minitab, con la referencia del 30% que separa un
+ * sistema de medición aceptable de uno que no lo es (regla de AIAG).
+ */
+export function opcionGageRR(resultado) {
+  const componentes = resultado.componentes.filter((c) => c.nombre !== "Total");
+  const nombres = componentes.map((c) => c.nombre);
+
+  return {
+    ...BASE,
+    tooltip: { ...BASE.tooltip, trigger: "axis" },
+    title: { text: "Componentes de varianza — Gage R&R", textStyle: { color: TEXTO, fontSize: 14, fontWeight: 600 } },
+    legend: { data: ["% Contribución", "% Variación de estudio"], textStyle: { color: TEXTO_SUAVE }, top: 24 },
+    grid: { left: 56, right: 24, top: 64, bottom: 60 },
+    xAxis: ejeBase({ type: "category", data: nombres, axisLabel: { color: TEXTO_SUAVE, interval: 0, rotate: 20 } }),
+    yAxis: ejeBase({ type: "value", name: "%", max: 100 }),
+    series: [
+      {
+        name: "% Contribución",
+        type: "bar",
+        data: componentes.map((c) => c.porcentajeContribucion),
+        itemStyle: { color: SERIE_1, borderRadius: [3, 3, 0, 0] },
+      },
+      {
+        name: "% Variación de estudio",
+        type: "bar",
+        data: componentes.map((c) => c.porcentajeStudyVar),
+        itemStyle: { color: SERIE_2, borderRadius: [3, 3, 0, 0] },
+        markLine: {
+          symbol: "none",
+          label: { color: AMBAR_AVISO, fontSize: 11, formatter: "30% (límite AIAG)" },
+          data: [{ yAxis: 30, lineStyle: { color: AMBAR_AVISO, type: "dashed", width: 2 } }],
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * Pareto de efectos de un diseño factorial: una barra horizontal por cada
+ * efecto (principal o de interacción), de mayor a menor magnitud, en el
+ * mismo orden de lectura que un diagrama de Pareto normal. Cuando hay
+ * réplicas para dar significancia, los efectos con valor p < 0.05 se
+ * destacan en el color de acento y el resto queda en gris — sin réplicas
+ * sólo se ve la magnitud, sin fingir una significancia que no se calculó.
+ */
+export function opcionParetoEfectos(resultado) {
+  // Ya vienen ordenados de mayor a menor |efecto|; se invierten para que,
+  // en un eje de categorías (que dibuja de abajo hacia arriba), el mayor
+  // quede arriba del todo, como en cualquier Pareto.
+  const efectos = [...resultado.efectos].reverse();
+  const etiquetas = efectos.map((e) => e.etiqueta);
+  const valores = efectos.map((e) => Math.abs(e.efecto));
+  const significativo = (e) => !resultado.hayReplicas || e.valorP < 0.05;
+
+  return {
+    ...BASE,
+    tooltip: {
+      ...BASE.tooltip,
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (params) => {
+        const e = efectos[params[0].dataIndex];
+        const base = `${e.etiqueta}: efecto ${e.efecto.toFixed(4)}`;
+        return resultado.hayReplicas ? `${base}<br/>valor p: ${e.valorP < 0.0001 ? "< 0.0001" : e.valorP.toFixed(4)}` : base;
+      },
+    },
+    title: { text: "Pareto de efectos", textStyle: { color: TEXTO, fontSize: 14, fontWeight: 600 } },
+    grid: { left: 90, right: 32, top: 48, bottom: 40 },
+    xAxis: ejeBase({ type: "value", name: "|Efecto|" }),
+    yAxis: ejeBase({ type: "category", data: etiquetas }),
+    series: [
+      {
+        type: "bar",
+        data: valores.map((v, i) => ({ value: v, itemStyle: { color: significativo(efectos[i]) ? SERIE_1 : TEXTO_SUAVE } })),
+        barCategoryGap: "30%",
+      },
+    ],
+  };
+}
