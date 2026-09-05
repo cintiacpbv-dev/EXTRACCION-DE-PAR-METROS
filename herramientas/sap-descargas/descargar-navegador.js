@@ -36,7 +36,10 @@
   const SEL_LOTE = ['input[title="Número de lote"]', 'input[title*="lote" i]'];
   const SEL_CONSULTA = ['[title="Ejecutar <objeto>"]', '*[id$="6:7"]'];
   const COLUMNAS_PDF = ["Producción-OP", "Producción-RMD"];
-  const ESPERA_REJILLA_MS = 5000;
+  // Tope de espera tras pulsar Consulta: no es un tiempo fijo, se comprueba
+  // cada poco si la rejilla ya apareció (ver esperarRejilla). Este número es
+  // sólo el límite antes de darse por vencido.
+  const ESPERA_REJILLA_MS = 30000;
   const ESPERA_VISOR_MS = 12000;
 
   const espera = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -81,6 +84,41 @@
     setter.call(input, texto);
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  // Un ".click()" de JavaScript no siempre basta: SAP GUI para HTML escucha
+  // la secuencia completa de eventos de mouse, no sólo el "click" final.
+  function clicSap(el) {
+    el.focus?.();
+    for (const tipo of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+      el.dispatchEvent(new MouseEvent(tipo, { bubbles: true, cancelable: true, view: window }));
+    }
+  }
+
+  // ¿Sigue SAP procesando la consulta? Cubre tanto el indicador clásico de
+  // SAP GUI (la rueda/reloj sobre "busy") como el de SAPUI5, por si la
+  // pantalla los usa.
+  function ocupado(doc) {
+    return (
+      doc.querySelector('[id*="BUSY" i], .sapUiLocalBusyIndicator, .lsBusyIndicator, [class*="Busy"]') !== null
+    );
+  }
+
+  /** Espera activamente a que la rejilla de resultados aparezca. */
+  async function esperarRejilla(doc, timeoutMs) {
+    const limite = Date.now() + timeoutMs;
+    let ultimoAviso = 0;
+    while (Date.now() < limite) {
+      const rejilla = leerRejilla(doc);
+      if (rejilla) return rejilla;
+      const transcurrido = timeoutMs - (limite - Date.now());
+      if (transcurrido - ultimoAviso > 5000) {
+        console.log(`     · esperando la rejilla… (${Math.round(transcurrido / 1000)} s, ${ocupado(doc) ? "SAP sigue ocupado" : "sin indicador de ocupado"})`);
+        ultimoAviso = transcurrido;
+      }
+      await espera(400);
+    }
+    return null;
   }
 
   function leerRejilla(doc) {
@@ -201,23 +239,30 @@
       return { guardados, fallos };
     }
     escribir(campo, lote);
+    console.log(`     · campo del lote: escribí "${lote}", quedó "${campo.value}"`);
+    if (campo.value !== lote) {
+      fallos.push(`${lote}: el campo no aceptó el valor (quedó "${campo.value}")`);
+      return { guardados, fallos };
+    }
 
     const boton = localizar(doc, SEL_CONSULTA);
     if (!boton) {
       fallos.push(`${lote}: no encuentro el botón Consulta`);
       return { guardados, fallos };
     }
-    boton.click();
+    console.log(`     · botón Consulta encontrado: <${boton.tagName.toLowerCase()} id="${boton.id}">`);
+    clicSap(boton);
 
-    await espera(ESPERA_REJILLA_MS);
-    doc = marcoSap();
-    if (!doc) {
-      fallos.push(`${lote}: la pantalla de SAP desapareció después de consultar`);
+    const rejilla = await esperarRejilla(doc, ESPERA_REJILLA_MS);
+    doc = marcoSap() || doc;
+    if (!rejilla) {
+      fallos.push(
+        `${lote}: la rejilla no apareció en ${Math.round(ESPERA_REJILLA_MS / 1000)} s` +
+          (ocupado(doc) ? " (SAP seguía marcando ocupado)" : " (sin ningún indicador de que siga cargando — puede que el clic no haya llegado)")
+      );
       return { guardados, fallos };
     }
-
-    const rejilla = leerRejilla(doc);
-    if (!rejilla || rejilla.filas.length === 0) {
+    if (rejilla.filas.length === 0) {
       fallos.push(`${lote}: la búsqueda no devolvió ninguna etapa`);
       return { guardados, fallos };
     }
@@ -244,7 +289,7 @@
 
         const celda = doc.getElementById(`${rejilla.prefijo}${fila},${col}`);
         if (!celda) continue;
-        celda.click();
+        clicSap(celda);
 
         const urlPdf = await esperarVisor(doc, ESPERA_VISOR_MS);
         if (!urlPdf) {
