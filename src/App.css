@@ -175,6 +175,37 @@
   color: var(--text-soft);
 }
 
+/* Sólo existe para el celular (ver el media query de abajo): en escritorio
+   la insignia de siempre, dentro de la barra superior, ya se ve entera. */
+.badge--flotante {
+  display: none;
+}
+
+/* Con el logo, los tres enlaces de sección y el texto de esta insignia, la
+   barra ya no entraba en el ancho de un celular: la insignia —que no se
+   achica porque su texto no envuelve— quedaba encimada sobre los últimos
+   íconos de sección y los tapaba. Se oculta aquí y su reemplazo (sólo el
+   ícono, en una esquina, fuera de la barra) es ".badge--flotante". Este
+   media query va DESPUÉS de ".badge"/".badge--flotante" a propósito: con
+   la misma especificidad, el que gana es el que aparece más abajo en el
+   archivo, y puesto antes esta regla perdía contra ".badge { display:
+   inline-flex }" de más arriba. */
+@media (max-width: 760px) {
+  .badge--topbar {
+    display: none;
+  }
+
+  .badge--flotante {
+    display: inline-flex;
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    z-index: 25;
+    padding: 9px;
+    box-shadow: var(--shadow-lg);
+  }
+}
+
 /* ---------- Layout ---------- */
 .main {
   flex: 1;
