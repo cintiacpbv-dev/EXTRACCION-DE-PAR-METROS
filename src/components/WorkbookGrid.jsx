@@ -5,20 +5,16 @@ import { useWorkbookStore } from "../lib/estadistica/store.js";
 import { filasATablero, leerExcel, parseCsv } from "../lib/estadistica/csv.js";
 import { IconPlus, IconTrash, IconUpload } from "./Icons.jsx";
 
-const TIPOS = [
-  { value: "numeric", label: "123 Numérico" },
-  { value: "text", label: "Abc Texto" },
-  { value: "date", label: "📅 Fecha" },
-];
+const ETIQUETA_TIPO = { numeric: "123 Numérico", text: "Abc Texto", date: "📅 Fecha" };
 
 /**
- * Cabecera de columna con su nombre editable y su tipo — igual que en
- * Minitab, donde cada columna de la hoja declara su propio tipo de dato,
- * no la hoja entera.
+ * Cabecera de columna con su nombre editable y, debajo, el tipo — ya no se
+ * elige a mano: se detecta solo con lo que hay escrito en la columna, como
+ * en Minitab (una columna con algún valor que no sea número pasa a texto
+ * sola, sin que haya que decírselo).
  */
 function CabeceraColumna({ columna }) {
   const renombrarColumna = useWorkbookStore((s) => s.renombrarColumna);
-  const cambiarTipoColumna = useWorkbookStore((s) => s.cambiarTipoColumna);
   const eliminarColumna = useWorkbookStore((s) => s.eliminarColumna);
   const totalColumnas = useWorkbookStore((s) => s.columns.length);
 
@@ -31,18 +27,9 @@ function CabeceraColumna({ columna }) {
         onClick={(e) => e.stopPropagation()}
       />
       <div className="wb-cabecera__fila2">
-        <select
-          className="wb-cabecera__tipo"
-          value={columna.type}
-          onChange={(e) => cambiarTipoColumna(columna.id, e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {TIPOS.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
+        <span className="wb-cabecera__tipo" title="El tipo se detecta solo, según lo que escribas — como en Minitab.">
+          {ETIQUETA_TIPO[columna.type]}
+        </span>
         {totalColumnas > 1 && (
           <button
             type="button"
@@ -80,6 +67,7 @@ export default function WorkbookGrid() {
   const temaClaro = useWorkbookStore((s) => s.temaClaro);
   const alternarTema = useWorkbookStore((s) => s.alternarTema);
   const inputArchivoRef = useRef(null);
+  const gridRef = useRef(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState("");
 
@@ -94,15 +82,18 @@ export default function WorkbookGrid() {
         resizable: true,
         editable: true,
         renderCell: ({ row }) => <span className={row[c.id] == null ? "wb-celda-vacia" : ""}>{formatearValor(row[c.id], c.type)}</span>,
-        renderEditCell: ({ row, onRowChange }) => (
+        // El mismo patrón que trae react-data-grid de fábrica (su propio
+        // renderTextEditor): valor controlado + onClose al perder el foco.
+        // La versión anterior tenía su propio onKeyDown para Enter, que
+        // disparaba el guardado una vez por su cuenta y OTRA VEZ por el
+        // manejo interno de la grilla — dos escrituras por un solo Enter.
+        renderEditCell: ({ row, column, onRowChange, onClose }) => (
           <input
             className="wb-editor"
             autoFocus
-            defaultValue={row[c.id] ?? ""}
-            onBlur={(e) => onRowChange({ ...row, [c.id]: e.target.value }, true)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onRowChange({ ...row, [c.id]: e.currentTarget.value }, true);
-            }}
+            value={row[column.key] ?? ""}
+            onChange={(e) => onRowChange({ ...row, [column.key]: e.target.value })}
+            onBlur={() => onClose(true, false)}
           />
         ),
       })),
@@ -140,6 +131,31 @@ export default function WorkbookGrid() {
       pegarBloque(column.key, row.__idx, bloque);
     }
     return row;
+  }
+
+  // Enter y Delete/Backspace como en Excel y Minitab: Enter confirma y baja
+  // una fila en la misma columna (la grilla, por su cuenta, sólo confirma y
+  // se queda quieta); Delete/Backspace sobre una celda ya seleccionada —sin
+  // estar editándola— la vacía de una vez, sin necesidad de abrir el editor
+  // primero y borrar el texto a mano.
+  function alTeclaCelda(args, event) {
+    if (args.mode === "ACTIVE" && (event.key === "Delete" || event.key === "Backspace")) {
+      event.preventGridDefault();
+      setCelda(args.column.key, args.rowIdx, "");
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventGridDefault();
+      if (args.mode === "EDIT") args.onClose(true);
+      const idx = rdgColumns.findIndex((c) => c.key === args.column.key);
+      // El foco tiene que moverse con la posición: sin "shouldFocus", la
+      // celda de abajo queda marcada como activa pero el teclado se queda
+      // donde estaba, y seguir escribiendo de corrido no llegaría ahí.
+      requestAnimationFrame(() => {
+        gridRef.current?.setActivePosition({ idx, rowIdx: args.rowIdx + 1 }, { shouldFocus: true });
+      });
+    }
   }
 
   async function alImportar(e) {
@@ -201,10 +217,12 @@ export default function WorkbookGrid() {
       </div>
       <div className="wb-grid-wrap">
         <DataGrid
+          ref={gridRef}
           columns={rdgColumns}
           rows={rows}
           onRowsChange={alCambiarFilas}
           onCellPaste={alPegar}
+          onCellKeyDown={alTeclaCelda}
           rowKeyGetter={(row) => row.__idx}
           className={temaClaro ? "rdg-light" : "rdg-dark"}
           headerRowHeight={56}
