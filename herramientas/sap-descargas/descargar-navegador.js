@@ -77,13 +77,34 @@
     return null;
   }
 
-  // Dispara los eventos que SAP GUI para HTML espera para notar que un
-  // campo cambió, ya que asignar ".value" a secas no dispara nada.
-  function escribir(input, texto) {
+  // Escribe letra por letra, como una persona, y termina con blur (salir
+  // del campo). No basta con poner ".value" y avisar con "input"/"change":
+  // eso pinta el texto en pantalla pero SAP GUI para HTML no siempre
+  // actualiza con eso su copia interna del campo, la que de verdad viaja al
+  // servidor al pulsar Consulta — y entonces la búsqueda sale vacía de
+  // lote (por eso tardaba tanto: sin filtro, escaneaba todo). El blur es la
+  // señal que usa para dar el campo por confirmado, igual que al pasar al
+  // siguiente campo a mano.
+  async function escribir(input, texto) {
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-    setter.call(input, texto);
+    input.focus();
+    setter.call(input, "");
     input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    for (const letra of texto) {
+      const valorPrevio = input.value;
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: letra, bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keypress", { key: letra, bubbles: true }));
+      setter.call(input, valorPrevio + letra);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keyup", { key: letra, bubbles: true }));
+      await espera(30);
+    }
+
     input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.blur();
+    input.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+    await espera(300);
   }
 
   // Un ".click()" de JavaScript no siempre basta: SAP GUI para HTML escucha
@@ -95,13 +116,21 @@
     }
   }
 
-  // ¿Sigue SAP procesando la consulta? Cubre tanto el indicador clásico de
-  // SAP GUI (la rueda/reloj sobre "busy") como el de SAPUI5, por si la
-  // pantalla los usa.
+  // ¿Sigue SAP procesando la consulta? El aviso de "cargando" puede vivir
+  // dentro de la transacción (el indicador clásico de SAP GUI) o, si es el
+  // propio shell de Fiori el que se pone a recargar, en la página de
+  // arriba — por eso se miran los dos documentos, no sólo el de la
+  // transacción.
   function ocupado(doc) {
-    return (
-      doc.querySelector('[id*="BUSY" i], .sapUiLocalBusyIndicator, .lsBusyIndicator, [class*="Busy"]') !== null
+    const enTransaccion = doc.querySelector(
+      '[id*="BUSY" i], .sapUiLocalBusyIndicator, .lsBusyIndicator, [class*="Busy"]'
     );
+    if (enTransaccion) return true;
+    try {
+      return document.querySelector('.sapUiLocalBusyIndicator, [class*="Busy"], .sapMDialog') !== null;
+    } catch {
+      return false;
+    }
   }
 
   /** Espera activamente a que la rejilla de resultados aparezca. */
@@ -238,7 +267,7 @@
       fallos.push(`${lote}: no encuentro el campo del lote`);
       return { guardados, fallos };
     }
-    escribir(campo, lote);
+    await escribir(campo, lote);
     console.log(`     · campo del lote: escribí "${lote}", quedó "${campo.value}"`);
     if (campo.value !== lote) {
       fallos.push(`${lote}: el campo no aceptó el valor (quedó "${campo.value}")`);
