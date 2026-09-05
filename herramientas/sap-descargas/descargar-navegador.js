@@ -315,11 +315,42 @@
       });
       boton.onclick = async () => {
         boton.remove();
+        let handle;
         try {
-          resolve(await window.showDirectoryPicker());
+          // Sin "mode: readwrite" el permiso sale de sólo lectura y cada
+          // intento de crear una carpeta o escribir un archivo se rechaza.
+          handle = await window.showDirectoryPicker({ mode: "readwrite" });
         } catch {
           resolve(null); // canceló el cuadro de selección
+          return;
         }
+
+        // El picker puede devolver la carpeta sin que el permiso de
+        // escritura haya quedado realmente concedido (depende de la
+        // versión del navegador); se pide explícitamente y se comprueba.
+        const permiso = await handle.requestPermission({ mode: "readwrite" }).catch(() => "denied");
+        if (permiso !== "granted") {
+          alert("No quedó permiso de escritura sobre esa carpeta. Los PDF se guardarán sueltos en Descargas.");
+          resolve(null);
+          return;
+        }
+
+        // Prueba real de escritura, no sólo de permiso: en alguna carpeta
+        // (por ejemplo, una unidad de red o protegida) el permiso puede
+        // darse por bueno y aun así fallar al crear el archivo.
+        try {
+          const prueba = await handle.getFileHandle(".prueba_de_escritura", { create: true });
+          const escritura = await prueba.createWritable();
+          await escritura.write(new Uint8Array([0]));
+          await escritura.close();
+          await handle.removeEntry(".prueba_de_escritura").catch(() => {});
+        } catch (err) {
+          alert(`No pude escribir en esa carpeta (${err.message}). Los PDF se guardarán sueltos en Descargas.`);
+          resolve(null);
+          return;
+        }
+
+        resolve(handle);
       };
       document.body.appendChild(boton);
     });
@@ -354,12 +385,20 @@
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
+  // Si falla escribir en la carpeta elegida (permiso revocado a mitad de
+  // camino, unidad de red que se cae, etc.) el PDF no se pierde: cae al
+  // método plano sólo para ese archivo, y el resto del lote sigue igual.
   async function guardarArchivo(raiz, ruta, buffer) {
     if (raiz) {
-      await guardarEnCarpeta(raiz, ruta, buffer);
-    } else {
-      descargarPlano(buffer, ruta);
+      try {
+        await guardarEnCarpeta(raiz, ruta, buffer);
+        return { organizado: true };
+      } catch (err) {
+        console.log(`     · ${ruta}: no pude escribir en la carpeta elegida (${err.message}), cae suelto en Descargas`);
+      }
     }
+    descargarPlano(buffer, ruta);
+    return { organizado: false };
   }
 
   // Busca un lote (rellena el campo, pulsa Consulta, lee la rejilla y baja
@@ -458,9 +497,9 @@
           continue;
         }
 
-        await guardarArchivo(raiz, ruta, buffer);
+        const { organizado } = await guardarArchivo(raiz, ruta, buffer);
         guardados.push(ruta);
-        console.log(`     · ${ruta} (${Math.round(buffer.byteLength / 1024)} kB)`);
+        console.log(`     · ${ruta} (${Math.round(buffer.byteLength / 1024)} kB)${organizado ? "" : " — suelto en Descargas, sin organizar"}`);
 
         await cerrarVisor(doc);
         await espera(500);

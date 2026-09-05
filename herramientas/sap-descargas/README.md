@@ -41,10 +41,12 @@ otro sin volver a preguntar.
 Organiza los archivos igual que `APLICACION.bat` — carpeta por producto,
 etapa y tipo de documento (`PRODUCTO/ETAPA/OP/lote_ETAPA_OP.pdf`). Al
 arrancar aparece un botón ("Elegir dónde guardar los PDF"): pulsa ahí y
-elige la carpeta destino (puede ser la misma `descargas` de siempre) — el
-script escribe las subcarpetas directamente ahí, con permiso del propio
-navegador. Sólo funciona en Chrome y Edge; en otros navegadores, o si
-cancelas ese cuadro, los PDF caen sueltos en Descargas sin organizar.
+elige la carpeta destino (puede ser la misma `descargas` de siempre). El
+script pide permiso de escritura sobre esa carpeta y hace una prueba real
+antes de empezar (crea y borra un archivo de prueba); si algo de eso falla,
+avisa y sigue igual, pero guardando los PDF sueltos en Descargas en vez de
+organizados. Sólo funciona así en Chrome y Edge; en otros navegadores, o si
+cancelas ese cuadro, los PDF caen sueltos desde el principio.
 
 También puede guardarse como marcador (bookmarklet) pegando el código con
 prefijo `javascript:` en la URL de un marcador nuevo, para lanzarlo con un
