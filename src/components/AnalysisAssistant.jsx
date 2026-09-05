@@ -15,6 +15,7 @@ import { tUnaMuestra, tDosMuestras, tPareada, pruebaVarianzas, proporcionUnaMues
 import { graficaIndividuosMR, graficaXbarR, capacidadProceso } from "../lib/estadistica/spc.js";
 import { gageRR } from "../lib/estadistica/gageRR.js";
 import { generarDisenoFactorial, analizarFactorial } from "../lib/estadistica/doe.js";
+import AiAdvisor from "./AiAdvisor.jsx";
 import { IconAlert, IconFlask } from "./Icons.jsx";
 
 const ACCIONES = [
@@ -166,12 +167,21 @@ export default function AnalysisAssistant() {
   const columnasSeleccionadas = columns.filter((c) => seleccion.includes(c.id));
 
   function cambiarAccion(id) {
+    const nueva = ACCIONES.find((a) => a.id === id);
+    if (!nueva) return;
     setAccionId(id);
     setAviso("");
-    const nueva = ACCIONES.find((a) => a.id === id);
     const iniciales = {};
     for (const e of nueva.extras || []) iniciales[e.key] = e.valorInicial;
     setExtras(iniciales);
+  }
+
+  function aplicarSugerencia(sugerencia) {
+    cambiarAccion(sugerencia.accionId);
+    if (Array.isArray(sugerencia.columnasSugeridas)) {
+      const ids = sugerencia.columnasSugeridas.map((nombre) => columns.find((c) => c.name === nombre)?.id).filter(Boolean);
+      setSeleccion(ids);
+    }
   }
 
   function alternarColumna(id) {
@@ -491,6 +501,8 @@ export default function AnalysisAssistant() {
         <IconFlask size={16} />
         <h3>Asistente de análisis</h3>
       </div>
+
+      <AiAdvisor onAplicarSugerencia={aplicarSugerencia} />
 
       <label className="assistant-campo">
         <span>Prueba o gráfico</span>

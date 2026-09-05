@@ -285,3 +285,12 @@ export function IconChartBar(props) {
     </Svg>
   );
 }
+
+export function IconSparkles(props) {
+  return (
+    <Svg {...props}>
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
+      <path d="M7.5 7.5 5 5M19 19l-2.5-2.5M16.5 7.5 19 5M5 19l2.5-2.5" />
+    </Svg>
+  );
+}

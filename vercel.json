@@ -2,6 +2,9 @@
   "functions": {
     "api/analisis-riesgo.js": {
       "maxDuration": 60
+    },
+    "api/sugerencia-estadistica.js": {
+      "maxDuration": 30
     }
   }
 }

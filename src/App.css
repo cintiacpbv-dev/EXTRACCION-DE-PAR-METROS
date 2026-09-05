@@ -2559,6 +2559,75 @@
   font-size: 14px;
 }
 
+/* ---- Asistente con IA (opcional, plegado por defecto) ---------------- */
+.ai-advisor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-advisor__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--sky-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-advisor__toggle:hover {
+  background: var(--sky-soft);
+}
+
+.ai-advisor__caret {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.ai-advisor__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-tint);
+}
+
+.ai-advisor__texto {
+  resize: vertical;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.ai-advisor__sugerencia {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--sky-soft);
+  border: 1px solid var(--border-strong);
+  font-size: 12.5px;
+}
+
+.ai-advisor__sugerencia p {
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
 .assistant-campo {
   display: flex;
   flex-direction: column;
