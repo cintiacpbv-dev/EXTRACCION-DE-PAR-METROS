@@ -39,14 +39,19 @@ por línea (o separados por coma o espacio), y los procesa uno detrás de
 otro sin volver a preguntar.
 
 Organiza los archivos igual que `APLICACION.bat` — carpeta por producto,
-etapa y tipo de documento (`PRODUCTO/ETAPA/OP/lote_ETAPA_OP.pdf`). Al
-arrancar aparece un botón ("Elegir dónde guardar los PDF"): pulsa ahí y
-elige la carpeta destino (puede ser la misma `descargas` de siempre). El
-script pide permiso de escritura sobre esa carpeta y hace una prueba real
-antes de empezar (crea y borra un archivo de prueba); si algo de eso falla,
-avisa y sigue igual, pero guardando los PDF sueltos en Descargas en vez de
-organizados. Sólo funciona así en Chrome y Edge; en otros navegadores, o si
-cancelas ese cuadro, los PDF caen sueltos desde el principio.
+etapa y tipo de documento (`PRODUCTO/ETAPA/OP/lote_ETAPA_OP.pdf`) — por dos
+caminos, según lo que permita el navegador:
+
+- **Escribiendo en una carpeta tuya.** Al arrancar aparece un botón ("Elegir
+  dónde guardar los PDF"): si lo pulsas y eliges la carpeta destino, el
+  script pide permiso de escritura, lo comprueba con una prueba real (crea y
+  borra un archivo) y escribe ahí las subcarpetas. Un Chrome administrado por
+  la empresa puede tener esta API bloqueada por política; si es el caso, lo
+  dice en la consola y pasa al segundo camino.
+- **En un ZIP.** Si lo anterior no se puede, al terminar descarga un único
+  `.zip` que ya lleva las carpetas dentro: al descomprimirlo queda la misma
+  estructura. Funciona en cualquier navegador y sin permisos de ningún tipo,
+  así que es el camino que siempre está disponible.
 
 También puede guardarse como marcador (bookmarklet) pegando el código con
 prefijo `javascript:` en la URL de un marcador nuevo, para lanzarlo con un

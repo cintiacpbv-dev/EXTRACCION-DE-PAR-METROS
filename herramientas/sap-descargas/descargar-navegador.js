@@ -14,16 +14,21 @@
 //      - Celular (Kiwi Browser u otro Chromium con soporte de extensiones,
 //        o la consola remota de Chrome DevTools): igual, pestaña Console.
 // 4. Pega todo este archivo en la consola y presiona Enter.
-// 5. Aparece un botón azul arriba a la derecha ("Elegir dónde guardar los
-//    PDF"). Púlsalo y elige (o crea) la carpeta donde quieres que se
-//    organicen los archivos — puede ser tu carpeta "descargas" de siempre,
-//    la misma que usa APLICACION.bat.
-// 6. Te va a preguntar el/los lote(s) (con un cuadro de diálogo) y empieza
-//    solo: busca, lee la rejilla de resultados y descarga cada PDF (OP y
-//    RMD de cada etapa), organizados igual que deja APLICACION.bat —
-//    Producto/Etapa/OP o RMD/lote_etapa_tipo.pdf — dentro de la carpeta que
-//    elegiste. Sólo funciona así en Chrome/Edge; en otros navegadores (o si
-//    cancelas el cuadro) los PDF caen sueltos en Descargas.
+// 5. Te va a preguntar el/los lote(s) y empieza solo: busca, lee la rejilla
+//    de resultados y baja cada PDF (OP y RMD de cada etapa).
+//
+// EN CUALQUIER CASO LOS ARCHIVOS QUEDAN ORGANIZADOS igual que deja
+// APLICACION.bat — Producto / Etapa / OP o RMD / lote_etapa_tipo.pdf. Hay
+// dos caminos para conseguirlo, y el script usa el que se pueda:
+//
+//   a) Si pulsas el botón azul de arriba a la derecha y eliges una carpeta,
+//      los PDF se escriben directamente ahí, ya ordenados en subcarpetas.
+//      Requiere que el navegador permita esa API, cosa que un Chrome
+//      administrado por la empresa puede tener bloqueada por política.
+//   b) Si no (no pulsaste el botón, lo cancelaste, la política lo bloquea, o
+//      es otro navegador), al terminar se descarga UN archivo .zip que ya
+//      lleva las carpetas dentro: al descomprimirlo queda exactamente la
+//      misma estructura. Esto funciona siempre, sin permisos de ningún tipo.
 //
 // También puede guardarse como marcador (bookmarklet): crea un marcador
 // nuevo y pega como URL "javascript:" seguido de todo este código sin
@@ -294,7 +299,10 @@
   // la consola no cuenta como tal para el navegador), así que se muestra un
   // botón en la pantalla y se espera a que lo pulses.
   async function elegirCarpeta() {
-    if (!window.showDirectoryPicker) return null;
+    if (!window.showDirectoryPicker) {
+      console.log("Este navegador no permite elegir carpeta (no existe showDirectoryPicker): irá todo en un ZIP.");
+      return null;
+    }
     return new Promise((resolve) => {
       const boton = document.createElement("button");
       boton.textContent = "📁 Elegir dónde guardar los PDF";
@@ -320,8 +328,12 @@
           // Sin "mode: readwrite" el permiso sale de sólo lectura y cada
           // intento de crear una carpeta o escribir un archivo se rechaza.
           handle = await window.showDirectoryPicker({ mode: "readwrite" });
-        } catch {
-          resolve(null); // canceló el cuadro de selección
+        } catch (err) {
+          // Puede ser que cancelaras el cuadro, o que el navegador tenga la
+          // API bloqueada por política de la empresa. El motivo se imprime
+          // en vez de tragárselo, que es lo que despistaba antes.
+          console.log(`No se pudo elegir carpeta (${err.name}: ${err.message}). Irá todo en un ZIP.`);
+          resolve(null);
           return;
         }
 
@@ -330,7 +342,7 @@
         // versión del navegador); se pide explícitamente y se comprueba.
         const permiso = await handle.requestPermission({ mode: "readwrite" }).catch(() => "denied");
         if (permiso !== "granted") {
-          alert("No quedó permiso de escritura sobre esa carpeta. Los PDF se guardarán sueltos en Descargas.");
+          console.log("No quedó permiso de escritura sobre esa carpeta. Irá todo en un ZIP.");
           resolve(null);
           return;
         }
@@ -345,7 +357,7 @@
           await escritura.close();
           await handle.removeEntry(".prueba_de_escritura").catch(() => {});
         } catch (err) {
-          alert(`No pude escribir en esa carpeta (${err.message}). Los PDF se guardarán sueltos en Descargas.`);
+          console.log(`No pude escribir en esa carpeta (${err.message}). Irá todo en un ZIP.`);
           resolve(null);
           return;
         }
@@ -357,7 +369,7 @@
   }
 
   /** Crea (si hace falta) las subcarpetas de "ruta" y escribe el archivo ahí. */
-  async function guardarEnCarpeta(raiz, ruta, buffer) {
+  async function guardarEnCarpeta(raiz, ruta, datos) {
     const partes = ruta.split("/");
     const nombreArchivo = partes.pop();
     let carpeta = raiz;
@@ -366,44 +378,125 @@
     }
     const archivo = await carpeta.getFileHandle(nombreArchivo, { create: true });
     const escritura = await archivo.createWritable();
-    await escritura.write(buffer);
+    await escritura.write(datos);
     await escritura.close();
   }
 
-  // Cuando no hay carpeta elegida (Firefox, u otro navegador sin la API, o
-  // cancelaste el cuadro), se cae de vuelta al método plano: sirve para no
-  // perder el PDF, aunque no quede organizado en subcarpetas.
-  function descargarPlano(buffer, ruta) {
-    const blob = new Blob([buffer], { type: "application/pdf" });
+  // Cuando no se puede escribir en una carpeta —Chrome de empresa con la
+  // API bloqueada por política, otro navegador, o cancelaste el cuadro— los
+  // PDF se juntan en un ZIP que ya lleva las carpetas dentro. Al
+  // descomprimirlo queda exactamente la misma estructura que deja
+  // APLICACION.bat, sin depender de ningún permiso especial.
+  const TABLA_CRC = (() => {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      t[i] = c >>> 0;
+    }
+    return t;
+  })();
+
+  function crc32(bytes) {
+    let c = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) c = TABLA_CRC[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+
+  /**
+   * ZIP sin comprimir (método "store"): los PDF ya vienen comprimidos, así
+   * que volver a comprimirlos no ahorraría nada y obligaría a cargar una
+   * librería externa, que la política de seguridad de la página de SAP
+   * puede bloquear. Las barras de "ruta" son las que crean las carpetas.
+   */
+  function crearZip(archivos) {
+    const codificador = new TextEncoder();
+    const ahora = new Date();
+    const hora = ((ahora.getHours() << 11) | (ahora.getMinutes() << 5) | (ahora.getSeconds() >> 1)) & 0xffff;
+    const fecha = (((ahora.getFullYear() - 1980) << 9) | ((ahora.getMonth() + 1) << 5) | ahora.getDate()) & 0xffff;
+
+    const locales = [];
+    const central = [];
+    let desplazamiento = 0;
+
+    for (const { ruta, datos } of archivos) {
+      const nombre = codificador.encode(ruta);
+      const crc = crc32(datos);
+
+      const cabecera = new DataView(new ArrayBuffer(30));
+      cabecera.setUint32(0, 0x04034b50, true);
+      cabecera.setUint16(4, 20, true);
+      cabecera.setUint16(6, 0x0800, true); // nombres en UTF-8
+      cabecera.setUint16(8, 0, true); // sin compresión
+      cabecera.setUint16(10, hora, true);
+      cabecera.setUint16(12, fecha, true);
+      cabecera.setUint32(14, crc, true);
+      cabecera.setUint32(18, datos.length, true);
+      cabecera.setUint32(22, datos.length, true);
+      cabecera.setUint16(26, nombre.length, true);
+      cabecera.setUint16(28, 0, true);
+      locales.push(new Uint8Array(cabecera.buffer), nombre, datos);
+
+      const entrada = new DataView(new ArrayBuffer(46));
+      entrada.setUint32(0, 0x02014b50, true);
+      entrada.setUint16(4, 20, true);
+      entrada.setUint16(6, 20, true);
+      entrada.setUint16(8, 0x0800, true);
+      entrada.setUint16(10, 0, true);
+      entrada.setUint16(12, hora, true);
+      entrada.setUint16(14, fecha, true);
+      entrada.setUint32(16, crc, true);
+      entrada.setUint32(20, datos.length, true);
+      entrada.setUint32(24, datos.length, true);
+      entrada.setUint16(28, nombre.length, true);
+      entrada.setUint32(42, desplazamiento, true);
+      central.push(new Uint8Array(entrada.buffer), nombre);
+
+      desplazamiento += 30 + nombre.length + datos.length;
+    }
+
+    const tamanoCentral = central.reduce((n, p) => n + p.length, 0);
+    const fin = new DataView(new ArrayBuffer(22));
+    fin.setUint32(0, 0x06054b50, true);
+    fin.setUint16(8, archivos.length, true);
+    fin.setUint16(10, archivos.length, true);
+    fin.setUint32(12, tamanoCentral, true);
+    fin.setUint32(16, desplazamiento, true);
+
+    return new Blob([...locales, ...central, new Uint8Array(fin.buffer)], { type: "application/zip" });
+  }
+
+  function descargarBlob(blob, nombre) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = ruta.replace(/\//g, "_");
+    a.download = nombre;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
 
   // Si falla escribir en la carpeta elegida (permiso revocado a mitad de
-  // camino, unidad de red que se cae, etc.) el PDF no se pierde: cae al
-  // método plano sólo para ese archivo, y el resto del lote sigue igual.
-  async function guardarArchivo(raiz, ruta, buffer) {
+  // camino, unidad de red que se cae, etc.) el PDF no se pierde: se guarda
+  // para el ZIP del final, y el resto del lote sigue igual.
+  async function guardarArchivo(raiz, ruta, buffer, paraZip) {
+    const datos = new Uint8Array(buffer);
     if (raiz) {
       try {
-        await guardarEnCarpeta(raiz, ruta, buffer);
+        await guardarEnCarpeta(raiz, ruta, datos);
         return { organizado: true };
       } catch (err) {
-        console.log(`     · ${ruta}: no pude escribir en la carpeta elegida (${err.message}), cae suelto en Descargas`);
+        console.log(`     · ${ruta}: no pude escribir en la carpeta elegida (${err.message}), va al ZIP`);
       }
     }
-    descargarPlano(buffer, ruta);
+    paraZip.push({ ruta, datos });
     return { organizado: false };
   }
 
   // Busca un lote (rellena el campo, pulsa Consulta, lee la rejilla y baja
   // cada PDF) y devuelve lo guardado y lo que falló, para ese lote solo.
-  async function descargarLote(lote, raiz) {
+  async function descargarLote(lote, raiz, paraZip) {
     const guardados = [];
     const fallos = [];
 
@@ -497,9 +590,9 @@
           continue;
         }
 
-        const { organizado } = await guardarArchivo(raiz, ruta, buffer);
+        const { organizado } = await guardarArchivo(raiz, ruta, buffer, paraZip);
         guardados.push(ruta);
-        console.log(`     · ${ruta} (${Math.round(buffer.byteLength / 1024)} kB)${organizado ? "" : " — suelto en Descargas, sin organizar"}`);
+        console.log(`     · ${ruta} (${Math.round(buffer.byteLength / 1024)} kB)${organizado ? "" : " — va al ZIP"}`);
 
         await cerrarVisor(doc);
         await espera(500);
@@ -511,11 +604,8 @@
 
   // --------------------------------------------------------------- inicio ---
 
-  console.log("Elige una carpeta arriba a la derecha para que los PDF queden organizados en subcarpetas…");
+  console.log("Si quieres que los PDF se escriban directamente en una carpeta tuya, pulsa el botón azul de arriba a la derecha. Si no, se descargará un ZIP con las carpetas dentro.");
   const raiz = await elegirCarpeta();
-  if (!raiz) {
-    console.log("Sin carpeta elegida (o tu navegador no lo soporta): los PDF se guardarán sueltos en Descargas.");
-  }
 
   const texto = window.prompt(
     "¿Qué lote(s) quieres descargar? Uno por línea, o separados por coma/espacio."
@@ -527,10 +617,11 @@
 
   const guardadosTotal = [];
   const fallosTotal = [];
+  const paraZip = [];
 
   for (const lote of lotes) {
     console.log(`Lote ${lote}`);
-    const { guardados, fallos } = await descargarLote(lote, raiz);
+    const { guardados, fallos } = await descargarLote(lote, raiz, paraZip);
     guardadosTotal.push(...guardados);
     fallosTotal.push(...fallos);
     // Entre un lote y el siguiente conviene una pausa breve: la pantalla
@@ -538,9 +629,16 @@
     if (lotes.indexOf(lote) < lotes.length - 1) await espera(1000);
   }
 
+  let destino = raiz ? "en la carpeta que elegiste" : "";
+  if (paraZip.length > 0) {
+    const nombreZip = `SAP_${lotes.length === 1 ? lotes[0] : `${lotes.length}_lotes`}.zip`;
+    descargarBlob(crearZip(paraZip), nombreZip);
+    destino = `en ${nombreZip} (descomprímelo y quedan las carpetas por producto, etapa y tipo)`;
+  }
+
   alert(
     `Listo. ${lotes.length} lote(s) procesado(s).\n\n` +
-      `Guardados (${guardadosTotal.length}):\n${guardadosTotal.join("\n") || "ninguno"}` +
+      `Guardados (${guardadosTotal.length}) ${destino}:\n${guardadosTotal.join("\n") || "ninguno"}` +
       (fallosTotal.length ? `\n\nCon problemas (${fallosTotal.length}):\n${fallosTotal.join("\n")}` : "")
   );
 })();
