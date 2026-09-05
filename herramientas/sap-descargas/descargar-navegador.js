@@ -14,11 +14,16 @@
 //      - Celular (Kiwi Browser u otro Chromium con soporte de extensiones,
 //        o la consola remota de Chrome DevTools): igual, pestaña Console.
 // 4. Pega todo este archivo en la consola y presiona Enter.
-// 5. Te va a preguntar el/los lote(s) (con un cuadro de diálogo) y empieza
+// 5. Aparece un botón azul arriba a la derecha ("Elegir dónde guardar los
+//    PDF"). Púlsalo y elige (o crea) la carpeta donde quieres que se
+//    organicen los archivos — puede ser tu carpeta "descargas" de siempre,
+//    la misma que usa APLICACION.bat.
+// 6. Te va a preguntar el/los lote(s) (con un cuadro de diálogo) y empieza
 //    solo: busca, lee la rejilla de resultados y descarga cada PDF (OP y
 //    RMD de cada etapa), organizados igual que deja APLICACION.bat —
-//    Producto/Etapa/OP o RMD/lote_etapa_tipo.pdf — dentro de la carpeta de
-//    Descargas del navegador (sólo en Chrome/Edge; en Firefox cae suelto).
+//    Producto/Etapa/OP o RMD/lote_etapa_tipo.pdf — dentro de la carpeta que
+//    elegiste. Sólo funciona así en Chrome/Edge; en otros navegadores (o si
+//    cancelas el cuadro) los PDF caen sueltos en Descargas.
 //
 // También puede guardarse como marcador (bookmarklet): crea un marcador
 // nuevo y pega como URL "javascript:" seguido de todo este código sin
@@ -277,27 +282,89 @@
     return final.includes("%%EOF");
   }
 
-  // "ruta" puede llevar barras (p. ej. "PRODUCTO/ETAPA/OP/archivo.pdf"):
-  // Chrome y Edge crean esas subcarpetas dentro de Descargas al ver una
-  // barra en el nombre de la descarga, igual que queda organizado
-  // "descargas/" al usar APLICACION.bat. Firefox no lo hace — ahí el
-  // archivo cae suelto en Descargas con el nombre completo (barras
-  // incluidas convertidas a algo parecido a un guion bajo).
-  function descargarArchivo(buffer, ruta) {
+  // La barra "/" en el nombre de una descarga sólo crea subcarpetas cuando
+  // el archivo viene de una URL real (http); un "blob:" generado aquí mismo
+  // siempre cae plano en Descargas, sea cual sea el nombre que se le ponga
+  // — por eso la primera versión no organizaba nada pese a llevar las
+  // barras en el nombre. La forma que sí funciona es pedir permiso una vez
+  // sobre una carpeta (File System Access API, sólo Chrome/Edge) y escribir
+  // ahí las subcarpetas de verdad.
+  //
+  // Pedir ese permiso exige un clic real de la persona (un script pegado en
+  // la consola no cuenta como tal para el navegador), así que se muestra un
+  // botón en la pantalla y se espera a que lo pulses.
+  async function elegirCarpeta() {
+    if (!window.showDirectoryPicker) return null;
+    return new Promise((resolve) => {
+      const boton = document.createElement("button");
+      boton.textContent = "📁 Elegir dónde guardar los PDF";
+      Object.assign(boton.style, {
+        position: "fixed",
+        top: "16px",
+        right: "16px",
+        zIndex: 2147483647,
+        padding: "14px 22px",
+        fontSize: "16px",
+        fontWeight: "bold",
+        background: "#0a6ed1",
+        color: "#fff",
+        border: "none",
+        borderRadius: "6px",
+        cursor: "pointer",
+        boxShadow: "0 2px 10px rgba(0,0,0,.4)",
+      });
+      boton.onclick = async () => {
+        boton.remove();
+        try {
+          resolve(await window.showDirectoryPicker());
+        } catch {
+          resolve(null); // canceló el cuadro de selección
+        }
+      };
+      document.body.appendChild(boton);
+    });
+  }
+
+  /** Crea (si hace falta) las subcarpetas de "ruta" y escribe el archivo ahí. */
+  async function guardarEnCarpeta(raiz, ruta, buffer) {
+    const partes = ruta.split("/");
+    const nombreArchivo = partes.pop();
+    let carpeta = raiz;
+    for (const parte of partes) {
+      carpeta = await carpeta.getDirectoryHandle(parte, { create: true });
+    }
+    const archivo = await carpeta.getFileHandle(nombreArchivo, { create: true });
+    const escritura = await archivo.createWritable();
+    await escritura.write(buffer);
+    await escritura.close();
+  }
+
+  // Cuando no hay carpeta elegida (Firefox, u otro navegador sin la API, o
+  // cancelaste el cuadro), se cae de vuelta al método plano: sirve para no
+  // perder el PDF, aunque no quede organizado en subcarpetas.
+  function descargarPlano(buffer, ruta) {
     const blob = new Blob([buffer], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = ruta;
+    a.download = ruta.replace(/\//g, "_");
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
+  async function guardarArchivo(raiz, ruta, buffer) {
+    if (raiz) {
+      await guardarEnCarpeta(raiz, ruta, buffer);
+    } else {
+      descargarPlano(buffer, ruta);
+    }
+  }
+
   // Busca un lote (rellena el campo, pulsa Consulta, lee la rejilla y baja
   // cada PDF) y devuelve lo guardado y lo que falló, para ese lote solo.
-  async function descargarLote(lote) {
+  async function descargarLote(lote, raiz) {
     const guardados = [];
     const fallos = [];
 
@@ -391,7 +458,7 @@
           continue;
         }
 
-        descargarArchivo(buffer, ruta);
+        await guardarArchivo(raiz, ruta, buffer);
         guardados.push(ruta);
         console.log(`     · ${ruta} (${Math.round(buffer.byteLength / 1024)} kB)`);
 
@@ -404,6 +471,12 @@
   }
 
   // --------------------------------------------------------------- inicio ---
+
+  console.log("Elige una carpeta arriba a la derecha para que los PDF queden organizados en subcarpetas…");
+  const raiz = await elegirCarpeta();
+  if (!raiz) {
+    console.log("Sin carpeta elegida (o tu navegador no lo soporta): los PDF se guardarán sueltos en Descargas.");
+  }
 
   const texto = window.prompt(
     "¿Qué lote(s) quieres descargar? Uno por línea, o separados por coma/espacio."
@@ -418,7 +491,7 @@
 
   for (const lote of lotes) {
     console.log(`Lote ${lote}`);
-    const { guardados, fallos } = await descargarLote(lote);
+    const { guardados, fallos } = await descargarLote(lote, raiz);
     guardadosTotal.push(...guardados);
     fallosTotal.push(...fallos);
     // Entre un lote y el siguiente conviene una pausa breve: la pantalla

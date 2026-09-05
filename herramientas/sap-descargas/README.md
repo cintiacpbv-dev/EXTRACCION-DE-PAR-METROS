@@ -39,10 +39,12 @@ por línea (o separados por coma o espacio), y los procesa uno detrás de
 otro sin volver a preguntar.
 
 Organiza los archivos igual que `APLICACION.bat` — carpeta por producto,
-etapa y tipo de documento (`PRODUCTO/ETAPA/OP/lote_ETAPA_OP.pdf`) — dentro
-de la carpeta de Descargas del navegador. Eso funciona en Chrome y Edge,
-que crean las subcarpetas al ver barras en el nombre de la descarga; en
-Firefox el archivo cae suelto en Descargas con el nombre completo.
+etapa y tipo de documento (`PRODUCTO/ETAPA/OP/lote_ETAPA_OP.pdf`). Al
+arrancar aparece un botón ("Elegir dónde guardar los PDF"): pulsa ahí y
+elige la carpeta destino (puede ser la misma `descargas` de siempre) — el
+script escribe las subcarpetas directamente ahí, con permiso del propio
+navegador. Sólo funciona en Chrome y Edge; en otros navegadores, o si
+cancelas ese cuadro, los PDF caen sueltos en Descargas sin organizar.
 
 También puede guardarse como marcador (bookmarklet) pegando el código con
 prefijo `javascript:` en la URL de un marcador nuevo, para lanzarlo con un
