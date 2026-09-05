@@ -14,9 +14,11 @@
 //      - Celular (Kiwi Browser u otro Chromium con soporte de extensiones,
 //        o la consola remota de Chrome DevTools): igual, pestaña Console.
 // 4. Pega todo este archivo en la consola y presiona Enter.
-// 5. Te va a preguntar el número de lote (con un cuadro de diálogo) y
-//    empieza solo: busca, lee la rejilla de resultados y descarga cada PDF
-//    (OP y RMD de cada etapa) a la carpeta de Descargas del navegador.
+// 5. Te va a preguntar el/los lote(s) (con un cuadro de diálogo) y empieza
+//    solo: busca, lee la rejilla de resultados y descarga cada PDF (OP y
+//    RMD de cada etapa), organizados igual que deja APLICACION.bat —
+//    Producto/Etapa/OP o RMD/lote_etapa_tipo.pdf — dentro de la carpeta de
+//    Descargas del navegador (sólo en Chrome/Edge; en Firefox cae suelto).
 //
 // También puede guardarse como marcador (bookmarklet): crea un marcador
 // nuevo y pega como URL "javascript:" seguido de todo este código sin
@@ -35,7 +37,15 @@
 (async () => {
   const SEL_LOTE = ['input[title="Número de lote"]', 'input[title*="lote" i]'];
   const SEL_CONSULTA = ['[title="Ejecutar <objeto>"]', '*[id$="6:7"]'];
-  const COLUMNAS_PDF = ["Producción-OP", "Producción-RMD"];
+  // { nombre de columna en la rejilla -> carpeta del tipo de documento }.
+  const TIPOS = [
+    { nombre: "Producción-OP", carpeta: "OP" },
+    { nombre: "Producción-RMD", carpeta: "RMD" },
+  ];
+  // Cl.Orden viene abreviado; se traduce al mismo nombre de etapa que usa
+  // APLICACION.bat (nucleo.mjs), para que las carpetas coincidan con lo que
+  // ya conoce la aplicación al analizarlas después.
+  const ETAPAS = { ACON: "ACONDICIONADO", ENVS: "ENVASE", FABR: "FABRICACION" };
   // Tope de espera tras pulsar Consulta: no es un tiempo fijo, se comprueba
   // cada poco si la rejilla ya apareció (ver esperarRejilla). Este número es
   // sólo el límite antes de darse por vencido.
@@ -150,6 +160,16 @@
     return null;
   }
 
+  /** Deja un texto utilizable como nombre de carpeta. */
+  function nombreSeguro(texto, porDefecto) {
+    const limpio = String(texto || "")
+      .replace(/[\\/:*?"<>|]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80);
+    return limpio || porDefecto;
+  }
+
   function leerRejilla(doc) {
     const celdas = [...doc.querySelectorAll('[id^="grid#"]')];
     if (celdas.length === 0) return null;
@@ -174,18 +194,37 @@
       }
     }
 
-    const etiquetas = {};
-    for (const fila of filas) {
-      const trozos = [];
-      for (let col = 0; col <= 4; col++) {
-        const el = doc.getElementById(prefijo + fila + "," + col);
-        const t = el ? (el.innerText || "").trim() : "";
-        if (t && !/^\d+$/.test(t)) trozos.push(t);
-      }
-      etiquetas[fila] = trozos.slice(0, 2).join("-");
-    }
+    const leer = (fila, col) => {
+      if (col === undefined) return "";
+      const el = doc.getElementById(prefijo + fila + "," + col);
+      return el ? (el.innerText || el.textContent || "").trim() : "";
+    };
 
-    return { prefijo, cabecera, filas: [...filas].sort((a, b) => a - b), etiquetas };
+    // Celda con icono = documento cargado en SAP. Se comprueba antes de
+    // pulsar, para no perder tiempo en huecos que de todos modos están
+    // vacíos.
+    const conIcono = (fila, col) => {
+      if (col === undefined) return false;
+      const el = doc.getElementById(prefijo + fila + "," + col);
+      if (!el) return false;
+      return el.querySelector('img, span[class*="icon"], a') !== null || el.innerHTML.trim().length > 0;
+    };
+
+    const datos = [...filas]
+      .sort((a, b) => a - b)
+      .map((fila) => ({
+        fila,
+        producto: nombreSeguro(leer(fila, cabecera["Texto breve de material"]), "PRODUCTO SIN NOMBRE"),
+        etapa: nombreSeguro(
+          ETAPAS[leer(fila, cabecera["Cl.Orden"])] || leer(fila, cabecera["Sección"]),
+          "SIN ETAPA"
+        ),
+        iconos: Object.fromEntries(
+          TIPOS.map(({ nombre }) => [nombre, conIcono(fila, cabecera[nombre])])
+        ),
+      }));
+
+    return { prefijo, cabecera, datos };
   }
 
   function hayVisorAbierto(doc) {
@@ -238,12 +277,18 @@
     return final.includes("%%EOF");
   }
 
-  function descargarArchivo(buffer, nombre) {
+  // "ruta" puede llevar barras (p. ej. "PRODUCTO/ETAPA/OP/archivo.pdf"):
+  // Chrome y Edge crean esas subcarpetas dentro de Descargas al ver una
+  // barra en el nombre de la descarga, igual que queda organizado
+  // "descargas/" al usar APLICACION.bat. Firefox no lo hace — ahí el
+  // archivo cae suelto en Descargas con el nombre completo (barras
+  // incluidas convertidas a algo parecido a un guion bajo).
+  function descargarArchivo(buffer, ruta) {
     const blob = new Blob([buffer], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = nombre;
+    a.download = ruta;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -291,38 +336,42 @@
       );
       return { guardados, fallos };
     }
-    if (rejilla.filas.length === 0) {
+    if (rejilla.datos.length === 0) {
       fallos.push(`${lote}: la búsqueda no devolvió ninguna etapa`);
       return { guardados, fallos };
     }
 
-    const columnas = COLUMNAS_PDF.map((nombre) => ({ nombre, col: rejilla.cabecera[nombre] })).filter(
-      (c) => c.col !== undefined
-    );
+    const columnas = TIPOS.filter((t) => rejilla.cabecera[t.nombre] !== undefined);
     if (columnas.length === 0) {
-      fallos.push(`${lote}: no encontré las columnas ${COLUMNAS_PDF.join(" ni ")}`);
+      fallos.push(`${lote}: no encontré las columnas ${TIPOS.map((t) => t.nombre).join(" ni ")}`);
       return { guardados, fallos };
     }
 
-    for (const fila of rejilla.filas) {
-      for (const { nombre, col } of columnas) {
-        const etiqueta = (rejilla.etiquetas[fila] || `fila${fila}`).replace(/[\\/:*?"<>|\s]+/g, "_");
-        const sufijo = nombre.split("-").pop().replace(/[^A-Za-z]+/g, "");
-        const rotulo = `${lote}_${etiqueta}_${sufijo}.pdf`;
+    for (const fila of rejilla.datos) {
+      for (const { nombre, carpeta: tipoCarpeta } of columnas) {
+        const col = rejilla.cabecera[nombre];
+        const rutaCarpeta = `${fila.producto}/${fila.etapa}/${tipoCarpeta}`;
+        const archivo = `${lote}_${fila.etapa}_${tipoCarpeta}.pdf`;
+        const ruta = `${rutaCarpeta}/${archivo}`;
 
-        doc = marcoSap() || doc;
-        if (!(await cerrarVisor(doc))) {
-          fallos.push(`${rotulo}: no pude cerrar la ventana del visor anterior`);
+        if (!fila.iconos[nombre]) {
+          console.log(`     · ${ruta}: no está cargado en SAP`);
           continue;
         }
 
-        const celda = doc.getElementById(`${rejilla.prefijo}${fila},${col}`);
+        doc = marcoSap() || doc;
+        if (!(await cerrarVisor(doc))) {
+          fallos.push(`${ruta}: no pude cerrar la ventana del visor anterior`);
+          continue;
+        }
+
+        const celda = doc.getElementById(`${rejilla.prefijo}${fila.fila},${col}`);
         if (!celda) continue;
         clicSap(celda);
 
         const urlPdf = await esperarVisor(doc, ESPERA_VISOR_MS);
         if (!urlPdf) {
-          console.log(`     · ${rotulo}: no se abrió el PDF`);
+          console.log(`     · ${ruta}: no se abrió el PDF`);
           await cerrarVisor(doc);
           continue;
         }
@@ -332,19 +381,19 @@
           const respuesta = await fetch(urlPdf, { credentials: "include" });
           buffer = await respuesta.arrayBuffer();
         } catch (err) {
-          console.log(`     · ${rotulo}: fallo al descargar (${err.message})`);
+          console.log(`     · ${ruta}: fallo al descargar (${err.message})`);
         }
 
         if (!esPdfValido(buffer)) {
           const kb = buffer ? Math.round(buffer.byteLength / 1024) : 0;
-          fallos.push(`${rotulo}: lo descargado no es un PDF válido (${kb} kB)`);
+          fallos.push(`${ruta}: lo descargado no es un PDF válido (${kb} kB)`);
           await cerrarVisor(doc);
           continue;
         }
 
-        descargarArchivo(buffer, rotulo);
-        guardados.push(rotulo);
-        console.log(`     · ${rotulo} (${Math.round(buffer.byteLength / 1024)} kB)`);
+        descargarArchivo(buffer, ruta);
+        guardados.push(ruta);
+        console.log(`     · ${ruta} (${Math.round(buffer.byteLength / 1024)} kB)`);
 
         await cerrarVisor(doc);
         await espera(500);

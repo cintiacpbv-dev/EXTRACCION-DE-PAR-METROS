@@ -38,6 +38,12 @@ Admite varios lotes de una vez: el cuadro de diálogo acepta una lista, uno
 por línea (o separados por coma o espacio), y los procesa uno detrás de
 otro sin volver a preguntar.
 
+Organiza los archivos igual que `APLICACION.bat` — carpeta por producto,
+etapa y tipo de documento (`PRODUCTO/ETAPA/OP/lote_ETAPA_OP.pdf`) — dentro
+de la carpeta de Descargas del navegador. Eso funciona en Chrome y Edge,
+que crean las subcarpetas al ver barras en el nombre de la descarga; en
+Firefox el archivo cae suelto en Descargas con el nombre completo.
+
 También puede guardarse como marcador (bookmarklet) pegando el código con
 prefijo `javascript:` en la URL de un marcador nuevo, para lanzarlo con un
 clic en vez de abrir la consola cada vez.
