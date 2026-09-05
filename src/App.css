@@ -2434,6 +2434,10 @@
   border-bottom: 1px solid var(--border);
 }
 
+.wb-toolbar__tema {
+  margin-left: auto;
+}
+
 .wb-grid-error {
   color: var(--rojo);
   font-size: 12px;
@@ -2812,6 +2816,144 @@
 
 .resultado-item--grafico {
   padding: 8px;
+}
+
+/* ==================================================================
+   Fondo claro para esta sección (opcional, como Minitab)
+   ------------------------------------------------------------------
+   El resto de la app se comprometió con un único tema oscuro, pero acá
+   sí hay motivo real para elegir: quien viene de Minitab lee mejor una
+   hoja y unas tablas en claro, con letras oscuras. Se define como un
+   bloque de tokens propio en vez de tocar los de :root, para no arrastrar
+   este cambio a ninguna otra vista — sólo se activa con la clase
+   ".stat-body--claro", que sólo pone EstadisticaView.jsx.
+
+   Los gráficos (ECharts) se quedan en su tema oscuro de siempre incluso
+   aquí: repintar cada función de graficos.js para dos temas es un cambio
+   mucho más grande, y un gráfico oscuro dentro de una tarjeta clara sigue
+   leyéndose bien — es lo mismo que hacen varias herramientas de este
+   estilo, tratar el gráfico como su propio recuadro. */
+.stat-body--claro {
+  --stat-bg: #f4f4f2;
+  --stat-surface: #ffffff;
+  --stat-surface-soft: #ececea;
+  --stat-surface-tint: #f0f0ee;
+  --stat-border: #d7d5d0;
+  --stat-border-strong: #b8b6b0;
+  --stat-text: #1c1b19;
+  --stat-text-soft: #4a4844;
+  --stat-text-muted: #79766f;
+}
+
+.stat-body--claro .wb-grid-panel,
+.stat-body--claro .assistant-panel,
+.stat-body--claro .results-panel {
+  background: var(--stat-surface);
+  border-color: var(--stat-border);
+  color: var(--stat-text);
+}
+
+.stat-body--claro .wb-grid-toolbar {
+  border-color: var(--stat-border);
+}
+
+.stat-body--claro .wb-grid-wrap .rdg,
+.stat-body--claro .rdg-light {
+  --rdg-color: var(--stat-text);
+  --rdg-border-color: var(--stat-border);
+  --rdg-summary-border-color: var(--stat-border-strong);
+  --rdg-background-color: var(--stat-surface);
+  --rdg-header-background-color: var(--stat-surface-soft);
+  --rdg-header-draggable-background-color: var(--stat-surface-tint);
+  --rdg-row-hover-background-color: #e6f0fb;
+  --rdg-selection-color: var(--sky);
+}
+
+.stat-body--claro .wb-celda-vacia {
+  color: var(--stat-text-muted);
+}
+
+.stat-body--claro .wb-editor {
+  background: var(--stat-surface);
+  color: var(--stat-text);
+}
+
+.stat-body--claro .wb-cabecera__nombre {
+  color: var(--stat-text);
+}
+
+.stat-body--claro .wb-cabecera__tipo {
+  background: var(--stat-surface-soft);
+  border-color: var(--stat-border);
+  color: var(--stat-text-muted);
+}
+
+.stat-body--claro .assistant-header {
+  color: var(--sky-dark);
+}
+
+.stat-body--claro .assistant-campo select,
+.stat-body--claro .ai-advisor__texto,
+.stat-body--claro .assistant-columnas label:hover {
+  background: var(--stat-surface-soft);
+  border-color: var(--stat-border-strong);
+  color: var(--stat-text);
+}
+
+.stat-body--claro .assistant-campo {
+  color: var(--stat-text-soft);
+}
+
+.stat-body--claro .assistant-columnas__titulo,
+.stat-body--claro .assistant-ayuda {
+  color: var(--stat-text-muted);
+}
+
+.stat-body--claro .ai-advisor__toggle {
+  background: var(--stat-surface-soft);
+  border-color: var(--stat-border-strong);
+}
+
+.stat-body--claro .ai-advisor__panel,
+.stat-body--claro .ai-advisor__sugerencia {
+  background: var(--stat-surface-tint);
+  border-color: var(--stat-border);
+}
+
+.stat-body--claro .ai-advisor__sugerencia p {
+  color: var(--stat-text-soft);
+}
+
+.stat-body--claro .results-vacio {
+  color: var(--stat-text-muted);
+}
+
+.stat-body--claro .resultado-item {
+  background: var(--stat-surface-tint);
+  border-color: var(--stat-border);
+}
+
+.stat-body--claro .resultado-item h4 {
+  color: var(--stat-text);
+}
+
+.stat-body--claro .resultado-tabla th,
+.stat-body--claro .resultado-tabla td {
+  border-color: var(--stat-border);
+}
+
+.stat-body--claro .resultado-tabla thead th {
+  background: var(--stat-surface-soft);
+  color: var(--stat-text-soft);
+}
+
+.stat-body--claro .resultado-tabla td {
+  color: var(--stat-text);
+}
+
+.stat-body--claro .wb-grid-wrap,
+.stat-body--claro .resultado-item--grafico {
+  background: var(--stat-surface);
 }
 
 @media (max-width: 980px) {

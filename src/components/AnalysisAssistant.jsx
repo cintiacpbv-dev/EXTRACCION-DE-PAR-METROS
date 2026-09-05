@@ -11,9 +11,20 @@ import {
   opcionGageRR,
   opcionParetoEfectos,
   opcionProbabilidadNormal,
+  opcionIntervalos,
 } from "../lib/estadistica/graficos.js";
 import { pruebaNormalidad } from "../lib/estadistica/normalidad.js";
-import { tUnaMuestra, tDosMuestras, tPareada, pruebaVarianzas, proporcionUnaMuestra, correlacion } from "../lib/estadistica/pruebas.js";
+import {
+  tUnaMuestra,
+  tDosMuestras,
+  tPareada,
+  pruebaVarianzas,
+  pruebaVarianzasMultiple,
+  anovaUnFactor,
+  intervaloConfianza,
+  proporcionUnaMuestra,
+  correlacion,
+} from "../lib/estadistica/pruebas.js";
 import { graficaIndividuosMR, graficaXbarR, capacidadProceso } from "../lib/estadistica/spc.js";
 import { gageRR } from "../lib/estadistica/gageRR.js";
 import { generarDisenoFactorial, analizarFactorial } from "../lib/estadistica/doe.js";
@@ -43,7 +54,28 @@ const ACCIONES = [
   },
   { id: "t2", nombre: "Prueba t (2 muestras)", minColumnas: 2, maxColumnas: 2, ayuda: "Elige dos columnas numéricas independientes entre sí." },
   { id: "tpareada", nombre: "Prueba t pareada", minColumnas: 2, maxColumnas: 2, ayuda: "Elige dos columnas numéricas medidas sobre los mismos sujetos, fila a fila (antes/después)." },
-  { id: "varianzas", nombre: "Prueba de varianzas (F)", minColumnas: 2, maxColumnas: 2, ayuda: "Elige dos columnas numéricas para comparar su variación." },
+  {
+    id: "anova1",
+    nombre: "ANOVA de un factor",
+    minColumnas: 3,
+    maxColumnas: 10,
+    ayuda: "Elige tres o más columnas numéricas (un grupo o lote por columna) para comparar sus medias a la vez.",
+  },
+  {
+    id: "varianzas",
+    nombre: "Prueba de varianzas",
+    minColumnas: 2,
+    maxColumnas: 10,
+    ayuda: "Elige dos columnas para la prueba F clásica, o tres o más para Levene — se elige sola según cuántas columnas marques.",
+  },
+  {
+    id: "intervalos",
+    nombre: "Gráfica de intervalos",
+    minColumnas: 2,
+    maxColumnas: 10,
+    ayuda: "Elige dos o más columnas numéricas: muestra la media de cada una con su intervalo de confianza, para comparar de un vistazo.",
+    extras: [{ key: "nivelConfianza", label: "Nivel de confianza (%)", tipo: "number", valorInicial: 95 }],
+  },
   {
     id: "proporcion1",
     nombre: "Prueba de proporción (1 muestra)",
@@ -112,7 +144,7 @@ const ACCIONES = [
 
 const GRUPOS = [
   { nombre: "Descriptiva y gráficos", ids: ["descriptiva", "histograma", "normalidad", "boxplot", "dispersion", "correlacion"] },
-  { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "varianzas", "proporcion1"] },
+  { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "anova1", "varianzas", "intervalos", "proporcion1"] },
   { nombre: "Control de calidad (SPC)", ids: ["imr", "xbarr", "capacidad", "gagerr"] },
   { nombre: "Diseño de experimentos (DOE)", ids: ["crear_diseno", "analizar_factorial"] },
 ];
@@ -323,21 +355,89 @@ export default function AnalysisAssistant() {
         encabezados: ["N pares", "Media diferencia", "Desv. Est. diferencia", "t", "gl", "Valor p"],
         filas: [[String(r.nPares), formatearNumero(r.mediaDiferencia), formatearNumero(r.desvEst), formatearNumero(r.t), String(r.gl), formatearP(r.valorP)]],
       });
-    } else if (accion.id === "varianzas") {
-      const [a, b] = columnasSeleccionadas;
-      const r = pruebaVarianzas(a.values, b.values);
+    } else if (accion.id === "anova1") {
+      const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
+      if (noNumericas.length > 0) {
+        setAviso(`Todas las columnas deben ser numéricas ("${noNumericas[0].name}" no lo es).`);
+        return;
+      }
+      const r = anovaUnFactor(columnasSeleccionadas);
       if (r.error) {
         setAviso(r.error);
         return;
       }
-      registrarResultado(`Prueba de varianzas: ${a.name} vs. ${b.name}`, {
-        encabezados: ["Columna", "N", "Varianza", "Desv. Est.", "F", "gl (num.)", "gl (den.)", "Valor p"],
+      registrarResultado(`ANOVA de un factor: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`, {
+        encabezados: ["Grupo", "N", "Media", "Desv. Est."],
+        filas: r.resumenGrupos.map((g) => [g.nombre, String(g.n), formatearNumero(g.media), formatearNumero(g.desvEst)]),
+      });
+      registrarResultado("Tabla ANOVA", {
+        encabezados: ["Fuente", "gl", "SC", "CM", "F", "Valor p"],
         filas: [
-          [a.name, String(r.nA), formatearNumero(r.varianzaA), formatearNumero(r.desvEstA), "", "", "", ""],
-          [b.name, String(r.nB), formatearNumero(r.varianzaB), formatearNumero(r.desvEstB), "", "", "", ""],
-          [`F = Var(${a.name}) / Var(${b.name})`, "", "", "", formatearNumero(r.F), String(r.glA), String(r.glB), formatearP(r.valorP)],
+          ["Entre grupos", String(r.glEntre), formatearNumero(r.scEntre), formatearNumero(r.cmEntre), formatearNumero(r.F), formatearP(r.valorP)],
+          ["Dentro de los grupos (error)", String(r.glDentro), formatearNumero(r.scDentro), formatearNumero(r.cmDentro), "—", "—"],
         ],
       });
+    } else if (accion.id === "varianzas") {
+      const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
+      if (noNumericas.length > 0) {
+        setAviso(`Todas las columnas deben ser numéricas ("${noNumericas[0].name}" no lo es).`);
+        return;
+      }
+      if (columnasSeleccionadas.length === 2) {
+        const [a, b] = columnasSeleccionadas;
+        const r = pruebaVarianzas(a.values, b.values);
+        if (r.error) {
+          setAviso(r.error);
+          return;
+        }
+        registrarResultado(`Prueba de varianzas (F): ${a.name} vs. ${b.name}`, {
+          encabezados: ["Columna", "N", "Varianza", "Desv. Est.", "F", "gl (num.)", "gl (den.)", "Valor p"],
+          filas: [
+            [a.name, String(r.nA), formatearNumero(r.varianzaA), formatearNumero(r.desvEstA), "", "", "", ""],
+            [b.name, String(r.nB), formatearNumero(r.varianzaB), formatearNumero(r.desvEstB), "", "", "", ""],
+            [`F = Var(${a.name}) / Var(${b.name})`, "", "", "", formatearNumero(r.F), String(r.glA), String(r.glB), formatearP(r.valorP)],
+          ],
+        });
+      } else {
+        const r = pruebaVarianzasMultiple(columnasSeleccionadas);
+        if (r.error) {
+          setAviso(r.error);
+          return;
+        }
+        registrarResultado(
+          `Prueba de varianzas (Levene): ${columnasSeleccionadas.map((c) => c.name).join(", ")}`,
+          {
+            encabezados: ["Grupo", "N", "Varianza", "Desv. Est."],
+            filas: r.resumenGrupos.map((g) => [g.nombre, String(g.n), formatearNumero(g.varianza), formatearNumero(g.desvEst)]),
+          },
+          [`Levene: F(${r.glEntre}, ${r.glDentro}) = ${formatearNumero(r.F)}, valor p = ${formatearP(r.valorP)}.`]
+        );
+      }
+    } else if (accion.id === "intervalos") {
+      const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
+      if (noNumericas.length > 0) {
+        setAviso(`Todas las columnas deben ser numéricas ("${noNumericas[0].name}" no lo es).`);
+        return;
+      }
+      const nivelConfianza = (valorExtra("nivelConfianza", "number") ?? 95) / 100;
+      if (nivelConfianza <= 0 || nivelConfianza >= 1) {
+        setAviso("El nivel de confianza debe estar entre 0 y 100.");
+        return;
+      }
+      const intervalos = [];
+      for (const c of columnasSeleccionadas) {
+        const r = intervaloConfianza(c.values, nivelConfianza);
+        if (r.error) {
+          setAviso(`"${c.name}": ${r.error}`);
+          return;
+        }
+        intervalos.push({ nombre: c.name, ...r });
+      }
+      registrarResultado(`Gráfica de intervalos: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`, {
+        encabezados: ["Grupo", "N", "Media", "Desv. Est.", `Límite inferior (${(nivelConfianza * 100).toFixed(0)}%)`, "Límite superior"],
+        filas: intervalos.map((i) => [i.nombre, String(i.n), formatearNumero(i.media), formatearNumero(i.desvEst), formatearNumero(i.limiteInferior), formatearNumero(i.limiteSuperior)]),
+      });
+      agregarGrafico(`Gráfica de intervalos — ${columnasSeleccionadas.map((c) => c.name).join(", ")}`, opcionIntervalos(intervalos));
     } else if (accion.id === "proporcion1") {
       const [c] = columnasSeleccionadas;
       const valorExito = valorExtra("valorExito", "text");

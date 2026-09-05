@@ -119,6 +119,113 @@ export function proporcionUnaMuestra(values, valorExito, p0) {
   return { n, exitos, pMuestra, p0, errorEst, z, valorP: pBilateralZ(z) };
 }
 
+/**
+ * ANOVA de un factor: ¿al menos una de las medias es distinta de las
+ * demás? La extensión de la t de dos muestras a tres o más grupos —el
+ * mismo análisis que corre "Stat > ANOVA > One-Way" en Minitab.
+ */
+export function anovaUnFactor(columnas) {
+  const grupos = columnas.map((c) => ({ nombre: c.name, valores: valoresNumericos(c.values) })).filter((g) => g.valores.length > 0);
+  if (grupos.length < 3) return { error: "Hacen falta al menos 3 columnas con datos numéricos." };
+  if (grupos.some((g) => g.valores.length < 2)) return { error: "Cada columna necesita al menos 2 valores." };
+
+  const todos = grupos.flatMap((g) => g.valores);
+  const nTotal = todos.length;
+  const mediaGlobal = todos.reduce((a, b) => a + b, 0) / nTotal;
+
+  const resumenGrupos = grupos.map((g) => {
+    const n = g.valores.length;
+    const media = g.valores.reduce((a, b) => a + b, 0) / n;
+    const desvEst = n > 1 ? Math.sqrt(g.valores.reduce((acc, x) => acc + (x - media) ** 2, 0) / (n - 1)) : 0;
+    return { nombre: g.nombre, n, media, desvEst };
+  });
+
+  const k = grupos.length;
+  let scEntre = 0;
+  let scDentro = 0;
+  grupos.forEach((g, i) => {
+    const media = resumenGrupos[i].media;
+    scEntre += g.valores.length * (media - mediaGlobal) ** 2;
+    scDentro += g.valores.reduce((acc, x) => acc + (x - media) ** 2, 0);
+  });
+
+  const glEntre = k - 1;
+  const glDentro = nTotal - k;
+  const cmEntre = scEntre / glEntre;
+  const cmDentro = scDentro / glDentro;
+  const F = cmEntre / cmDentro;
+  const valorP = 1 - jStat.centralF.cdf(F, glEntre, glDentro);
+
+  return { k, nTotal, mediaGlobal, resumenGrupos, scEntre, scDentro, glEntre, glDentro, cmEntre, cmDentro, F, valorP };
+}
+
+/**
+ * Igualdad de varianzas entre tres o más grupos — método de Levene con la
+ * mediana de cada grupo (la versión de Brown-Forsythe, más robusta que la
+ * de Bartlett cuando los datos no son perfectamente normales, y la que
+ * suele preferirse por defecto en la práctica). Para dos grupos, usa la F
+ * de siempre (pruebaVarianzas); esto es específicamente para 3 o más.
+ */
+export function pruebaVarianzasMultiple(columnas) {
+  const grupos = columnas.map((c) => ({ nombre: c.name, valores: valoresNumericos(c.values) })).filter((g) => g.valores.length > 0);
+  if (grupos.length < 3) return { error: "Hacen falta al menos 3 columnas con datos numéricos." };
+  if (grupos.some((g) => g.valores.length < 2)) return { error: "Cada columna necesita al menos 2 valores." };
+
+  function mediana(valores) {
+    const ord = [...valores].sort((a, b) => a - b);
+    const m = ord.length;
+    return m % 2 === 0 ? (ord[m / 2 - 1] + ord[m / 2]) / 2 : ord[(m - 1) / 2];
+  }
+
+  // Las desviaciones absolutas respecto a la mediana de cada grupo, para
+  // correr sobre ellas el mismo ANOVA de un factor de siempre: eso es
+  // Levene — un ANOVA disfrazado, no una fórmula nueva y aparte.
+  const columnasZ = grupos.map((g) => {
+    const med = mediana(g.valores);
+    return { name: g.nombre, values: g.valores.map((v) => Math.abs(v - med)) };
+  });
+
+  const resultadoAnova = anovaUnFactor(columnasZ);
+  if (resultadoAnova.error) return resultadoAnova;
+
+  // La varianza real de cada grupo (no la de las desviaciones a la
+  // mediana, que sólo sirve para el cálculo interno) es lo que de verdad
+  // se quiere mostrar en la tabla.
+  const resumenGrupos = grupos.map((g) => {
+    const n = g.valores.length;
+    const media = g.valores.reduce((a, b) => a + b, 0) / n;
+    const varianza = n > 1 ? g.valores.reduce((acc, x) => acc + (x - media) ** 2, 0) / (n - 1) : 0;
+    return { nombre: g.nombre, n, varianza, desvEst: Math.sqrt(varianza) };
+  });
+
+  return {
+    k: grupos.length,
+    resumenGrupos,
+    F: resultadoAnova.F,
+    glEntre: resultadoAnova.glEntre,
+    glDentro: resultadoAnova.glDentro,
+    valorP: resultadoAnova.valorP,
+  };
+}
+
+/**
+ * Intervalo de confianza para la media de una columna (t de Student) — el
+ * dato que arma la Gráfica de intervalos, comparando varios grupos por su
+ * media y la incertidumbre alrededor de ella.
+ */
+export function intervaloConfianza(values, nivelConfianza = 0.95) {
+  const datos = valoresNumericos(values);
+  const n = datos.length;
+  if (n < 2) return { error: "Hacen falta al menos 2 valores." };
+  const media = datos.reduce((a, b) => a + b, 0) / n;
+  const desvEst = Math.sqrt(datos.reduce((acc, x) => acc + (x - media) ** 2, 0) / (n - 1));
+  const gl = n - 1;
+  const alfa = 1 - nivelConfianza;
+  const tCritico = jStat.studentt.inv(1 - alfa / 2, gl);
+  const margen = tCritico * (desvEst / Math.sqrt(n));
+  return { n, media, desvEst, gl, nivelConfianza, limiteInferior: media - margen, limiteSuperior: media + margen };
+}
+
 /** Correlación de Pearson entre dos columnas, con su prueba de significancia. */
 export function correlacion(valuesA, valuesB) {
   const pares = [];

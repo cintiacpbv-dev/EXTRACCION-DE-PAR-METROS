@@ -497,3 +497,65 @@ export function opcionProbabilidadNormal(resultado, nombreColumna) {
     },
   };
 }
+
+/**
+ * Gráfica de intervalos: para cada grupo, el intervalo de confianza de su
+ * media (una línea vertical con un travesaño en cada extremo) y un punto
+ * en la media — el mismo gráfico que Minitab llama "Interval Plot", para
+ * comparar varios grupos de un vistazo. ECharts no trae "barras de error"
+ * de fábrica; se dibujan con una serie "custom" y un renderItem propio,
+ * que es la forma documentada de conseguirlas.
+ */
+export function opcionIntervalos(intervalos) {
+  const categorias = intervalos.map((i) => i.nombre);
+
+  function renderItem(params, api) {
+    const categoria = api.value(0);
+    const puntoInferior = api.coord([categoria, api.value(1)]);
+    const puntoSuperior = api.coord([categoria, api.value(2)]);
+    const x = puntoInferior[0];
+    const mitadTravesano = 9;
+    const estilo = { stroke: SERIE_1, lineWidth: 2 };
+    return {
+      type: "group",
+      children: [
+        { type: "line", shape: { x1: x, y1: puntoInferior[1], x2: x, y2: puntoSuperior[1] }, style: estilo },
+        { type: "line", shape: { x1: x - mitadTravesano, y1: puntoInferior[1], x2: x + mitadTravesano, y2: puntoInferior[1] }, style: estilo },
+        { type: "line", shape: { x1: x - mitadTravesano, y1: puntoSuperior[1], x2: x + mitadTravesano, y2: puntoSuperior[1] }, style: estilo },
+      ],
+    };
+  }
+
+  return {
+    ...BASE,
+    tooltip: {
+      ...BASE.tooltip,
+      trigger: "item",
+      formatter: (p) => {
+        const i = intervalos[p.dataIndex];
+        return `${i.nombre}<br/>Media: ${i.media.toFixed(4)}<br/>IC ${(i.nivelConfianza * 100).toFixed(0)}%: [${i.limiteInferior.toFixed(4)}, ${i.limiteSuperior.toFixed(4)}]`;
+      },
+    },
+    title: {
+      text: `Gráfica de intervalos (IC ${(intervalos[0]?.nivelConfianza * 100 || 95).toFixed(0)}% para la media)`,
+      textStyle: { color: TEXTO, fontSize: 14, fontWeight: 600 },
+    },
+    grid: { left: 64, right: 32, top: 56, bottom: 48 },
+    xAxis: ejeBase({ type: "category", data: categorias, name: "Grupo", nameLocation: "middle", nameGap: 32 }),
+    yAxis: ejeBase({ type: "value", scale: true }),
+    series: [
+      {
+        type: "custom",
+        renderItem,
+        data: intervalos.map((i) => [i.nombre, i.limiteInferior, i.limiteSuperior]),
+        encode: { x: 0, y: [1, 2] },
+      },
+      {
+        type: "scatter",
+        data: intervalos.map((i) => [i.nombre, i.media]),
+        symbolSize: 9,
+        itemStyle: { color: SERIE_2 },
+      },
+    ],
+  };
+}
