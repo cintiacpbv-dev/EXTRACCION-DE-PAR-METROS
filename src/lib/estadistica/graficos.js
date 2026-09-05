@@ -9,6 +9,7 @@
 // categórica aparte, ya validada para daltonismo y contraste en modo
 // oscuro, mientras que el fondo, la rejilla y el texto sí seguen los
 // tokens de la app para que el gráfico se sienta parte de la página.
+import jStat from "jstat";
 import { estadisticaDescriptiva, resumenBoxplot, binsHistograma, valoresNumericos } from "./descriptiva.js";
 
 // Paleta categórica validada (dark): azul, naranja, rojo — sólo se usan los
@@ -392,5 +393,107 @@ export function opcionParetoEfectos(resultado) {
         barCategoryGap: "30%",
       },
     ],
+  };
+}
+
+// Los porcentajes clásicos de una gráfica de probabilidad — los mismos que
+// muestra Minitab en el eje vertical. El eje internamente es lineal en Z
+// (la escala en la que la CDF normal es, por construcción, una recta), y
+// estas marcas son sólo las etiquetas que se le ponen encima.
+const MARCAS_PORCENTAJE = [0.1, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 99.9];
+
+/**
+ * Gráfica de probabilidad normal, para juicio de normalidad — verificada
+ * contra un caso real de Minitab (ver normalidad.js): con los mismos 100
+ * datos, esta misma cuenta reproduce su Media, Desv.Est., AD y valor p.
+ * Los puntos deberían caer cerca de la recta si los datos son normales; una
+ * curva en los extremos, como en el caso verificado, es lo que delata que
+ * no lo son.
+ */
+export function opcionProbabilidadNormal(resultado, nombreColumna) {
+  const { puntos, media, desvEst, n, ad, valorP } = resultado;
+  const marcasZ = MARCAS_PORCENTAJE.map((p) => jStat.normal.inv(p / 100, 0, 1));
+  const zMin = marcasZ[0];
+  const zMax = marcasZ[marcasZ.length - 1];
+
+  const datosScatter = puntos.map((p) => [p.valor, p.z]);
+  const lineaAjuste = [
+    [media + zMin * desvEst, zMin],
+    [media + zMax * desvEst, zMax],
+  ];
+
+  return {
+    ...BASE,
+    tooltip: {
+      ...BASE.tooltip,
+      formatter: (p) =>
+        p.seriesName === nombreColumna
+          ? `${nombreColumna}: ${p.value[0]}<br/>percentil: ${(jStat.normal.cdf(p.value[1], 0, 1) * 100).toFixed(1)}%`
+          : "",
+    },
+    title: { text: `Gráfica de probabilidad — ${nombreColumna}`, textStyle: { color: TEXTO, fontSize: 14, fontWeight: 600 } },
+    grid: { left: 64, right: 140, top: 48, bottom: 48 },
+    xAxis: ejeBase({ type: "value", name: nombreColumna, nameLocation: "middle", nameGap: 32, scale: true }),
+    yAxis: ejeBase({
+      type: "value",
+      name: "Porcentaje",
+      min: zMin,
+      max: zMax,
+      axisLabel: {
+        color: TEXTO_SUAVE,
+        customValues: marcasZ,
+        formatter: (valorZ) => {
+          const idx = marcasZ.findIndex((z) => Math.abs(z - valorZ) < 1e-6);
+          return idx >= 0 ? `${MARCAS_PORCENTAJE[idx]}` : "";
+        },
+      },
+      splitLine: { show: true, lineStyle: { color: BORDE, type: "dashed" } },
+    }),
+    series: [
+      {
+        name: "Normal ajustada",
+        type: "line",
+        data: lineaAjuste,
+        symbol: "none",
+        lineStyle: { color: SERIE_2, width: 1.5 },
+      },
+      {
+        name: nombreColumna,
+        type: "scatter",
+        data: datosScatter,
+        symbolSize: 7,
+        itemStyle: { color: SERIE_1, opacity: 0.85 },
+      },
+    ],
+    graphic: {
+      type: "group",
+      right: 16,
+      top: 56,
+      children: [
+        {
+          type: "rect",
+          shape: { width: 128, height: 92 },
+          style: { fill: SUPERFICIE, stroke: BORDE, lineWidth: 1 },
+        },
+        {
+          type: "text",
+          left: 10,
+          top: 8,
+          style: {
+            text: [
+              `N            ${n}`,
+              `Media      ${media.toFixed(4)}`,
+              `Desv.Est.  ${desvEst.toFixed(4)}`,
+              `AD           ${ad.toFixed(3)}`,
+              `Valor p     ${valorP < 0.005 ? "< 0.005" : valorP.toFixed(3)}`,
+            ].join("\n"),
+            fill: TEXTO_SUAVE,
+            fontSize: 11,
+            fontFamily: "IBM Plex Mono, monospace",
+            lineHeight: 16,
+          },
+        },
+      ],
+    },
   };
 }

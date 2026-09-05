@@ -10,7 +10,9 @@ import {
   opcionCapacidad,
   opcionGageRR,
   opcionParetoEfectos,
+  opcionProbabilidadNormal,
 } from "../lib/estadistica/graficos.js";
+import { pruebaNormalidad } from "../lib/estadistica/normalidad.js";
 import { tUnaMuestra, tDosMuestras, tPareada, pruebaVarianzas, proporcionUnaMuestra, correlacion } from "../lib/estadistica/pruebas.js";
 import { graficaIndividuosMR, graficaXbarR, capacidadProceso } from "../lib/estadistica/spc.js";
 import { gageRR } from "../lib/estadistica/gageRR.js";
@@ -21,6 +23,13 @@ import { IconAlert, IconFlask } from "./Icons.jsx";
 const ACCIONES = [
   { id: "descriptiva", nombre: "Estadística descriptiva", minColumnas: 1, maxColumnas: null, ayuda: "Elige una o más columnas numéricas." },
   { id: "histograma", nombre: "Histograma", minColumnas: 1, maxColumnas: 1, ayuda: "Elige una columna numérica." },
+  {
+    id: "normalidad",
+    nombre: "Prueba de normalidad (Anderson-Darling)",
+    minColumnas: 1,
+    maxColumnas: 1,
+    ayuda: "Elige una columna numérica. Da la gráfica de probabilidad y el estadístico AD, igual que Minitab.",
+  },
   { id: "boxplot", nombre: "Diagrama de caja", minColumnas: 1, maxColumnas: null, ayuda: "Elige una o más columnas numéricas, para compararlas lado a lado." },
   { id: "dispersion", nombre: "Diagrama de dispersión", minColumnas: 2, maxColumnas: 3, ayuda: "Elige X e Y (numéricas); una tercera columna de texto es opcional, para colorear por grupo." },
   { id: "correlacion", nombre: "Correlación", minColumnas: 2, maxColumnas: null, ayuda: "Elige dos columnas numéricas para el detalle, o más de dos para una matriz." },
@@ -102,7 +111,7 @@ const ACCIONES = [
 ];
 
 const GRUPOS = [
-  { nombre: "Descriptiva y gráficos", ids: ["descriptiva", "histograma", "boxplot", "dispersion", "correlacion"] },
+  { nombre: "Descriptiva y gráficos", ids: ["descriptiva", "histograma", "normalidad", "boxplot", "dispersion", "correlacion"] },
   { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "varianzas", "proporcion1"] },
   { nombre: "Control de calidad (SPC)", ids: ["imr", "xbarr", "capacidad", "gagerr"] },
   { nombre: "Diseño de experimentos (DOE)", ids: ["crear_diseno", "analizar_factorial"] },
@@ -226,6 +235,22 @@ export default function AnalysisAssistant() {
         return;
       }
       agregarGrafico(`Histograma — ${c.name}`, opcionHistograma(c.values, c.name));
+    } else if (accion.id === "normalidad") {
+      const [c] = columnasSeleccionadas;
+      if (c.type !== "numeric") {
+        setAviso(`"${c.name}" no es una columna numérica.`);
+        return;
+      }
+      const r = pruebaNormalidad(c.values);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      registrarResultado(`Prueba de normalidad: ${c.name}`, {
+        encabezados: ["N", "Media", "Desv. Est.", "AD", "Valor p"],
+        filas: [[String(r.n), formatearNumero(r.media), formatearNumero(r.desvEst), formatearNumero(r.ad), formatearP(r.valorP)]],
+      });
+      agregarGrafico(`Gráfica de probabilidad — ${c.name}`, opcionProbabilidadNormal(r, c.name));
     } else if (accion.id === "boxplot") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
       if (noNumericas.length === columnasSeleccionadas.length) {
