@@ -246,6 +246,12 @@ export function detectParameters(pages) {
   const counters = new Map();
   let section = "GENERAL";
   let qualifier = "";
+  // Número del paso en curso ("4.4.7"). En los registros de semisólidos el
+  // criterio de aceptación no viene en una columna al lado de la casilla, sino
+  // dentro de la instrucción del paso ("MANTENER A 70 ºC ± 2 ºC"), así que
+  // hace falta saber a qué paso pertenece cada lectura para ir a buscarlo
+  // (ver criteriosDelPaso.js).
+  let paso = "";
 
   for (const page of pages) {
     const lines = page.lines.filter((l) => !isHeaderLine(l.text));
@@ -269,8 +275,12 @@ export function detectParameters(pages) {
 
       // Un paso nuevo cierra el grupo de lecturas anterior: lo que venga
       // después ya no pertenece a la fracción o al nivel que se estaba llenando.
-      const startsNewStep = /^\s*\d+(?:\.\d+)*\s*\.-/.test(line.text);
-      if (startsNewStep) qualifier = "";
+      const nuevoPaso = line.text.match(/^\s*(\d+(?:\.\d+)*)\s*\.-/);
+      const startsNewStep = Boolean(nuevoPaso);
+      if (startsNewStep) {
+        qualifier = "";
+        paso = nuevoPaso[1];
+      }
 
       const split = splitByColumnFill(line.segments);
       const plain = line.text.replace(/^\s*\d+(?:\.\d+)*\s*\.-\s*/, "").trim();
@@ -298,6 +308,20 @@ export function detectParameters(pages) {
       }
 
       if (NOISE_VALUE_RE.test(rawValue)) continue;
+
+      // Un material que el paso manda añadir, no una lectura: los registros de
+      // semisólidos los listan dentro de la instrucción, con su código SAP y
+      // las dos cantidades ("ALCOHOL CETOESTEARILICO 50:50 (1000000945) 6.25
+      // kg 6.250"). El detector genérico los leía como parámetro y los partía
+      // por el ":" de la concentración; los materiales ya se leen enteros y
+      // bien en el cuadro de insumos (insumos.js).
+      //
+      // Se piden las tres señas juntas —código de material, cantidad y unidad—
+      // porque el código por sí solo aparece también en frases que sí son
+      // instrucciones, y no hay ningún PDF de sólidos a mano con el que
+      // comprobar que descartarlas no se lleva por delante un parámetro.
+      if (/\(\d{9,11}\)\s*[\d.,]+\s*(?:kg|g|L|ml|KGP|GPA|LTW|KG|G)\b/i.test(line.text)) continue;
+
       if (rawLabel.length < 2 || rawLabel.startsWith("-")) continue;
       if (!/[A-Za-zÀ-ÿ]/.test(rawLabel)) continue;
       if (words(rawLabel).length > MAX_LABEL_WORDS) continue;
@@ -371,6 +395,11 @@ export function detectParameters(pages) {
         value: parsed.value,
         category,
         page: page.index,
+        // Dónde está esta lectura, para poder volver a leer la instrucción que
+        // la manda (ver criteriosDelPaso.js). Son auxiliares: se usan durante
+        // el análisis y no viajan con el documento guardado.
+        paso,
+        y: line.y,
       });
     }
   }

@@ -9,6 +9,7 @@ import { conAmbientales } from "./ambientales.js";
 import { conEstandarAcondicionado } from "./estandarAcondicionado.js";
 import { conTiempos } from "./tiempos.js";
 import { conMolienda } from "./molienda.js";
+import { conPasos } from "./criteriosDelPaso.js";
 import { esOrdenDeProduccion, parseOrden } from "./orden.js";
 
 /**
@@ -57,8 +58,14 @@ export async function processPdfFile(file) {
   }
 
   const meta = extractMeta(flatText, pages);
+  // El criterio que va escrito dentro de la instrucción se recoge antes que
+  // nada: los pasos siguientes (tiempos, opciones) trabajan ya sobre las
+  // lecturas con su criterio puesto, y "tener criterio" es parte de lo que
+  // decide si una lectura es un parámetro de proceso o sólo trazabilidad.
   const params = conEstandarAcondicionado(
-    conAmbientales(conOpciones(conTiempos(conMolienda(detectParameters(pages))), pages)),
+    conAmbientales(
+      conOpciones(conTiempos(conMolienda(conPasos(detectParameters(pages), pages))), pages)
+    ),
     pages,
     meta.stage
   );
