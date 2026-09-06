@@ -1,5 +1,6 @@
 import { Fragment } from "react";
-import { IconCheck } from "./Icons.jsx";
+import { IconCheck, IconAlert } from "./Icons.jsx";
+import { evaluarValor, limitesDe, textoDeLimites } from "../lib/rango.js";
 
 function fmtStat(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
@@ -55,24 +56,58 @@ export default function ParamTable({ table }) {
                   <span className="section-row__label">{section.title}</span>
                 </td>
               </tr>
-              {section.rows.map((row) => (
-                <tr key={row.id}>
+              {section.rows.map((row) => {
+                // El criterio se interpreta una vez por fila, no una por lote:
+                // es el mismo para todas sus casillas.
+                const limites = limitesDe(row.setpoint);
+                const explicacion = textoDeLimites(limites);
+                const fueraEnAlgunLote = table.lotes.some(
+                  (lote) => evaluarValor(row.values[lote], row.setpoint) === "fuera"
+                );
+
+                return (
+                <tr key={row.id} className={fueraEnAlgunLote ? "is-fuera-de-rango" : ""}>
                   <td className="col-param">
                     {row.label}
                     {row.unit ? <span className="unit"> ({row.unit})</span> : null}
                   </td>
-                  <td className="col-setpoint">{row.setpoint || <span className="muted">Referencial</span>}</td>
-                  {table.lotes.map((lote) => (
-                    <td key={lote} className="col-lote value-cell">
-                      <Cell value={row.values[lote]} />
-                    </td>
-                  ))}
+                  <td className="col-setpoint">
+                    {row.setpoint ? (
+                      <>
+                        {row.setpoint}
+                        {/* El aviso va junto al criterio, no en la casilla: así se
+                            ve que la fila tiene algo que revisar aunque la tabla
+                            esté desplazada y el lote que incumple quede fuera de
+                            la vista. */}
+                        {fueraEnAlgunLote && (
+                          <span className="fuera-de-rango-aviso" title="Hay lotes fuera de este criterio">
+                            <IconAlert size={13} />
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="muted">Referencial</span>
+                    )}
+                  </td>
+                  {table.lotes.map((lote) => {
+                    const estado = evaluarValor(row.values[lote], row.setpoint);
+                    return (
+                      <td
+                        key={lote}
+                        className={`col-lote value-cell ${estado === "fuera" ? "is-fuera" : ""}`}
+                        title={estado === "fuera" ? `Fuera del criterio: ${explicacion}` : undefined}
+                      >
+                        <Cell value={row.values[lote]} />
+                      </td>
+                    );
+                  })}
                   <td className="col-stat">{row.stats ? fmtStat(row.stats.min) : "—"}</td>
                   <td className="col-stat">{row.stats ? fmtStat(row.stats.max) : "—"}</td>
                   <td className="col-stat">{row.stats ? fmtStat(row.stats.avg) : "—"}</td>
                   <td className="col-stat">{row.stats ? fmtStat(row.stats.stdev) : "—"}</td>
                 </tr>
-              ))}
+                );
+              })}
             </Fragment>
           ))}
         </tbody>

@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import UploadZone from "./UploadZone.jsx";
-import { IconAlert, IconDownload, IconTrash } from "./Icons.jsx";
+import { IconAlert, IconDownload, IconTrash, IconLayers, IconCheck } from "./Icons.jsx";
 import { processPdfFile } from "../lib/parsers/index.js";
 import { buildTable } from "../lib/model.js";
 import { calcularIPR, clasificarSRI, filaVacia } from "../lib/riesgo/model.js";
 import { analizarRiesgoConGemini } from "../lib/riesgo/analizarConGemini.js";
 import { verificarFilasConBibliografia } from "../lib/riesgo/verificarConBibliografia.js";
 import { exportRiesgoToExcel } from "../lib/riesgo/exportRiesgo.js";
+import { abrirAnalisis, analisisDesde, borrarAnalisis, guardarAnalisis, listarHistorial } from "../lib/riesgo/historial.js";
+import { relativeDate } from "../lib/formatDate.js";
 
 /**
  * Análisis de riesgo (AMFE), como sección propia — no depende de haber
@@ -49,8 +51,127 @@ export default function RiesgoView() {
   // apagar para una pasada rápida, o cuando esa aplicación está caída.
   const [corroborar, setCorroborar] = useState(true);
 
+  // El historial de análisis guardados, y cuál de ellos es el que se está
+  // editando ahora mismo. `analisisId` es lo que hace que las correcciones
+  // sigan cayendo sobre el mismo registro en vez de crear uno nuevo en cada
+  // guardado.
+  const [historial, setHistorial] = useState([]);
+  const [analisisId, setAnalisisId] = useState(null);
+  const [creado, setCreado] = useState(null);
+  const [guardadoEn, setGuardadoEn] = useState(null);
+  const [historialAbierto, setHistorialAbierto] = useState(false);
+
   function avisar(texto) {
     setAvisos((prev) => [...prev, texto]);
+  }
+
+  const refrescarHistorial = useCallback(async () => {
+    setHistorial(await listarHistorial());
+  }, []);
+
+  useEffect(() => {
+    refrescarHistorial();
+  }, [refrescarHistorial]);
+
+  // Lo que hay en pantalla, para poder guardarlo sin que el temporizador de
+  // más abajo tenga que depender de cada cambio y reprogramarse solo.
+  const estadoRef = useRef({ filas, documentos, analisisId, creado });
+  estadoRef.current = { filas, documentos, analisisId, creado };
+
+  /**
+   * Guarda el cuadro tal como está, creando el registro la primera vez y
+   * actualizándolo después.
+   *
+   * Guardar es automático a propósito: lo que se pierde al recargar no es el
+   * borrador de la IA —ese se puede volver a pedir— sino las correcciones
+   * hechas a mano encima, que son el trabajo de verdad. Un botón de "guardar"
+   * que hay que acordarse de pulsar las perdería igual.
+   */
+  const guardarAhora = useCallback(async () => {
+    const { filas: f, documentos: docs, analisisId: id, creado: c } = estadoRef.current;
+    if (f.length === 0) return;
+
+    const analisis = analisisDesde({
+      id,
+      producto: docs[0]?.producto || "",
+      etapas: [...new Set(docs.map((d) => d.etapa))].join(" / "),
+      filas: f,
+      creado: c,
+    });
+
+    if (!id) {
+      setAnalisisId(analisis.id);
+      setCreado(analisis.creado);
+    }
+
+    const res = await guardarAnalisis(analisis);
+    setGuardadoEn(analisis.actualizado);
+    if (!res.ok) {
+      avisar(
+        `El análisis se guardó en este navegador, pero no en la nube: ${res.error}. ¿Falta ejecutar supabase_migration_v14.sql?`
+      );
+    }
+    refrescarHistorial();
+  }, [refrescarHistorial]);
+
+  // Las correcciones se guardan solas, pero no en cada tecla: se espera a que
+  // quien escribe haga una pausa. Sin esa espera, escribir un modo de fallo
+  // largo dispararía una escritura por letra.
+  const temporizadorRef = useRef(null);
+  useEffect(() => {
+    if (filas.length === 0) return;
+    clearTimeout(temporizadorRef.current);
+    temporizadorRef.current = setTimeout(guardarAhora, 1500);
+    return () => clearTimeout(temporizadorRef.current);
+  }, [filas, guardarAhora]);
+
+  async function abrirDelHistorial(id) {
+    const analisis = await abrirAnalisis(id);
+    if (!analisis) {
+      avisar("No se pudo abrir ese análisis: puede que se haya borrado desde otra computadora.");
+      refrescarHistorial();
+      return;
+    }
+    setFilas(analisis.filas || []);
+    setAnalisisId(analisis.id);
+    setCreado(analisis.creado);
+    setGuardadoEn(analisis.actualizado);
+    setHistorialAbierto(false);
+    // Los documentos no se restauran —son los PDF que se subieron entonces—,
+    // pero su producto y etapa sí, para que el cuadro siga sabiendo de qué
+    // habla al exportarlo.
+    setDocumentos(
+      analisis.producto
+        ? [{ id: `historial::${analisis.id}`, fileName: "", producto: analisis.producto, etapa: analisis.etapas, parametros: [] }]
+        : []
+    );
+  }
+
+  async function eliminarDelHistorial(id, nombre) {
+    const ok = window.confirm(
+      `¿Eliminar el análisis de riesgo "${nombre}"? Se borra de este navegador y de la nube, y no se puede deshacer.`
+    );
+    if (!ok) return;
+
+    const res = await borrarAnalisis(id);
+    if (!res.ok) {
+      avisar(`No se pudo borrar de la nube: ${res.error}. Se quitó de este navegador.`);
+    }
+    // Si era el que estaba abierto, la pantalla se queda en blanco: seguir
+    // mostrando un cuadro que ya no existe invita a seguir editándolo para
+    // nada.
+    if (id === analisisId) empezarUnoNuevo();
+    refrescarHistorial();
+  }
+
+  function empezarUnoNuevo() {
+    clearTimeout(temporizadorRef.current);
+    setFilas([]);
+    setAnalisisId(null);
+    setCreado(null);
+    setGuardadoEn(null);
+    setDocumentos([]);
+    setAvisos([]);
   }
 
   async function cargarRegistros(files) {
@@ -219,9 +340,75 @@ export default function RiesgoView() {
         <p className="muted">
           Sube el Registro de Manufactura de cada etapa —puede ser la plantilla sin llenar, no hace falta un
           lote real— y arma la Matriz de Identificación y Evaluación de Riesgo de Calidad, con un borrador de
-          Gemini para empezar y el mismo formato de siempre para exportar.
+          Gemini para empezar y el mismo formato de siempre para exportar. Lo que trabajes se guarda solo:
+          queda en el historial y puedes volver a abrirlo o eliminarlo cuando quieras.
         </p>
       </div>
+
+      <section className="riesgo-historial">
+        <div className="riesgo-historial__barra">
+          <button
+            className="btn btn--ghost"
+            onClick={() => setHistorialAbierto((v) => !v)}
+            aria-expanded={historialAbierto}
+          >
+            <IconLayers size={14} />
+            Historial ({historial.length})
+          </button>
+
+          {filas.length > 0 && (
+            <>
+              <button className="btn btn--ghost" onClick={empezarUnoNuevo}>
+                Nuevo análisis
+              </button>
+              <span className="muted riesgo-historial__estado">
+                {guardadoEn ? (
+                  <>
+                    <IconCheck size={13} /> Guardado {relativeDate(guardadoEn)}
+                  </>
+                ) : (
+                  "Sin guardar todavía"
+                )}
+              </span>
+            </>
+          )}
+        </div>
+
+        {historialAbierto && (
+          <div className="riesgo-historial__lista">
+            {historial.length === 0 ? (
+              <p className="muted">
+                Todavía no hay análisis guardados. En cuanto generes o edites un cuadro, aparecerá aquí solo.
+              </p>
+            ) : (
+              <ul>
+                {historial.map((a) => (
+                  <li key={a.id} className={a.id === analisisId ? "is-abierto" : ""}>
+                    <button
+                      className="riesgo-historial__abrir"
+                      onClick={() => abrirDelHistorial(a.id)}
+                      title="Abrir este análisis"
+                    >
+                      <strong>{a.nombre || a.producto || "Sin producto"}</strong>
+                      <span className="muted">
+                        {a.filas_total ?? a.filas?.length ?? 0} filas · {relativeDate(a.actualizado)}
+                        {a.id === analisisId ? " · abierto ahora" : ""}
+                      </span>
+                    </button>
+                    <button
+                      className="btn btn--ghost btn--icon"
+                      onClick={() => eliminarDelHistorial(a.id, a.nombre || a.producto)}
+                      title="Eliminar este análisis"
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </section>
 
       <UploadZone
         onFiles={cargarRegistros}

@@ -9,6 +9,7 @@
 // medio, esto sigue funcionando.
 
 import ExcelJS from "exceljs";
+import { supabase, supabaseEnabled } from "./supabaseClient.js";
 
 const HOJA = "Cronograma";
 const FILAS_CABECERA = 40; // hasta dónde buscar la fila de títulos
@@ -294,4 +295,47 @@ export function olvidarCronogramaLocal() {
   } catch {
     // Nada que hacer: se queda hasta la próxima carga.
   }
+}
+
+// --- el cronograma guardado de verdad ---------------------------------------
+//
+// Guardarlo sólo en este navegador no basta: se pierde al limpiar los datos
+// del sitio, no está en la computadora de al lado, y obliga a volver a subir
+// un libro que no ha cambiado. Subirlo es y sigue siendo manual —se hace
+// cuando el cronograma se actualiza—, pero una vez subido se queda.
+//
+// Hay uno solo: el cronograma de calificación de la planta no es de un
+// producto ni de un lote, así que la tabla guarda una única fila y cada carga
+// nueva reemplaza a la anterior.
+
+const CLAVE_UNICA = "cronograma";
+
+/** Trae de Supabase el cronograma guardado, o null si no hay ninguno. */
+export async function cargarCronogramaRemoto() {
+  if (!supabaseEnabled) return null;
+  const { data, error } = await supabase
+    .from("cronograma_calificacion")
+    .select("cronograma")
+    .eq("clave", CLAVE_UNICA)
+    .maybeSingle();
+
+  if (error || !data?.cronograma) return null;
+  const guardado = data.cronograma;
+  return Array.isArray(guardado?.filas) ? guardado : null;
+}
+
+/** Guarda (o reemplaza) el cronograma para todos los equipos y sesiones. */
+export async function guardarCronogramaRemoto(cronograma) {
+  if (!supabaseEnabled) return { ok: true, skipped: true };
+  const { error } = await supabase
+    .from("cronograma_calificacion")
+    .upsert({ clave: CLAVE_UNICA, cronograma }, { onConflict: "clave" });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+/** Lo borra de la nube: quitarlo aquí debe quitarlo en todas partes. */
+export async function borrarCronogramaRemoto() {
+  if (!supabaseEnabled) return { ok: true, skipped: true };
+  const { error } = await supabase.from("cronograma_calificacion").delete().eq("clave", CLAVE_UNICA);
+  return error ? { ok: false, error: error.message } : { ok: true };
 }

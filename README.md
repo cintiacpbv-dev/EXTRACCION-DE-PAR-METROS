@@ -95,15 +95,21 @@ VITE_SUPABASE_ANON_KEY=tu-anon-public-key
 En el **SQL Editor** del proyecto:
 
 - Instalación nueva → ejecuta [`supabase_schema.sql`](./supabase_schema.sql)
-  y después las migraciones v2 a v8.
+  y después las migraciones v2 a v14.
 - Instalación existente → ejecuta las migraciones que falten, en orden:
   [`v2`](./supabase_migration_v2.sql) (parámetros genéricos),
   [`v3`](./supabase_migration_v3.sql) (participantes),
   [`v4`](./supabase_migration_v4.sql) (órdenes de producción),
   [`v5`](./supabase_migration_v5.sql) (receta del lote),
   [`v6`](./supabase_migration_v6.sql) (materiales de la sección INSUMOS),
-  [`v7`](./supabase_migration_v7.sql) (imagen de cada producto) y
-  [`v8`](./supabase_migration_v8.sql) (memoria de lo eliminado).
+  [`v7`](./supabase_migration_v7.sql) (imagen de cada producto),
+  [`v8`](./supabase_migration_v8.sql) (memoria de lo eliminado),
+  [`v9`](./supabase_migration_v9.sql) (tamaño de lote),
+  [`v10`](./supabase_migration_v10.sql) (equipos de cada etapa),
+  [`v11`](./supabase_migration_v11.sql) (secciones del personal),
+  [`v12`](./supabase_migration_v12.sql) (no hace falta ejecutarla, ver el archivo),
+  [`v13`](./supabase_migration_v13.sql) (cronograma de calificación del Formato 3) y
+  [`v14`](./supabase_migration_v14.sql) (historial de análisis de riesgo).
 
 Sin Supabase configurado la app funciona igual, guardando en el `localStorage`.
 
