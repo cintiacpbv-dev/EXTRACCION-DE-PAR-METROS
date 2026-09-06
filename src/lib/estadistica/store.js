@@ -68,10 +68,38 @@ function aTexto(values) {
   return values.map((v) => (v == null ? "" : String(v)));
 }
 
+// Qué paneles laterales quedan abiertos. Se recuerda entre sesiones porque es
+// una preferencia de cómo se trabaja, no del análisis en curso: quien tiene la
+// pantalla chica cierra el Navegador y lo quiere cerrado la próxima vez.
+const CLAVE_PANELES = "deteccion-parametros:estadistica:paneles:v1";
+
+function panelesGuardados() {
+  try {
+    const raw = localStorage.getItem(CLAVE_PANELES);
+    const p = raw ? JSON.parse(raw) : null;
+    return {
+      navegador: p?.navegador !== false,
+      asistente: p?.asistente !== false,
+      hoja: p?.hoja !== false,
+    };
+  } catch {
+    return { navegador: true, asistente: true, hoja: true };
+  }
+}
+
+function recordarPaneles(paneles) {
+  try {
+    localStorage.setItem(CLAVE_PANELES, JSON.stringify(paneles));
+  } catch {
+    // Sin memoria del navegador se abren todos, que es lo de siempre.
+  }
+}
+
 export const useWorkbookStore = create((set) => ({
   columns: hojaEnBlanco(),
   resultados: [],
   graficos: [],
+  paneles: panelesGuardados(),
   // Qué resultado o gráfico se muestra en el visor principal — como el
   // Navegador de Minitab, que abre en grande lo último que se generó, y de
   // ahí en adelante lo que se elija de la lista.
@@ -84,6 +112,31 @@ export const useWorkbookStore = create((set) => ({
 
   alternarTema() {
     set((s) => ({ temaClaro: !s.temaClaro }));
+  },
+
+  /** Abre o cierra un panel lateral ("navegador", "asistente" u "hoja"). */
+  alternarPanel(cual) {
+    set((s) => {
+      const paneles = { ...s.paneles, [cual]: !s.paneles[cual] };
+      recordarPaneles(paneles);
+      return { paneles };
+    });
+  },
+
+  /**
+   * Cambia el título de un gráfico o de una tabla de resultados.
+   *
+   * El título es lo que identifica al elemento en el Navegador y lo que se
+   * imprime encima del gráfico al exportarlo, así que poder corregirlo
+   * importa: "Histograma — C1" no dice nada en un protocolo, "Uniformidad de
+   * contenido — lote 2074686" sí.
+   */
+  renombrarSalida(tipo, id, titulo) {
+    set((s) =>
+      tipo === "grafico"
+        ? { graficos: s.graficos.map((g) => (g.id === id ? { ...g, titulo } : g)) }
+        : { resultados: s.resultados.map((r) => (r.id === id ? { ...r, titulo } : r)) }
+    );
   },
 
   seleccionar(seleccion) {

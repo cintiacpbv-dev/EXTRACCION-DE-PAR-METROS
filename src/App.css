@@ -2562,14 +2562,80 @@
    reparte su propio espacio entre el visor (arriba, la parte que más
    crece) y la hoja (abajo, con una altura más fija, como la franja de
    trabajo de Minitab). */
+/* El armazón de la sección: la barra de herramientas arriba, fija, y debajo
+   los paneles repartiéndose lo que quede — como la ventana de Minitab, donde
+   la cinta no se mueve y el trabajo scrollea por dentro. */
+.stat-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--stat-bg, transparent);
+}
+
+.stat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--stat-border, var(--border));
+  background: var(--stat-surface-soft, var(--surface-soft));
+}
+
+.stat-toolbar__grupo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.stat-toolbar__grupo--fin {
+  margin-left: auto;
+}
+
+/* Un interruptor, no un botón de acción: se ve hundido cuando su panel está
+   abierto, que es como se lee de un vistazo qué hay en pantalla. */
+.stat-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--stat-text-muted, var(--text-muted));
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.stat-toggle:hover {
+  background: var(--stat-surface-tint, var(--surface-tint));
+  color: var(--stat-text, var(--text));
+}
+
+.stat-toggle.is-activo {
+  background: var(--sky-soft);
+  border-color: var(--border-strong);
+  color: var(--sky-text);
+}
+
+.btn--mini {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
 .stat-body {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 220px 1fr 300px;
+  grid-template-columns: 210px minmax(0, 1fr) 290px;
   grid-template-rows: 1fr;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 10px;
 }
 
 .stat-main {
@@ -2816,9 +2882,10 @@
 }
 
 /* ---- Asistente de análisis ------------------------------------------ */
+/* Sin columna fija: los paneles se pueden cerrar, así que la tercera columna
+   puede no existir. Cada panel se coloca en el hueco que le toca por su
+   orden en el JSX, y la rejilla se arma con los que estén abiertos. */
 .assistant-panel {
-  grid-column: 3;
-  grid-row: 1;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -2994,14 +3061,99 @@
 /* ---- Visor de salida (lo elegido en el Navegador, en grande) --------- */
 .output-viewer {
   flex: 1;
-  min-height: 240px;
+  /* Sin relleno propio y sin scroll propio: el relleno lo pone el cuerpo y el
+     scroll lo hace él, para que la barra del título se quede fija arriba
+     mientras se recorre una tabla larga —como la ventana de salida de
+     Minitab, cuyo encabezado no se va con el contenido—. */
+  min-height: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow-y: auto;
-  padding: 14px;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* La barra de la ventana de salida: el título a la izquierda y lo que se
+   puede hacer con él a la derecha. */
+.salida-barra {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-soft);
+  flex: 0 0 auto;
+}
+
+.salida-barra__acciones {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* El título se edita donde se lee, sin cuadro de diálogo. En reposo no parece
+   un campo —sería ruido en una barra que ya tiene botones—, pero al pasar por
+   encima se ve que se puede tocar. */
+/* Deliberadamente discreto: el título con todo su peso ya está dibujado
+   dentro del gráfico —ahí es donde se lee y es lo que sale al exportarlo—.
+   Aquí es el rótulo de la ventana, como la barra de título de un gráfico de
+   Minitab: sirve para saber qué hay abierto y para poder cambiarlo, no para
+   competir con el propio gráfico. */
+.salida-titulo {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.salida-titulo:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-tint);
+}
+
+.salida-titulo--editando {
+  border-color: var(--sky);
+  background: var(--surface);
+  cursor: text;
+}
+
+.salida-titulo--editando:focus {
+  outline: none;
+}
+
+.salida-cuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* El lienzo del gráfico: blanco y con marco, como una ventana de gráfico de
+   Minitab. Ocupa todo el cuerpo del visor —por eso "flex: 1" y "min-height:
+   0"—, que es lo que hace que el gráfico entre entero: antes tenía un alto
+   mínimo fijo mayor que el hueco disponible y el eje X se salía por abajo. */
+.grafico-lienzo {
+  flex: 1;
+  min-height: 260px;
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  overflow: hidden;
 }
 
 .results-vacio {
@@ -3265,6 +3417,81 @@
 .stat-body--claro .wb-grid-wrap,
 .stat-body--claro .resultado-item--grafico {
   background: var(--stat-surface);
+}
+
+/* Lo que faltaba del modo claro. Antes sólo se aclaraban los paneles y sus
+   textos, y los botones se quedaban negros sobre blanco: en la práctica el
+   "fondo claro" se veía a medio hacer. Aquí se completan la barra de
+   herramientas, los botones y la ventana de salida.
+   Sólo dentro de esta sección: en el resto de la aplicación el botón oscuro
+   está bien, porque el resto de la aplicación es oscura. */
+/* Los títulos de panel llevan su color de la regla global de "h1, h2, h3",
+   que es el hueso claro del tema oscuro: sobre blanco quedaban casi
+   invisibles. Al ser una regla de elemento, no la alcanza el color que se
+   pone en el contenedor; hay que nombrarlos. */
+.stat-body--claro .navegador-header h3,
+.stat-body--claro .assistant-header h3 {
+  color: var(--sky-dark);
+}
+
+.stat-body--claro .stat-toolbar {
+  background: var(--stat-surface-soft);
+  border-color: var(--stat-border);
+}
+
+.stat-body--claro .stat-toggle {
+  color: var(--stat-text-soft);
+}
+
+.stat-body--claro .stat-toggle:hover {
+  background: var(--stat-surface-tint);
+  color: var(--stat-text);
+}
+
+.stat-body--claro .stat-toggle.is-activo {
+  background: #fde3d3;
+  border-color: #f0b48c;
+  color: var(--sky-dark);
+}
+
+.stat-body--claro .salida-barra {
+  background: var(--stat-surface-soft);
+  border-color: var(--stat-border);
+}
+
+.stat-body--claro .salida-titulo {
+  color: var(--stat-text-soft);
+}
+
+.stat-body--claro .salida-titulo:hover {
+  background: var(--stat-surface-tint);
+  border-color: var(--stat-border-strong);
+}
+
+.stat-body--claro .salida-titulo--editando {
+  background: var(--stat-surface);
+  color: var(--stat-text);
+  border-color: var(--sky);
+}
+
+.stat-body--claro .btn--ghost {
+  background: var(--stat-surface);
+  border-color: var(--stat-border-strong);
+  color: var(--stat-text-soft);
+}
+
+.stat-body--claro .btn--ghost:hover {
+  background: var(--stat-surface-tint);
+  color: var(--stat-text);
+}
+
+.stat-body--claro .navegador-item__quitar,
+.stat-body--claro .wb-cabecera__quitar {
+  color: var(--stat-text-muted);
+}
+
+.stat-body--claro .resultado-advertencias p {
+  color: #9a6a00;
 }
 
 @media (max-width: 980px) {

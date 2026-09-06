@@ -65,7 +65,6 @@ export default function WorkbookGrid() {
   const limpiarHoja = useWorkbookStore((s) => s.limpiarHoja);
   const cargarHoja = useWorkbookStore((s) => s.cargarHoja);
   const temaClaro = useWorkbookStore((s) => s.temaClaro);
-  const alternarTema = useWorkbookStore((s) => s.alternarTema);
   const inputArchivoRef = useRef(null);
   const gridRef = useRef(null);
   const [cargando, setCargando] = useState(false);
@@ -206,14 +205,6 @@ export default function WorkbookGrid() {
           <IconTrash size={13} /> Vaciar hoja
         </button>
         {error && <span className="wb-grid-error">{error}</span>}
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm wb-toolbar__tema"
-          onClick={alternarTema}
-          title={temaClaro ? "Cambiar a fondo oscuro" : "Cambiar a fondo claro, como Minitab"}
-        >
-          {temaClaro ? "🌙 Fondo oscuro" : "☀️ Fondo claro"}
-        </button>
       </div>
       <div className="wb-grid-wrap">
         <DataGrid
