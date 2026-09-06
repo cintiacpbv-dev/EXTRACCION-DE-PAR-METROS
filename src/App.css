@@ -2241,6 +2241,23 @@
   margin: 14px 0 10px;
 }
 
+/* No es un botón más: es una preferencia de cómo se genera el borrador, así
+   que va junto a las acciones pero sin el peso visual de un botón. */
+.riesgo-corroborar {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-soft);
+  cursor: pointer;
+  user-select: none;
+}
+
+.riesgo-corroborar input {
+  accent-color: var(--sky);
+  cursor: pointer;
+}
+
 .riesgo-tabla-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
