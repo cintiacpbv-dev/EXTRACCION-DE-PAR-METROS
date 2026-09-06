@@ -5,6 +5,7 @@ import { processPdfFile } from "../lib/parsers/index.js";
 import { buildTable } from "../lib/model.js";
 import { calcularIPR, clasificarSRI, filaVacia } from "../lib/riesgo/model.js";
 import { analizarRiesgoConGemini } from "../lib/riesgo/analizarConGemini.js";
+import { verificarFilasConBibliografia } from "../lib/riesgo/verificarConBibliografia.js";
 import { exportRiesgoToExcel } from "../lib/riesgo/exportRiesgo.js";
 
 /**
@@ -43,6 +44,10 @@ export default function RiesgoView() {
   // el aviso de Envase no debe tapar el resultado de Fabricación, y ambos
   // tienen que poder verse a la vez.
   const [avisos, setAvisos] = useState([]);
+  // Cruzar el borrador contra la bibliografía (Consulta PDF) va activado: es
+  // lo que separa un borrador plausible de uno con respaldo citable. Se puede
+  // apagar para una pasada rápida, o cuando esa aplicación está caída.
+  const [corroborar, setCorroborar] = useState(true);
 
   function avisar(texto) {
     setAvisos((prev) => [...prev, texto]);
@@ -81,6 +86,51 @@ export default function RiesgoView() {
     setDocumentos((prev) => prev.filter((d) => d.id !== id));
   }
 
+  /**
+   * Cruza contra la bibliografía las filas recién redactadas de una etapa y
+   * escribe las citas en "Documentos relacionados".
+   *
+   * Sólo rellena casillas vacías: si alguien ya anotó ahí un POE a mano, esa
+   * anotación manda sobre lo que traiga la bibliografía.
+   */
+  async function corroborarConBibliografia(filasNuevas, doc, prefijo) {
+    if (filasNuevas.length === 0) return;
+
+    setBusyLabel(`${prefijo}corroborando con la bibliografía… (0 de ${filasNuevas.length} filas)`);
+
+    const { confirmadas, motivoFallo, formatoDesconocido } = await verificarFilasConBibliografia(
+      filasNuevas,
+      {
+        producto: doc.producto,
+        etapa: doc.etapa,
+        onFila: ({ id, documentos: citas }) => {
+          setFilas((prev) =>
+            prev.map((f) => (f.id === id && !f.documentos ? { ...f, documentos: citas } : f))
+          );
+        },
+        onAvance: (hechas, total) => {
+          setBusyLabel(`${prefijo}corroborando con la bibliografía… (${hechas} de ${total} filas)`);
+        },
+      }
+    );
+
+    // Que NINGUNA fila encuentre respaldo no es un dato del análisis: casi
+    // siempre significa que la bibliografía no respondió o que no tiene nada
+    // de este proceso. Se avisa una vez, sin tocar el cuadro — que sigue
+    // completo y utilizable, como cuando esta corroboración no existía.
+    if (confirmadas === 0 && motivoFallo) {
+      avisar(
+        `${doc.etapa}: no se pudo corroborar el borrador contra la bibliografía (${motivoFallo}) — el cuadro se generó igual y puedes completar "Documentos relacionados" a mano.`
+      );
+    }
+
+    if (formatoDesconocido?.length) {
+      avisar(
+        `${doc.etapa}: la bibliografía respondió en un formato que no se reconoció (campos: ${formatoDesconocido.join(", ")}).`
+      );
+    }
+  }
+
   async function generarBorrador() {
     setCargando(true);
     try {
@@ -89,7 +139,7 @@ export default function RiesgoView() {
         let generadas = 0;
         setBusyLabel(`${prefijo}redactando… (0 de ${doc.parametros.length} parámetros)`);
         try {
-          const { errores } = await analizarRiesgoConGemini({
+          const { filas: filasDeLaEtapa, errores } = await analizarRiesgoConGemini({
             producto: doc.producto,
             etapa: doc.etapa,
             parametros: doc.parametros,
@@ -110,6 +160,13 @@ export default function RiesgoView() {
             avisar(
               `${doc.etapa}: no se pudo redactar el lote ${err.lote} de ${err.total} (${err.mensaje}) — el resto de la etapa sí se generó; puedes agregar esas filas a mano o volver a generar el borrador.`
             );
+          }
+
+          // La corroboración va DESPUÉS de redactar, sobre las filas ya
+          // escritas: así el cuadro completo aparece cuanto antes y el cruce
+          // con la bibliografía sólo le añade las citas encima.
+          if (corroborar) {
+            await corroborarConBibliografia(filasDeLaEtapa, doc, prefijo);
           }
         } catch (e) {
           avisar(`${doc.etapa}: ${e.message}`);
@@ -216,6 +273,19 @@ export default function RiesgoView() {
         <button className="btn btn--ghost" onClick={exportar} disabled={filas.length === 0}>
           <IconDownload size={14} /> Exportar a Excel
         </button>
+
+        <label
+          className="riesgo-corroborar"
+          title="Cada fila redactada se consulta contra la bibliografía de Consulta PDF; cuando hay respaldo, la cita se escribe en «Documentos relacionados». Lo que no encuentre respaldo se queda tal cual."
+        >
+          <input
+            type="checkbox"
+            checked={corroborar}
+            onChange={(e) => setCorroborar(e.target.checked)}
+            disabled={cargando}
+          />
+          Corroborar con la bibliografía
+        </label>
       </div>
 
       {filas.length === 0 ? (
@@ -355,6 +425,9 @@ export default function RiesgoView() {
       <p className="muted riesgo-nota">
         El borrador de Gemini es un punto de partida — revisa y corrige cada modo de fallo, causa y control
         antes de exportar. Conforme subas más registros, este análisis se puede volver a generar y afinar.
+        Con la corroboración activada, cada fila se consulta contra la bibliografía y, cuando ésta la
+        respalda, la cita aparece en "Documentos relacionados"; lo que no encuentre respaldo se queda tal
+        como se redactó.
       </p>
     </div>
   );

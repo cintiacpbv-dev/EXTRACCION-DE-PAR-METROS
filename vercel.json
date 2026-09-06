@@ -5,6 +5,9 @@
     },
     "api/sugerencia-estadistica.js": {
       "maxDuration": 30
+    },
+    "api/verificar-bibliografia.js": {
+      "maxDuration": 60
     }
   }
 }
