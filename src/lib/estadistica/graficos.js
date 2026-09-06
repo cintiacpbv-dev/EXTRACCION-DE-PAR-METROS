@@ -20,15 +20,25 @@ const SERIE_2 = "#d95926"; // naranja — segunda serie (curva normal, grupo 2)
 const SERIE_3 = "#008300"; // verde — grupo 3
 const ATIPICO = "#e66767"; // rojo — puntos fuera de rango, no es una serie más
 
-// Cromo del propio tema oscuro de la app (src/index.css), para que el
-// gráfico se sienta parte de la página y no un widget pegado encima.
-const TEXTO = "#ece7de";
-const TEXTO_SUAVE = "#9a9285";
-const BORDE = "#242320";
-const SUPERFICIE = "#161513";
+// Cromo claro, como los gráficos de Minitab: fondo blanco, texto negro y
+// rejilla gris fina.
+//
+// El resto de la aplicación es oscura y estos gráficos lo eran también, pero
+// aquí manda para qué se usan: se pegan en protocolos de validación que se
+// imprimen y se archivan en papel. Un gráfico de fondo negro en un informe
+// se ve fuera de lugar, gasta tóner y se lee peor fotocopiado. Además es el
+// aspecto que ya conoce quien viene de Minitab.
+//
+// El fondo va explícito y no "transparent": al exportar el gráfico a PNG,
+// un fondo transparente sale negro o a cuadros según dónde se pegue.
+const TEXTO = "#1c1b19";
+const TEXTO_SUAVE = "#5a5750";
+const BORDE = "#c9c6bf";
+const REJILLA = "#e6e3dc";
+const SUPERFICIE = "#ffffff";
 
 const BASE = {
-  backgroundColor: "transparent",
+  backgroundColor: SUPERFICIE,
   textStyle: { color: TEXTO, fontFamily: "IBM Plex Sans, sans-serif" },
   tooltip: {
     trigger: "item",
@@ -42,7 +52,10 @@ function ejeBase(overrides) {
   return {
     axisLine: { lineStyle: { color: BORDE } },
     axisLabel: { color: TEXTO_SUAVE },
-    splitLine: { lineStyle: { color: BORDE, type: "dashed" } },
+    // La rejilla, más clara que el eje: en Minitab guía la lectura sin
+    // competir con los datos, que es justo lo contrario de lo que pasa
+    // cuando se pinta del mismo tono que el marco.
+    splitLine: { lineStyle: { color: REJILLA, type: "dashed" } },
     ...overrides,
   };
 }
@@ -122,7 +135,11 @@ export function opcionBoxplot(columnas) {
     title: { text: "Diagrama de caja", textStyle: { color: TEXTO, fontSize: 14, fontWeight: 600 } },
     grid: { left: 56, right: 24, top: 48, bottom: 40 },
     xAxis: ejeBase({ type: "category", data: categorias }),
-    yAxis: ejeBase({ type: "value" }),
+    // "scale: true" —el eje se ajusta a los datos en vez de empezar en cero—,
+    // como en Minitab. Sin esto, una medida que ronda 70 se dibujaba sobre un
+    // eje de 0 a 80 y la caja entera quedaba aplastada en una rayita: se
+    // perdía justo lo que se viene a mirar, que es la dispersión.
+    yAxis: ejeBase({ type: "value", scale: true }),
     series: [
       {
         name: "Caja",
@@ -199,27 +216,55 @@ export function opcionDispersion(colX, colY, colGrupo) {
 
 const VERDE_OK = "#008300";
 
+/**
+ * Mínimo y máximo del eje de una carta de control: lo que abarque a la vez
+ * los puntos y sus límites, con un respiro del 5 % para que ni el punto más
+ * extremo ni la raya del límite queden pegados al borde.
+ */
+function limitesEje(carta) {
+  const valores = carta.puntos.map((p) => p.v).filter((v) => typeof v === "number" && Number.isFinite(v));
+  const candidatos = [...valores, carta.cl, carta.ucl, carta.lcl].filter((v) => typeof v === "number" && Number.isFinite(v));
+  if (candidatos.length === 0) return { scale: true };
+
+  const min = Math.min(...candidatos);
+  const max = Math.max(...candidatos);
+  // Un proceso clavado en un solo valor no tiene rango del que sacar el
+  // respiro; se le da uno fijo para que la línea no salga pegada al eje.
+  const respiro = max === min ? Math.abs(max) * 0.05 || 1 : (max - min) * 0.05;
+  return { min: min - respiro, max: max + respiro };
+}
+
 /** Par de cartas (individuos + rango móvil, o Xbar + R) apiladas una sobre otra. */
-function opcionParDeCartas(superior, inferior, tituloSuperior, tituloInferior, nombreEje) {
+function opcionParDeCartas(superior, inferior, tituloSuperior, nombreEje) {
   return {
     ...BASE,
     tooltip: { ...BASE.tooltip, trigger: "axis" },
+    // Margen derecho ancho a propósito: las líneas de control escriben su
+    // etiqueta al final ("LCS 71.842", "LC 70.245", "LCI 68.648") y con el
+    // margen justo se salían del lienzo — quedaban recortadas justo los
+    // números que dicen si el proceso está bajo control.
     grid: [
-      { left: 64, right: 24, top: 48, height: "35%" },
-      { left: 64, right: 24, top: "58%", height: "32%" },
+      { left: 64, right: 96, top: 48, height: "35%" },
+      { left: 64, right: 96, top: "58%", height: "32%" },
     ],
     xAxis: [
       ejeBase({ type: "category", data: superior.puntos.map((p) => p.i + 1), gridIndex: 0, show: false }),
       ejeBase({ type: "category", data: inferior.puntos.map((p) => p.i + 1), gridIndex: 1, name: "Muestra", nameLocation: "middle", nameGap: 28 }),
     ],
+    // El eje se estira hasta abarcar los límites de control, no sólo los
+    // puntos. Ajustado sólo a los datos —que es lo que hace "scale: true"—,
+    // un proceso estable dejaba el LCS y el LCI fuera del dibujo: se veía una
+    // línea de puntos sin las rayas contra las que hay que compararla, que es
+    // justamente para lo que sirve una carta de control.
     yAxis: [
-      ejeBase({ type: "value", name: nombreEje[0], gridIndex: 0, scale: true }),
-      ejeBase({ type: "value", name: nombreEje[1], gridIndex: 1, scale: true }),
+      ejeBase({ type: "value", name: nombreEje[0], gridIndex: 0, ...limitesEje(superior) }),
+      ejeBase({ type: "value", name: nombreEje[1], gridIndex: 1, ...limitesEje(inferior) }),
     ],
-    title: [
-      { text: tituloSuperior, top: 8, left: 64, textStyle: { color: TEXTO, fontSize: 13, fontWeight: 600 } },
-      { text: tituloInferior, top: "56%", left: 64, textStyle: { color: TEXTO, fontSize: 13, fontWeight: 600 } },
-    ],
+    // Un solo título, el de la ventana, como en Minitab. Los rótulos de cada
+    // carta se caían encima del nombre de su propio eje —"Rango móvil"
+    // aparecía dos veces, una como título y otra como eje— y encima el de
+    // abajo se montaba sobre el eje de la carta de arriba.
+    title: { text: tituloSuperior, left: "center", top: 6, textStyle: { color: TEXTO, fontSize: 14, fontWeight: 600 } },
     series: [superior, inferior].map((carta, idx) => ({
       name: nombreEje[idx],
       type: "line",
@@ -249,7 +294,6 @@ export function opcionIMR(resultado, nombreColumna) {
     resultado.individuos,
     resultado.rangoMovil,
     `Individuos — ${nombreColumna}`,
-    "Rango móvil",
     [nombreColumna, "Rango móvil"]
   );
 }
@@ -260,7 +304,6 @@ export function opcionXbarR(resultado, nombreColumna) {
     resultado.medias,
     resultado.rangos,
     `Xbarra — ${nombreColumna}`,
-    "Rango",
     [`Media (n=${resultado.tamanoSubgrupo})`, "Rango"]
   );
 }
