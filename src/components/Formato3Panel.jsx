@@ -1,13 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import UploadZone from "./UploadZone.jsx";
-import { IconGrid, IconChevronDown, IconDownload, IconAlert } from "./Icons.jsx";
+import { IconGrid, IconChevronDown, IconDownload, IconAlert, IconCloud } from "./Icons.jsx";
 import { aggregateEquipos } from "../lib/model.js";
 import {
+  borrarCronogramaRemoto,
   cargarCronogramaLocal,
+  cargarCronogramaRemoto,
   guardarCronogramaLocal,
+  guardarCronogramaRemoto,
   leerCronograma,
   olvidarCronogramaLocal,
 } from "../lib/calificaciones.js";
+import { supabaseEnabled } from "../lib/supabaseClient.js";
 import { esEquipoCalificable } from "../lib/parsers/equipos.js";
 import { exportFormato3ToWord, filasFormato3 } from "../lib/exportFormato3.js";
 
@@ -56,6 +60,29 @@ export default function Formato3Panel({ documents, familia, opcionesEncabezado }
   const [trabajando, setTrabajando] = useState("");
   const [error, setError] = useState(null);
   const [aviso, setAviso] = useState(null);
+  // Si el cronograma que se está usando es el que está guardado para todos, o
+  // sólo el de este navegador (porque Supabase no está conectado, o porque la
+  // subida a la nube falló).
+  const [enLaNube, setEnLaNube] = useState(false);
+
+  // El cronograma guardado se trae al abrir, y manda sobre el que hubiera en
+  // este navegador: es el que subió quien lo actualizó por última vez, desde
+  // donde fuera. Va aparte de la carga de documentos y sin bloquear nada; si
+  // no hay conexión, se sigue con el local, que es lo que había antes.
+  useEffect(() => {
+    if (!supabaseEnabled) return;
+    let vigente = true;
+    (async () => {
+      const remoto = await cargarCronogramaRemoto();
+      if (!vigente || !remoto) return;
+      setCronograma(remoto);
+      setEnLaNube(true);
+      guardarCronogramaLocal(remoto);
+    })();
+    return () => {
+      vigente = false;
+    };
+  }, []);
 
   const equipos = useMemo(() => aggregateEquipos(documents, familia), [documents, familia]);
   const calificables = useMemo(() => equipos.filter(esEquipoCalificable), [equipos]);
@@ -87,7 +114,20 @@ export default function Formato3Panel({ documents, familia, opcionesEncabezado }
         return;
       }
       setCronograma(res.cronograma);
-      if (!guardarCronogramaLocal(res.cronograma)) {
+      const cupoEnLocal = guardarCronogramaLocal(res.cronograma);
+
+      // La copia que de verdad importa es la de la nube: es la que sigue ahí
+      // al limpiar el navegador y la que ve el resto de los equipos. La local
+      // pasa a ser sólo un atajo para no esperar a la red al abrir.
+      setTrabajando("Guardando el cronograma…");
+      const guardado = await guardarCronogramaRemoto(res.cronograma);
+      setEnLaNube(guardado.ok && !guardado.skipped);
+
+      if (!guardado.ok) {
+        setAviso(
+          `El cronograma se cargó y ya se está usando, pero no se pudo guardar para todos: ${guardado.error}. ¿Falta ejecutar supabase_migration_v13.sql?`
+        );
+      } else if (guardado.skipped && !cupoEnLocal) {
         setAviso("El cronograma no cupo en la memoria del navegador: habrá que volver a subirlo la próxima vez.");
       }
     } catch (e) {
@@ -97,10 +137,16 @@ export default function Formato3Panel({ documents, familia, opcionesEncabezado }
     }
   }
 
-  function quitarExcel() {
+  async function quitarExcel() {
     olvidarCronogramaLocal();
     setCronograma(null);
     setAviso(null);
+    setEnLaNube(false);
+    // Quitarlo aquí lo quita en todas partes: si sólo se borrara el de este
+    // navegador, al recargar volvería el de la nube y parecería que el botón
+    // no hizo nada.
+    const res = await borrarCronogramaRemoto();
+    if (!res.ok) setAviso(`Se quitó de este navegador, pero no de la nube: ${res.error}`);
   }
 
   async function descargar() {
@@ -169,7 +215,7 @@ export default function Formato3Panel({ documents, familia, opcionesEncabezado }
             compact={!!cronograma}
             title="Cronograma de calificación (.xlsx)"
             compactTitle={cronograma ? `Cronograma: ${cronograma.fileName}` : "Cambiar cronograma"}
-            hint="El registro de áreas, sistemas y equipos a calificar (OQ y PQ). Súbelo de nuevo cada vez que se actualice."
+            hint="El registro de áreas, sistemas y equipos a calificar (OQ y PQ). Queda guardado; súbelo de nuevo sólo cuando el cronograma se actualice."
             extensiones={[".xlsx", ".xlsm"]}
             tipos={["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]}
           />
@@ -208,6 +254,14 @@ export default function Formato3Panel({ documents, familia, opcionesEncabezado }
                 />
                 Sólo equipos calificables ({calificables.length} de {equipos.length})
               </label>
+              {/* Que el cronograma esté guardado para todos no se ve por
+                  ningún lado, y es justo lo que hay que saber para no volver
+                  a subirlo en cada sesión. */}
+              {cronograma && enLaNube && (
+                <span className="sap-pastilla sap-pastilla--ok" title="Está guardado: no hace falta volver a subirlo">
+                  <IconCloud size={13} /> Guardado
+                </span>
+              )}
               {cronograma && (
                 <button className="btn btn--ghost" onClick={quitarExcel}>
                   Quitar cronograma
