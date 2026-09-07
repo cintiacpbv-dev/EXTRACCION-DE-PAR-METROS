@@ -2638,6 +2638,99 @@
   padding: 10px;
 }
 
+/* ---- Paneles laterales que se pliegan solos ------------------------- */
+/* Abierto es un panel normal y no se nota que este envoltorio existe. */
+.stat-lateral {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.stat-lateral__contenido {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.stat-lateral__contenido > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* La pestaña sólo existe cuando el panel está plegado: es lo que dice que
+   ahí sigue habiendo algo y por dónde se recupera. */
+.stat-lateral__pestana {
+  display: none;
+}
+
+.stat-lateral.is-plegado {
+  overflow: visible;
+}
+
+.stat-lateral.is-plegado .stat-lateral__pestana {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 30px;
+  background: var(--stat-surface-soft, var(--surface-soft));
+  border: 1px solid var(--stat-border, var(--border));
+  border-radius: var(--radius-sm);
+  color: var(--stat-text-muted, var(--text-muted));
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  /* El rótulo, en vertical: en 30 px no cabe de otra forma, y es como se
+     rotulan las pestañas acopladas en Minitab o en un editor de código. */
+  writing-mode: vertical-rl;
+  padding: 10px 0;
+  justify-content: flex-start;
+}
+
+.stat-lateral.is-plegado .stat-lateral__pestana svg {
+  /* El icono no gira con el texto: girado no se reconoce. */
+  writing-mode: horizontal-tb;
+  transform: rotate(0deg);
+}
+
+.stat-lateral.is-plegado:hover .stat-lateral__pestana {
+  border-color: var(--border-strong);
+  color: var(--sky-text);
+}
+
+/* Plegado, el contenido desaparece de la rejilla y sólo se asoma al pasar
+   por encima, flotando sobre el visor. Se asoma en vez de volver a su
+   columna a propósito: si recuperara su sitio, el gráfico se encogería y
+   se volvería a estirar cada vez que el ratón lo roza al pasar. */
+.stat-lateral.is-plegado .stat-lateral__contenido {
+  display: none;
+}
+
+.stat-lateral.is-plegado:hover .stat-lateral__contenido,
+.stat-lateral.is-plegado:focus-within .stat-lateral__contenido {
+  display: flex;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 250px;
+  z-index: 15;
+  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius);
+}
+
+/* Cada uno se asoma hacia dentro de la pantalla, no hacia fuera. */
+.stat-body > .stat-lateral:first-child.is-plegado:hover .stat-lateral__contenido,
+.stat-body > .stat-lateral:first-child.is-plegado:focus-within .stat-lateral__contenido {
+  left: 34px;
+}
+
+.stat-body > .stat-lateral:last-child.is-plegado:hover .stat-lateral__contenido,
+.stat-body > .stat-lateral:last-child.is-plegado:focus-within .stat-lateral__contenido {
+  right: 34px;
+  width: 290px;
+}
+
 .stat-main {
   display: flex;
   flex-direction: column;
