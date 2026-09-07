@@ -12,6 +12,7 @@
 // de nada hasta que hay un resultado nuevo.
 import { create } from "zustand";
 import { detectarTipo } from "./csv.js";
+import { calcularFormula, esFormula } from "./formulas.js";
 
 const COLUMNAS_INICIALES = 8;
 const FILAS_INICIALES = 60;
@@ -22,9 +23,16 @@ function columnaVacia(filas) {
   contadorColumnas += 1;
   return {
     id: `c${contadorColumnas}`,
+    // Lo que escriba la persona en la fila de nombres. Nace vacío: en Minitab
+    // "C1" es la etiqueta fija y la fila de debajo se deja libre.
+    nombre: "",
     name: `C${contadorColumnas}`,
     type: "numeric",
     values: new Array(filas).fill(null),
+    // Lo que se escribió en las celdas que llevan fórmula, tal cual, para
+    // poder volver a mostrarlo al editarlas y recalcularlas cuando cambie
+    // algún dato del que dependen.
+    formulas: {},
   };
 }
 
@@ -56,16 +64,151 @@ export function coerce(tipo) {
  * hace Minitab: no se declara aparte, se deduce de lo que hay escrito.
  * "valoresTexto" son los valores ya en texto (antes de convertir), para
  * poder decidir el tipo antes de saber con qué convertirlos.
+ *
+ * Las celdas con fórmula no votan el tipo: lo que hay escrito en ellas es
+ * "=C1*2", que como texto arrastraría toda la columna a tipo texto aunque su
+ * resultado sea un número.
  */
 function recalcularColumna(c, valoresTexto) {
-  const tipo = detectarTipo(valoresTexto);
+  const sinFormulas = valoresTexto.map((t, i) => (c.formulas?.[i] ? "" : t));
+  const tipo = detectarTipo(sinFormulas);
   const convertir = coerce(tipo);
-  return { ...c, type: tipo, values: valoresTexto.map((t) => (t.trim() === "" ? null : convertir(t))) };
+  return { ...c, type: tipo, values: valoresTexto.map((t, i) => (c.formulas?.[i] ? c.values[i] : t.trim() === "" ? null : convertir(t))) };
 }
 
 /** Los valores ya guardados, de vuelta a texto — para recalcular el tipo sin perder lo que ya había. */
 function aTexto(values) {
   return values.map((v) => (v == null ? "" : String(v)));
+}
+
+/** La etiqueta fija de una columna por su posición: C1, C2, C3… como Minitab. */
+export function etiquetaColumna(indice) {
+  return `C${indice + 1}`;
+}
+
+/**
+ * Deja cada columna con un "name" utilizable.
+ *
+ * La fila de nombres de la hoja se deja en blanco a propósito —es de quien la
+ * usa, para escribir "pH 1"—, pero todo lo demás (los títulos de los
+ * gráficos, los ejes, las tablas de resultados) necesita llamar a la columna
+ * de alguna forma. Sin nombre propio, se usa su etiqueta: "C1".
+ *
+ * Se hace aquí, en un solo sitio, en vez de repetir "c.name || C1" en las
+ * treinta llamadas que lo usan.
+ */
+function conNombres(columns) {
+  return columns.map((c, i) => {
+    const propio = String(c.nombre ?? "").trim();
+    const name = propio || etiquetaColumna(i);
+    return c.name === name ? c : { ...c, name };
+  });
+}
+
+/**
+ * Lo que se muestra al abrir una celda para editarla: la fórmula tal como se
+ * escribió, si la tiene, y si no el valor. Editar una celda con fórmula tiene
+ * que enseñar la fórmula, no su resultado — si no, no habría forma de
+ * corregirla.
+ */
+export function textoDeCelda(columna, fila) {
+  const formula = columna?.formulas?.[fila];
+  if (formula) return formula;
+  const v = columna?.values?.[fila];
+  return v == null ? "" : String(v);
+}
+
+/**
+ * Calcula todas las fórmulas de la hoja.
+ *
+ * Se recalcula la hoja entera ante cualquier cambio, sin seguir qué depende
+ * de qué: son hojas de unas pocas columnas y unos cientos de filas, y un
+ * grafo de dependencias sería mucha maquinaria para no notar la diferencia.
+ *
+ * Una fórmula que no se puede calcular deja su celda vacía y guarda el motivo
+ * en "errores", para poder enseñarlo en la propia celda.
+ */
+function recalcularFormulas(columns) {
+  const porNombre = new Map();
+  columns.forEach((c, i) => {
+    porNombre.set(etiquetaColumna(i).toUpperCase(), i);
+    const propio = String(c.name || "").trim().toUpperCase();
+    // El nombre que le puso la persona también sirve para referirse a ella,
+    // siempre que sea una sola palabra: "=pH 1*2" no se podría separar.
+    if (propio && !/\s/.test(propio) && !porNombre.has(propio)) porNombre.set(propio, i);
+  });
+
+  const numerosDe = (indice) => columns[indice].values.filter((v) => typeof v === "number" && Number.isFinite(v));
+
+  return columns.map((c) => {
+    const claves = Object.keys(c.formulas || {});
+    if (claves.length === 0) return c.errores ? { ...c, errores: undefined } : c;
+
+    const values = [...c.values];
+    const errores = {};
+
+    for (const clave of claves) {
+      const fila = Number(clave);
+      const contexto = {
+        celda: (nombre) => {
+          const i = porNombre.get(nombre);
+          return i === undefined ? null : columns[i].values[fila] ?? null;
+        },
+        columna: (nombre) => {
+          const i = porNombre.get(nombre);
+          return i === undefined ? [] : numerosDe(i);
+        },
+      };
+      const r = calcularFormula(c.formulas[clave], contexto);
+      values[fila] = r.error ? null : r.valor;
+      if (r.error) errores[fila] = r.error;
+    }
+
+    return { ...c, values, errores: Object.keys(errores).length ? errores : undefined };
+  });
+}
+
+/**
+ * Escribe una lista de celdas —{ colIdx, filaIdx, texto }— de una vez.
+ *
+ * Todo lo que cambia la hoja pasa por aquí: escribir a mano, pegar un bloque,
+ * arrastrar el tirador, borrar una selección. Hacerlo en una sola pasada
+ * importa: recalcular tipos y fórmulas una vez por celda al pegar mil celdas
+ * dejaba la pantalla colgada.
+ */
+function escribirCeldas(columns, cambios) {
+  if (cambios.length === 0) return columns;
+
+  const filaMax = Math.max(...cambios.map((c) => c.filaIdx)) + 1;
+  const porColumna = new Map();
+  for (const cambio of cambios) {
+    if (!porColumna.has(cambio.colIdx)) porColumna.set(cambio.colIdx, []);
+    porColumna.get(cambio.colIdx).push(cambio);
+  }
+
+  const siguientes = columns.map((c, i) => {
+    const mios = porColumna.get(i);
+    const necesitaCrecer = c.values.length < filaMax;
+    if (!mios && !necesitaCrecer) return c;
+
+    const valoresTexto = aTexto(c.values);
+    while (valoresTexto.length < filaMax) valoresTexto.push("");
+    if (!mios) return { ...c, values: valoresTexto.map((t, k) => (c.formulas?.[k] ? c.values[k] : t === "" ? null : c.values[k])) };
+
+    const formulas = { ...(c.formulas || {}) };
+    for (const { filaIdx, texto } of mios) {
+      if (esFormula(texto)) {
+        formulas[filaIdx] = texto;
+        valoresTexto[filaIdx] = "";
+      } else {
+        delete formulas[filaIdx];
+        valoresTexto[filaIdx] = texto ?? "";
+      }
+    }
+    return recalcularColumna({ ...c, formulas }, valoresTexto);
+  });
+
+  return recalcularFormulas(conNombres(siguientes));
 }
 
 // Qué paneles laterales quedan abiertos. Se recuerda entre sesiones porque es
@@ -148,15 +291,18 @@ export const useWorkbookStore = create((set) => ({
   },
 
   renombrarColumna(id, nombre) {
-    set((s) => ({ columns: s.columns.map((c) => (c.id === id ? { ...c, name: nombre } : c)) }));
+    // Renombrar puede cambiar a qué apunta una fórmula que use ese nombre.
+    set((s) => ({ columns: recalcularFormulas(conNombres(s.columns.map((c) => (c.id === id ? { ...c, nombre } : c)))) }));
   },
 
   agregarColumna() {
-    set((s) => ({ columns: [...s.columns, columnaVacia(s.columns[0]?.values.length || FILAS_INICIALES)] }));
+    set((s) => ({ columns: conNombres([...s.columns, columnaVacia(s.columns[0]?.values.length || FILAS_INICIALES)]) }));
   },
 
   eliminarColumna(id) {
-    set((s) => ({ columns: s.columns.filter((c) => c.id !== id) }));
+    // Al quitar una columna, las etiquetas C1, C2… de las que vienen detrás
+    // se corren, y con ellas lo que significan las fórmulas que las nombran.
+    set((s) => ({ columns: recalcularFormulas(conNombres(s.columns.filter((c) => c.id !== id))) }));
   },
 
   agregarFilas(cantidad = 20) {
@@ -165,50 +311,37 @@ export const useWorkbookStore = create((set) => ({
     }));
   },
 
+  /** Escribe una celda (edición manual desde la hoja). */
+  setCelda(colIdx, filaIdx, valorTexto) {
+    set((s) => ({ columns: escribirCeldas(s.columns, [{ colIdx, filaIdx, texto: valorTexto }]) }));
+  },
+
   /**
-   * Escribe una sola celda (edición manual desde la grilla) y recalcula el
-   * tipo de la columna con el valor ya puesto — igual que si se acabara de
-   * pegar una hoja con esa columna completa.
+   * Escribe muchas celdas de una vez: pegar un bloque, arrastrar el tirador,
+   * borrar o cortar una selección. `cambios` son { colIdx, filaIdx, texto }.
    */
-  setCelda(colId, filaIdx, valorTexto) {
-    set((s) => ({
-      columns: s.columns.map((c) => {
-        if (c.id !== colId) return c;
-        const valoresTexto = aTexto(c.values);
-        while (valoresTexto.length <= filaIdx) valoresTexto.push("");
-        valoresTexto[filaIdx] = valorTexto;
-        return recalcularColumna(c, valoresTexto);
-      }),
-    }));
+  setCeldas(cambios) {
+    set((s) => ({ columns: escribirCeldas(s.columns, cambios) }));
   },
 
   /**
    * Pega un bloque rectangular (filas x columnas, ya separado en texto)
-   * empezando en una celda: reparte cada columna del bloque en la columna
-   * de la hoja que le corresponda a la derecha de "colIdInicio", crece las
-   * columnas si el bloque trae más filas de las que hay, y recalcula el
-   * tipo de cada columna tocada con su contenido ya actualizado.
+   * empezando en una celda: cada columna del bloque cae en la columna que le
+   * toca a la derecha del inicio, y la hoja crece si el bloque trae más filas
+   * de las que hay.
    */
-  pegarBloque(colIdInicio, filaIdxInicio, bloque) {
+  pegarBloque(colIdxInicio, filaIdxInicio, bloque) {
     if (bloque.length === 0) return;
     set((s) => {
-      const idxInicio = s.columns.findIndex((c) => c.id === colIdInicio);
-      if (idxInicio === -1) return s;
-      const anchoBloque = Math.max(...bloque.map((f) => f.length));
-      const filaMax = filaIdxInicio + bloque.length;
-      const columns = s.columns.map((c, i) => {
-        const offset = i - idxInicio;
-        if (offset < 0 || offset >= anchoBloque) return c;
-        const valoresTexto = aTexto(c.values);
-        while (valoresTexto.length < filaMax) valoresTexto.push("");
-        for (let r = 0; r < bloque.length; r++) {
-          const texto = bloque[r][offset];
-          if (texto === undefined) continue;
-          valoresTexto[filaIdxInicio + r] = texto;
+      const cambios = [];
+      for (let r = 0; r < bloque.length; r++) {
+        for (let k = 0; k < bloque[r].length; k++) {
+          const colIdx = colIdxInicio + k;
+          if (colIdx >= s.columns.length) continue;
+          cambios.push({ colIdx, filaIdx: filaIdxInicio + r, texto: bloque[r][k] ?? "" });
         }
-        return recalcularColumna(c, valoresTexto);
-      });
-      return { columns };
+      }
+      return { columns: escribirCeldas(s.columns, cambios) };
     });
   },
 
@@ -223,7 +356,7 @@ export const useWorkbookStore = create((set) => ({
       columns: columnasNuevas.map((c) => {
         contadorColumnas += 1;
         const convertir = coerce(c.type);
-        return { id: `c${contadorColumnas}`, name: c.name, type: c.type, values: c.values.map((v) => (v == null ? null : convertir(String(v)))) };
+        return { id: `c${contadorColumnas}`, nombre: c.name || "", name: c.name || `C${contadorColumnas}`, type: c.type, formulas: {}, values: c.values.map((v) => (v == null ? null : convertir(String(v)))) };
       }),
       resultados: [],
       graficos: [],

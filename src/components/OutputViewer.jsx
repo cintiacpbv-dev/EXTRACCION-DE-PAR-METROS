@@ -30,16 +30,19 @@ function TablaResultado({ contenido }) {
 }
 
 /**
- * El título del elemento, editable en el sitio.
+ * El título, que se edita haciendo clic sobre él.
  *
- * Se edita aquí y no en un cuadro de diálogo aparte porque es lo que hace
- * Minitab y porque el título es lo que acaba impreso encima del gráfico en el
- * protocolo: "Histograma — C1" no dice nada, "Uniformidad de contenido — lote
- * 2074686" sí.
+ * En un gráfico no hay barra ni campo: se pincha el título que está dibujado
+ * encima del propio gráfico y ahí mismo se escribe, que es como se corrige un
+ * título en Minitab. La caja de edición se coloca justo donde estaba el texto
+ * para que no salte al abrirse.
+ *
+ * Importa poder cambiarlo porque es lo que acaba impreso en el protocolo:
+ * "Histograma — C1" no dice nada, "Uniformidad de contenido — lote 2074686" sí.
  */
-function TituloEditable({ item, tipo }) {
+function TituloEditable({ item, tipo, empezarEditando = false, alTerminar }) {
   const renombrarSalida = useWorkbookStore((s) => s.renombrarSalida);
-  const [editando, setEditando] = useState(false);
+  const [editando, setEditando] = useState(empezarEditando);
   const [borrador, setBorrador] = useState(item.titulo);
   const campoRef = useRef(null);
 
@@ -52,6 +55,7 @@ function TituloEditable({ item, tipo }) {
     if (limpio && limpio !== item.titulo) renombrarSalida(tipo, item.id, limpio);
     else setBorrador(item.titulo);
     setEditando(false);
+    alTerminar?.();
   }
 
   if (!editando) {
@@ -67,6 +71,7 @@ function TituloEditable({ item, tipo }) {
     );
   }
 
+
   return (
     <input
       ref={campoRef}
@@ -81,6 +86,7 @@ function TituloEditable({ item, tipo }) {
         if (e.key === "Escape") {
           setBorrador(item.titulo);
           setEditando(false);
+          alTerminar?.();
         }
       }}
     />
@@ -100,6 +106,10 @@ export default function OutputViewer() {
   const eliminarGrafico = useWorkbookStore((s) => s.eliminarGrafico);
 
   const [copiado, setCopiado] = useState(false);
+  // Qué elemento tiene el título abierto para editar, en vez de un simple
+  // "sí/no": así, al cambiar de gráfico en el Navegador, el editor se cierra
+  // solo —se deduce de la comparación— sin tener que ir a apagarlo.
+  const [tituloEnEdicion, setTituloEnEdicion] = useState(null);
   const graficoRef = useRef(null);
 
   const item =
@@ -110,13 +120,23 @@ export default function OutputViewer() {
         : null;
 
   const esGrafico = seleccionActual?.tipo === "grafico";
+  const editandoTitulo = Boolean(item) && tituloEnEdicion === item.id;
 
   // El título de la barra manda sobre el que traía el gráfico al generarse:
   // si no, renombrarlo cambiaría la lista pero no lo que se ve —ni lo que se
   // exporta— encima del dibujo.
   const opciones = useMemo(() => {
     if (!esGrafico || !item) return null;
-    const titulo = { text: item.titulo, left: "center", top: 6, textStyle: { color: "#1c1b19", fontSize: 15, fontWeight: 600 } };
+    // "triggerEvent" es lo que hace que el título responda al clic: sin él
+    // ECharts lo dibuja como decorado y no avisa de que lo han pinchado, así
+    // que no habría forma de editarlo desde el propio gráfico.
+    const titulo = {
+      text: item.titulo,
+      left: "center",
+      top: 6,
+      triggerEvent: true,
+      textStyle: { color: "#1c1b19", fontSize: 15, fontWeight: 600 },
+    };
     // Los gráficos de varios paneles (I-MR, Xbar-R) traen un título por
     // panel: ahí sólo se reemplaza el primero, que es el general.
     if (Array.isArray(item.opciones.title)) {
@@ -153,36 +173,84 @@ export default function OutputViewer() {
     );
   }
 
-  return (
-    <section className="output-viewer">
-      <div className="salida-barra">
-        <TituloEditable key={item.id} item={item} tipo={seleccionActual.tipo} />
+  // --- gráfico: sin barra, todo el panel es el lienzo ---------------------
+  if (esGrafico) {
+    return (
+      <section className="output-viewer output-viewer--grafico">
+        <div className="grafico-lienzo">
+          <ReactECharts
+            ref={graficoRef}
+            option={opciones}
+            style={{ height: "100%", width: "100%" }}
+            opts={{ renderer: "canvas" }}
+            notMerge
+            lazyUpdate
+            // Pinchar el título dibujado abre su edición: no hace falta una
+            // barra aparte sólo para poder cambiarlo, y así el gráfico se
+            // queda con toda la altura del panel.
+            onEvents={{
+              click: (params) => {
+                if (params?.componentType === "title") setTituloEnEdicion(item.id);
+              },
+            }}
+          />
 
-        <div className="salida-barra__acciones">
-          {esGrafico ? (
+          {editandoTitulo && (
+            <div className="grafico-titulo-editor">
+              <TituloEditable
+                key={item.id}
+                item={item}
+                tipo="grafico"
+                empezarEditando
+                alTerminar={() => setTituloEnEdicion(null)}
+              />
+            </div>
+          )}
+
+          {/* Los botones, dentro del gráfico y sólo como icono: en la esquina
+              no le quitan alto al dibujo, que es lo que se viene a mirar. */}
+          <div className="grafico-acciones">
             <button
               type="button"
-              className="btn btn--ghost btn--mini"
+              className="grafico-accion"
               onClick={() => descargarGraficoPng(item.opciones, item.titulo)}
               title="Descargar el gráfico como imagen PNG"
+              aria-label="Descargar PNG"
             >
-              <IconDownload size={13} /> PNG
+              <IconDownload size={14} />
             </button>
-          ) : (
-            <>
-              <button type="button" className="btn btn--ghost btn--mini" onClick={copiarTabla} title="Copiar la tabla para pegarla en Excel">
-                {copiado ? <IconCheck size={13} /> : <IconCopy size={13} />} {copiado ? "Copiado" : "Copiar"}
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost btn--mini"
-                onClick={() => descargarTablaCsv(item)}
-                title="Descargar la tabla como CSV"
-              >
-                <IconDownload size={13} /> CSV
-              </button>
-            </>
-          )}
+            <button
+              type="button"
+              className="grafico-accion"
+              onClick={quitar}
+              title="Quitar este gráfico del análisis"
+              aria-label="Quitar"
+            >
+              <IconClose size={14} />
+            </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // --- tabla: una tira fina con el título y lo que se puede hacer con ella --
+  return (
+    <section className="output-viewer">
+      <div className="salida-barra">        <TituloEditable key={item.id} item={item} tipo={seleccionActual.tipo} />
+
+        <div className="salida-barra__acciones">
+          <button type="button" className="btn btn--ghost btn--mini" onClick={copiarTabla} title="Copiar la tabla para pegarla en Excel">
+            {copiado ? <IconCheck size={13} /> : <IconCopy size={13} />} {copiado ? "Copiado" : "Copiar"}
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost btn--mini"
+            onClick={() => descargarTablaCsv(item)}
+            title="Descargar la tabla como CSV"
+          >
+            <IconDownload size={13} /> CSV
+          </button>
           <button type="button" className="btn btn--ghost btn--mini" onClick={quitar} title="Quitar del análisis">
             <IconClose size={13} />
           </button>
@@ -190,37 +258,16 @@ export default function OutputViewer() {
       </div>
 
       <div className="salida-cuerpo">
-        {!esGrafico && (
-          <>
-            {item.advertencias?.length > 0 && (
-              <div className="resultado-advertencias">
-                {item.advertencias.map((a, i) => (
-                  <p key={i}>
-                    <IconAlert size={13} /> {a}
-                  </p>
-                ))}
-              </div>
-            )}
-            <TablaResultado contenido={item.contenido} />
-          </>
-        )}
-
-        {esGrafico && (
-          // El lienzo blanco con marco, como una ventana de gráfico de
-          // Minitab. El alto lo pone el contenedor y no un mínimo fijo: con
-          // un mínimo, el gráfico se salía por abajo del panel y el eje X
-          // —con sus etiquetas— quedaba recortado.
-          <div className="grafico-lienzo">
-            <ReactECharts
-              ref={graficoRef}
-              option={opciones}
-              style={{ height: "100%", width: "100%" }}
-              opts={{ renderer: "canvas" }}
-              notMerge
-              lazyUpdate
-            />
+        {item.advertencias?.length > 0 && (
+          <div className="resultado-advertencias">
+            {item.advertencias.map((a, i) => (
+              <p key={i}>
+                <IconAlert size={13} /> {a}
+              </p>
+            ))}
           </div>
         )}
+        <TablaResultado contenido={item.contenido} />
       </div>
     </section>
   );

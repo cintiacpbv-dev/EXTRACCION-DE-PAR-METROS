@@ -1221,8 +1221,10 @@ export default function App() {
 
       {/* Consulta PDF no lleva pie: es lo último que separaba el iframe del
           borde de la pantalla, y la vuelta ya está a un clic en la barra
-          de arriba. */}
-      {view !== "consulta" && (
+          de arriba. El Análisis Estadístico tampoco: ahí la altura se
+          reparte entre la hoja y el gráfico, y una frase fija abajo les
+          quitaba a los dos la única dimensión que les hace falta. */}
+      {view !== "consulta" && view !== "estadistica" && (
         <footer className="footer">
           {view === "product" ? (
             <button className="link-back link-back--footer" onClick={backToLibrary}>

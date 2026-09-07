@@ -53,9 +53,19 @@ function pareceNumero(texto) {
   return t !== "" && !Number.isNaN(Number(t.replace(",", ".")));
 }
 
+// Con qué forma tiene que venir escrita una fecha para tomarla por tal:
+// 2026-07-20, 20/07/2026, 20-07-2026 y sus variantes con año de dos cifras.
+//
+// No basta con preguntarle a Date.parse si lo entiende: Date.parse es
+// tremendamente permisivo y acepta cosas que no son fechas ni de lejos.
+// "Lote 1" le parece el 1 de enero de 2001, así que una columna con códigos
+// de lote se declaraba de tipo fecha y sus valores se reescribían como
+// "2001-01-01" — el dato original se perdía por el camino.
+const FORMA_DE_FECHA = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}([ T]\d{1,2}:\d{2}(:\d{2})?)?$|^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}$/;
+
 function pareceFecha(texto) {
   const t = String(texto).trim();
-  return t !== "" && !pareceNumero(t) && !Number.isNaN(Date.parse(t));
+  return t !== "" && !pareceNumero(t) && FORMA_DE_FECHA.test(t) && !Number.isNaN(Date.parse(t));
 }
 
 export function detectarTipo(valores) {
