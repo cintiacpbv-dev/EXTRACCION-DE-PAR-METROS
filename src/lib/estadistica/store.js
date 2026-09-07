@@ -81,9 +81,13 @@ function panelesGuardados() {
       navegador: p?.navegador !== false,
       asistente: p?.asistente !== false,
       hoja: p?.hoja !== false,
+      // Los laterales se pliegan solos cuando llevan un rato sin tocarse.
+      // Va activado de fábrica: lo que se viene a mirar aquí es el gráfico,
+      // y son esos dos paneles los que le quitan el ancho.
+      auto: p?.auto !== false,
     };
   } catch {
-    return { navegador: true, asistente: true, hoja: true };
+    return { navegador: true, asistente: true, hoja: true, auto: true };
   }
 }
 
