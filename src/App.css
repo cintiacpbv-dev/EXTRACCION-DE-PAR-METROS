@@ -2595,6 +2595,170 @@
   margin-left: auto;
 }
 
+/* La barra entera se pliega a una tira: cuando ya se eligió qué paneles se
+   quieren, sus botones no hacen falta en pantalla y esos treinta y pico
+   píxeles se los queda el gráfico. */
+.stat-toolbar__tirador {
+  border: none;
+  background: transparent;
+  color: var(--stat-text-muted, var(--text-muted));
+  cursor: pointer;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.stat-toolbar__tirador:hover {
+  color: var(--sky-text);
+}
+
+.stat-toolbar.is-plegada {
+  padding: 0 14px;
+  min-height: 14px;
+}
+
+.stat-toolbar.is-plegada .stat-toolbar__grupo {
+  display: none;
+}
+
+/* La misma idea en la barra de la hoja: plegada deja sólo su nombre. */
+.wb-toolbar-tirador {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--stat-text-muted, var(--text-muted));
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.wb-toolbar-tirador:hover {
+  color: var(--sky-text);
+}
+
+.wb-grid-toolbar.is-plegada {
+  padding: 3px 10px;
+}
+
+/* ---- Reparto de altura entre el gráfico y la hoja -------------------- */
+.stat-main__salida,
+.stat-main__hoja {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-divisor {
+  flex: 0 0 auto;
+  height: 7px;
+  margin: 1px 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: row-resize;
+  position: relative;
+}
+
+/* La marca del medio: sin ella la línea es invisible y nadie descubre que se
+   puede arrastrar. */
+.stat-divisor::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 46px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--stat-border-strong, var(--border-strong));
+  transition: background 0.12s ease;
+}
+
+.stat-divisor:hover::after {
+  background: var(--sky);
+  width: 72px;
+}
+
+/* Mientras se arrastra el divisor, el cursor manda en toda la página: si no,
+   al pasar por encima del gráfico o de la hoja cambiaría de forma y parecería
+   que se soltó. */
+body.esta-redimensionando {
+  cursor: row-resize;
+  user-select: none;
+}
+
+/* ---- El gráfico ocupa el panel entero ------------------------------- */
+.output-viewer--grafico {
+  padding: 0;
+  border: none;
+  background: transparent;
+  overflow: visible;
+}
+
+.output-viewer--grafico .grafico-lienzo {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Los botones del gráfico: en su esquina, discretos, y sin quitarle alto.
+   Se ven al pasar por encima del gráfico para no ensuciar la imagen cuando
+   sólo se está mirando. */
+.grafico-acciones {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+
+.grafico-lienzo:hover .grafico-acciones,
+.grafico-acciones:focus-within {
+  opacity: 1;
+}
+
+.grafico-accion {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #d7d5d0;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.92);
+  color: #4a4844;
+  cursor: pointer;
+}
+
+.grafico-accion:hover {
+  border-color: var(--sky);
+  color: var(--sky-dark);
+}
+
+/* La caja para escribir el título, justo donde está dibujado. */
+.grafico-titulo-editor {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(460px, 80%);
+  z-index: 5;
+}
+
+.grafico-titulo-editor .salida-titulo {
+  width: 100%;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1c1b19;
+  background: #ffffff;
+  border-color: var(--sky);
+}
+
 /* Un interruptor, no un botón de acción: se ve hundido cuando su panel está
    abierto, que es como se lee de un vistazo qué hay en pantalla. */
 .stat-toggle {
@@ -2885,93 +3049,175 @@
   min-height: 0;
 }
 
-.wb-grid-wrap .rdg {
-  block-size: 100%;
-  --rdg-color: var(--text);
-  --rdg-border-color: var(--border);
-  --rdg-summary-border-color: var(--border-strong);
-  --rdg-background-color: var(--surface);
-  --rdg-header-background-color: var(--surface-tint);
-  --rdg-header-draggable-background-color: var(--surface-soft);
-  --rdg-row-hover-background-color: var(--sky-soft);
-  --rdg-row-selected-background-color: var(--sky-soft);
-  --rdg-row-selected-hover-background-color: var(--sky-soft);
-  --rdg-selection-color: var(--sky);
-  --rdg-font-size: 13px;
-  font-family: var(--sans);
-}
-
-.wb-celda-vacia {
-  color: var(--text-muted);
-}
-
-.wb-editor {
-  width: 100%;
-  height: 100%;
-  border: none;
-  padding: 0 8px;
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
-}
-
-.wb-editor:focus {
-  outline: none;
-}
-
-/* La cabecera de columna trae dos filas: el nombre, y debajo el tipo con
-   su botón de eliminar — por eso headerRowHeight se agranda en el JSX. */
-.wb-cabecera {
+/* ---- Hoja de trabajo (hoja de cálculo propia) ----------------------- */
+/* Se dibuja con divs y no con una tabla: las filas se posicionan por su
+   coordenada para poder pintar sólo las que se ven, que es lo que mantiene
+   fluida una hoja de miles de filas. */
+.hoja {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  padding-block: 2px;
-}
-
-.wb-cabecera__nombre {
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  font-weight: 600;
-  font-size: 12.5px;
-  padding: 2px 0;
-}
-
-.wb-cabecera__nombre:focus {
+  overflow: hidden;
   outline: none;
-  border-bottom: 1px solid var(--sky);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
 }
 
-.wb-cabecera__fila2 {
+.hoja:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--sky);
+}
+
+.hoja-cabecera,
+.hoja-nombres {
+  display: flex;
+  flex: 0 0 auto;
+  background: var(--stat-surface-soft, var(--surface-soft));
+  border-bottom: 1px solid var(--stat-border, var(--border));
+}
+
+.hoja-esquina {
+  flex: 0 0 auto;
+  border-right: 1px solid var(--stat-border, var(--border));
+}
+
+/* C1, C2-T, C3-F: la etiqueta fija de la columna, como en Minitab. */
+.hoja-etiqueta {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 11.5px;
+  color: var(--stat-text-muted, var(--text-muted));
+  border-right: 1px solid var(--stat-border, var(--border));
+}
+
+.hoja-etiqueta.is-activa {
+  background: var(--sky-soft);
+  color: var(--sky-text);
+}
+
+/* La fila de nombres: libre para escribir "pH 1" o el número de lote. */
+.hoja-nombre {
+  flex: 0 0 auto;
+  border: none;
+  border-right: 1px solid var(--stat-border, var(--border));
+  background: transparent;
+  color: var(--stat-text, var(--text));
+  font: inherit;
+  font-weight: 600;
+  padding: 4px 8px;
+  min-width: 0;
+}
+
+.hoja-nombre:focus {
+  outline: 2px solid var(--sky);
+  outline-offset: -2px;
+}
+
+.hoja-cuerpo {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.hoja-fila {
+  position: absolute;
+  left: 0;
+  display: flex;
+}
+
+.hoja-numero {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: flex-end;
+  padding-right: 8px;
+  color: var(--stat-text-muted, var(--text-muted));
+  background: var(--stat-surface-soft, var(--surface-soft));
+  border-right: 1px solid var(--stat-border, var(--border));
+  border-bottom: 1px solid var(--stat-border, var(--border));
+  font-size: 11px;
 }
 
-.wb-cabecera__tipo {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-soft);
-  color: var(--text-muted);
-  font-size: 10.5px;
-  padding: 1px 4px;
+.hoja-numero.is-activa {
+  background: var(--sky-soft);
+  color: var(--sky-text);
 }
 
-.wb-cabecera__quitar {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 2px;
-  line-height: 0;
+.hoja-celda {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-right: 1px solid var(--stat-border, var(--border));
+  border-bottom: 1px solid var(--stat-border, var(--border));
+  background: var(--stat-surface, var(--surface));
+  color: var(--stat-text, var(--text));
+  cursor: cell;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
-.wb-cabecera__quitar:hover {
+/* Los números a la derecha, como en cualquier hoja de cálculo: alineados por
+   la unidad se comparan de un vistazo. */
+.hoja-celda.is-numero {
+  justify-content: flex-end;
+}
+
+.hoja-celda.is-rango {
+  background: var(--sky-soft);
+}
+
+/* La celda activa lleva el borde, no el relleno: dentro de una selección
+   tiene que seguir viéndose cuál es la que recibe lo que se escriba. */
+.hoja-celda.is-foco {
+  outline: 2px solid var(--sky);
+  outline-offset: -2px;
+  z-index: 2;
+}
+
+/* Lo que se va a rellenar mientras se arrastra el tirador. */
+.hoja-celda.is-previo {
+  background: color-mix(in srgb, var(--sky-soft) 60%, transparent);
+  outline: 1px dashed var(--sky);
+  outline-offset: -1px;
+}
+
+.hoja-celda.is-error {
   color: var(--rojo);
+}
+
+.hoja-vacia {
+  color: transparent;
+}
+
+.hoja-editor {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: none;
+  padding: 0 8px;
+  background: var(--stat-surface, var(--surface));
+  color: var(--stat-text, var(--text));
+  font: inherit;
+  outline: 2px solid var(--sky);
+  outline-offset: -2px;
+  z-index: 3;
+}
+
+.hoja-tirador {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 7px;
+  height: 7px;
+  background: var(--sky);
+  border: 1px solid var(--surface);
+  cursor: crosshair;
+  z-index: 4;
 }
 
 /* ---- Asistente de análisis ------------------------------------------ */
@@ -3413,35 +3659,17 @@
   border-color: var(--stat-border);
 }
 
-.stat-body--claro .wb-grid-wrap .rdg,
-.stat-body--claro .rdg-light {
-  --rdg-color: var(--stat-text);
-  --rdg-border-color: var(--stat-border);
-  --rdg-summary-border-color: var(--stat-border-strong);
-  --rdg-background-color: var(--stat-surface);
-  --rdg-header-background-color: var(--stat-surface-soft);
-  --rdg-header-draggable-background-color: var(--stat-surface-tint);
-  --rdg-row-hover-background-color: #e6f0fb;
-  --rdg-selection-color: var(--sky);
-}
-
-.stat-body--claro .wb-celda-vacia {
-  color: var(--stat-text-muted);
-}
-
-.stat-body--claro .wb-editor {
+.stat-body--claro .hoja-celda {
   background: var(--stat-surface);
   color: var(--stat-text);
 }
 
-.stat-body--claro .wb-cabecera__nombre {
-  color: var(--stat-text);
+.stat-body--claro .hoja-celda.is-rango {
+  background: #fde8dc;
 }
 
-.stat-body--claro .wb-cabecera__tipo {
-  background: var(--stat-surface-soft);
-  border-color: var(--stat-border);
-  color: var(--stat-text-muted);
+.stat-body--claro .hoja-tirador {
+  border-color: #ffffff;
 }
 
 .stat-body--claro .assistant-header {
@@ -3507,7 +3735,6 @@
   color: var(--stat-text);
 }
 
-.stat-body--claro .wb-grid-wrap,
 .stat-body--claro .resultado-item--grafico {
   background: var(--stat-surface);
 }
@@ -3579,10 +3806,6 @@
 }
 
 .stat-body--claro .navegador-item__quitar,
-.stat-body--claro .wb-cabecera__quitar {
-  color: var(--stat-text-muted);
-}
-
 .stat-body--claro .resultado-advertencias p {
   color: #9a6a00;
 }

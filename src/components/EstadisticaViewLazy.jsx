@@ -1,6 +1,6 @@
 import { lazy } from "react";
 
-// La hoja tipo Excel y los gráficos (react-data-grid, ECharts) pesan varios
+// La hoja tipo Excel y los gráficos (ECharts) pesan varios
 // megabytes que Detección de Parámetros y Análisis de Riesgo no necesitan
 // para nada: cargarlos siempre metería ese peso en cada visita a la app,
 // aunque nunca se abra esta sección. Con lazy() sólo se piden al navegar

@@ -15,9 +15,13 @@ export function valoresNumericos(values) {
  * cuando no hay ningún valor numérico (columna de texto, o toda en blanco).
  */
 export function estadisticaDescriptiva(values) {
-  const n = values.length;
+  // N son las observaciones válidas, y N faltante las celdas en blanco o con
+  // texto — como en Minitab. Contar N sobre el largo de la columna daba
+  // "N = 60" para diez datos escritos en una hoja de sesenta filas: el resto
+  // son filas vacías esperando, no mediciones que falten de un lote.
   const numericos = valoresNumericos(values);
-  const faltantes = n - numericos.length;
+  const n = numericos.length;
+  const faltantes = values.length - n;
 
   if (numericos.length === 0) {
     return { n, faltantes, vacio: true };

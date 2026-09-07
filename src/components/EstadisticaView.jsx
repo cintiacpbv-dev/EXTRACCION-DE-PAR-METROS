@@ -124,6 +124,16 @@ export default function EstadisticaView() {
   const graficos = useWorkbookStore((s) => s.graficos);
 
   const [exportando, setExportando] = useState(false);
+  const [barraAbierta, setBarraAbierta] = useState(true);
+  // Qué parte de la altura se lleva el gráfico. Lo mueve la persona con el
+  // divisor, y se recuerda: quien mira sobre todo gráficos lo deja arriba, y
+  // quien está tecleando datos lo baja.
+  const [reparto, setReparto] = useState(() => {
+    const guardado = Number(localStorage.getItem("deteccion-parametros:estadistica:reparto"));
+    return Number.isFinite(guardado) && guardado >= 0.15 && guardado <= 0.9 ? guardado : 0.58;
+  });
+  const cuerpoRef = useRef(null);
+  const arrastrandoRef = useRef(false);
   const total = resultados.length + graficos.length;
 
   async function exportarTodo() {
@@ -134,6 +144,38 @@ export default function EstadisticaView() {
       setExportando(false);
     }
   }
+
+  // El divisor: se arrastra y reparte la altura entre el gráfico y la hoja.
+  useEffect(() => {
+    function mover(e) {
+      if (!arrastrandoRef.current || !cuerpoRef.current) return;
+      const caja = cuerpoRef.current.getBoundingClientRect();
+      const fraccion = (e.clientY - caja.top) / caja.height;
+      // Se acota para que ninguno de los dos pueda desaparecer del todo: para
+      // eso está el interruptor de la barra, no el divisor.
+      const acotada = Math.min(0.9, Math.max(0.15, fraccion));
+      setReparto(acotada);
+    }
+    function soltar() {
+      if (!arrastrandoRef.current) return;
+      arrastrandoRef.current = false;
+      document.body.classList.remove("esta-redimensionando");
+    }
+    window.addEventListener("pointermove", mover);
+    window.addEventListener("pointerup", soltar);
+    return () => {
+      window.removeEventListener("pointermove", mover);
+      window.removeEventListener("pointerup", soltar);
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("deteccion-parametros:estadistica:reparto", String(reparto));
+    } catch {
+      // Sin memoria del navegador se vuelve al reparto de siempre.
+    }
+  }, [reparto]);
 
   const navAuto = usePanelAutoOculto(paneles.auto && paneles.navegador);
   const asisAuto = usePanelAutoOculto(paneles.auto && paneles.asistente);
@@ -152,7 +194,17 @@ export default function EstadisticaView() {
 
   return (
     <div className={`stat-shell ${temaClaro ? "stat-body--claro" : ""}`}>
-      <div className="stat-toolbar">
+      <div className={`stat-toolbar ${barraAbierta ? "" : "is-plegada"}`}>
+        <button
+          type="button"
+          className="stat-toolbar__tirador"
+          onClick={() => setBarraAbierta((v) => !v)}
+          aria-expanded={barraAbierta}
+          title={barraAbierta ? "Ocultar la barra" : "Mostrar la barra"}
+        >
+          {barraAbierta ? "▴" : "▾"}
+        </button>
+
         <div className="stat-toolbar__grupo">
           <button
             type="button"
@@ -221,9 +273,34 @@ export default function EstadisticaView() {
             <Navegador />
           </Lateral>
         )}
-        <div className="stat-main">
-          <OutputViewer />
-          {paneles.hoja && <WorkbookGrid />}
+        <div className="stat-main" ref={cuerpoRef}>
+          <div className="stat-main__salida" style={paneles.hoja ? { flex: `${reparto} 1 0` } : undefined}>
+            <OutputViewer />
+          </div>
+
+          {paneles.hoja && (
+            <>
+              {/* El divisor: se arrastra para dar más altura al gráfico o a la
+                  hoja. Es una línea y no un panel con botones porque lo único
+                  que hace es moverse. */}
+              <div
+                className="stat-divisor"
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Ajustar la altura del gráfico y de la hoja"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  arrastrandoRef.current = true;
+                  document.body.classList.add("esta-redimensionando");
+                }}
+                onDoubleClick={() => setReparto(0.58)}
+                title="Arrastra para repartir la altura. Doble clic para volver al reparto de siempre."
+              />
+              <div className="stat-main__hoja" style={{ flex: `${1 - reparto} 1 0` }}>
+                <WorkbookGrid />
+              </div>
+            </>
+          )}
         </div>
         {paneles.asistente && (
           <Lateral nombre="Asistente" icono={<IconFlask size={14} />} {...asisAuto}>
