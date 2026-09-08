@@ -3209,6 +3209,19 @@ body.esta-redimensionando {
   background: var(--stat-encabezado-activo, var(--sky-soft));
 }
 
+/* El texto de ayuda sólo se asoma al pasar por encima de la fila: en Minitab
+   la fila de nombres está en blanco, y llenarla de la palabra "nombre" en
+   cada una de las cincuenta columnas sería peor que dejarla vacía. */
+.hoja-nombre::placeholder {
+  color: transparent;
+}
+
+.hoja-nombres:hover .hoja-nombre::placeholder {
+  color: var(--stat-text-muted, var(--text-muted));
+  opacity: 0.5;
+  font-weight: 400;
+}
+
 .hoja-nombre:focus {
   outline: 2px solid var(--sky);
   outline-offset: -2px;
