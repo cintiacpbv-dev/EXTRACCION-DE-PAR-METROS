@@ -107,8 +107,14 @@ export function graficaXbarR(values, tamanoSubgrupo) {
   };
 }
 
-/** Cuenta los puntos fuera de control de una carta ya calculada (I-MR o Xbar-R). */
-function contarFueraDeControl(carta) {
+/**
+ * Cuenta los puntos fuera de control de una carta ya calculada (I-MR o
+ * Xbar-R) — sumando los de las dos mitades, la de individuos/medias y la de
+ * rangos. Se exporta porque lo usan tanto capacidadProceso() (aquí abajo)
+ * como las acciones de carta de control del Asistente, y contarlo dos veces
+ * en dos sitios distintos es cómo se acaban desviando.
+ */
+export function contarFueraDeControl(carta) {
   if (!carta || carta.error) return null;
   const individuos = carta.individuos?.puntos ?? carta.medias?.puntos ?? [];
   const rangos = carta.rangoMovil?.puntos ?? carta.rangos?.puntos ?? [];

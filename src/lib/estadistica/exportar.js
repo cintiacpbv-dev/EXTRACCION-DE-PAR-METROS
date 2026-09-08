@@ -8,6 +8,7 @@
 
 import * as echarts from "echarts";
 import { AlignmentType, Document, HeadingLevel, ImageRun, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
+import { construirInforme } from "./informe.js";
 
 // Tamaño con el que se dibuja un gráfico para exportarlo, en píxeles de
 // dibujo. No es el del panel a propósito: exportado desde una ventana
@@ -263,4 +264,115 @@ export async function exportarInformeWord({ resultados, graficos, titulo = "Aná
 
   descargar(await Packer.toBlob(doc), nombreArchivo(titulo, "docx"));
   return items.length;
+}
+
+// --- el informe con la estructura de un protocolo ---------------------------
+
+/** Un elemento (tabla o gráfico) ya convertido a párrafos de Word. */
+function elementoDocx(item) {
+  const hijos = [
+    new Paragraph({
+      children: [new TextRun({ text: item.titulo, bold: true, size: 22 })],
+      heading: HeadingLevel.HEADING_3,
+      spacing: { before: 200, after: 100 },
+    }),
+  ];
+
+  if (item.tipo === "resultado") {
+    for (const aviso of item.advertencias || []) {
+      hijos.push(parrafo(`Nota: ${aviso}`, { run: { italics: true, size: 16 }, parrafo: { spacing: { after: 80 } } }));
+    }
+    hijos.push(tablaDocx(item.contenido));
+    hijos.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+    return hijos;
+  }
+
+  const dataUrl = pngDeGrafico(item.opciones, item.titulo);
+  if (!dataUrl) {
+    hijos.push(parrafo("(Este gráfico no se pudo dibujar para el informe.)", { run: { italics: true, size: 16, color: "996600" } }));
+    return hijos;
+  }
+  hijos.push(
+    new Paragraph({
+      children: [new ImageRun({ data: bytesDeDataUrl(dataUrl), transformation: { width: 600, height: 340 }, type: "png" }),],
+      alignment: AlignmentType.CENTER,
+    })
+  );
+  return hijos;
+}
+
+/**
+ * El informe estructurado: las 18 secciones de un protocolo de validación,
+ * cada análisis archivado en la que le toca y las que no se corrieron
+ * marcadas "NO EVALUADO" (ver informe.js, que decide todo eso; aquí sólo se
+ * dibuja).
+ *
+ * Convive con exportarInformeWord(), no lo reemplaza: aquel saca todo en el
+ * orden en que se fue generando —que es como se razonó, y sirve para
+ * revisar el trabajo—, y este lo reordena en la forma que pide un
+ * protocolo. Son dos lecturas distintas del mismo material.
+ */
+export async function exportarInformeEstructurado({ resultados, graficos, hallazgos, columns, hojas, titulo = "Informe de análisis estadístico" }) {
+  const { secciones, totalItems } = construirInforme({ resultados, graficos, hallazgos, columns, hojas });
+
+  const children = [
+    new Paragraph({
+      children: [new TextRun({ text: titulo, bold: true, size: 32 })],
+      heading: HeadingLevel.HEADING_1,
+      spacing: { after: 120 },
+    }),
+    parrafo(`Generado el ${new Date().toLocaleString("es-PE")} · ${totalItems} elementos analizados`, {
+      run: { size: 16, color: "666666" },
+      parrafo: { spacing: { after: 240 } },
+    }),
+  ];
+
+  for (const seccion of secciones) {
+    const rotulo = seccion.estado ? `${seccion.numero}. ${seccion.titulo} — ${seccion.estado}` : `${seccion.numero}. ${seccion.titulo}`;
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: rotulo, bold: true, size: 26 })],
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 300, after: 120 },
+      })
+    );
+
+    for (const p of seccion.parrafos) {
+      // Lo que hay que rellenar a mano y lo que quedó sin evaluar se marcan
+      // en color: en un protocolo de veinte páginas, un "[Completar]" en
+      // negro se pasa por alto y se firma con el hueco dentro.
+      const pendiente = p.startsWith("[Completar]") || p.startsWith("NO EVALUADO");
+      children.push(
+        parrafo(p, {
+          run: { size: TAM, italics: pendiente, color: pendiente ? "996600" : undefined },
+          parrafo: { spacing: { after: 100 } },
+        })
+      );
+    }
+
+    for (const tabla of seccion.tablas) {
+      children.push(tablaDocx(tabla));
+      children.push(new Paragraph({ children: [], spacing: { after: 120 } }));
+    }
+
+    for (const item of seccion.items) children.push(...elementoDocx(item));
+  }
+
+  const doc = new Document({
+    styles: { default: { document: { run: { font: FUENTE, size: TAM } } } },
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: { top: MARGEN, bottom: MARGEN, left: MARGEN, right: MARGEN },
+            size: { width: A4_ANCHO, height: A4_ALTO },
+          },
+        },
+        children,
+      },
+    ],
+  });
+
+  descargar(await Packer.toBlob(doc), nombreArchivo(titulo, "docx"));
+  return totalItems;
 }

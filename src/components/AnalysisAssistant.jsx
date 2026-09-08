@@ -31,7 +31,7 @@ import {
   gamesHowell,
 } from "../lib/estadistica/pruebas.js";
 import { regresionLineal, pruebaBreuschPagan } from "../lib/estadistica/regresion.js";
-import { graficaIndividuosMR, graficaXbarR, capacidadProceso } from "../lib/estadistica/spc.js";
+import { graficaIndividuosMR, graficaXbarR, capacidadProceso, contarFueraDeControl } from "../lib/estadistica/spc.js";
 import { gageRR } from "../lib/estadistica/gageRR.js";
 import { generarDisenoFactorial, analizarFactorial } from "../lib/estadistica/doe.js";
 import { calidadDeColumnas } from "../lib/estadistica/calidad.js";
@@ -906,6 +906,24 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
+      const estabilidadIMR = estadoEstabilidad(contarFueraDeControl(r));
+      registrarResultado(
+        `Carta I-MR: ${c.name}`,
+        {
+          encabezados: ["N", "Media", "Sigma estimada (rango móvil)", "LC inferior", "LC superior", "Puntos fuera", "Estado"],
+          filas: [[
+            String(r.n),
+            formatearNumero(r.media),
+            formatearNumero(r.sigmaEstimada),
+            formatearNumero(r.individuos.lcl),
+            formatearNumero(r.individuos.ucl),
+            String(contarFueraDeControl(r)),
+            etiquetaEstado(estabilidadIMR.estado),
+          ]],
+        },
+        [estabilidadIMR.texto]
+      );
+      registrarHallazgo("estabilidad", estabilidadIMR.estado, `I-MR (${c.name}): ${estabilidadIMR.texto}`);
       agregarGrafico(`I-MR — ${c.name}`, opcionIMR(r, c.name));
     } else if (accion.id === "xbarr") {
       const [c] = columnasSeleccionadas;
@@ -919,6 +937,24 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
+      const estabilidadXbar = estadoEstabilidad(contarFueraDeControl(r));
+      registrarResultado(
+        `Carta Xbar-R: ${c.name} (n=${subgrupo})`,
+        {
+          encabezados: ["Subgrupos", "Media global", "Rango medio", "LC inferior (X̄)", "LC superior (X̄)", "Puntos fuera", "Estado"],
+          filas: [[
+            String(r.numSubgrupos),
+            formatearNumero(r.xBarraBarra),
+            formatearNumero(r.rBarra),
+            formatearNumero(r.medias.lcl),
+            formatearNumero(r.medias.ucl),
+            String(contarFueraDeControl(r)),
+            etiquetaEstado(estabilidadXbar.estado),
+          ]],
+        },
+        [estabilidadXbar.texto]
+      );
+      registrarHallazgo("estabilidad", estabilidadXbar.estado, `Xbar-R (${c.name}, n=${subgrupo}): ${estabilidadXbar.texto}`);
       agregarGrafico(`Xbar-R — ${c.name} (n=${subgrupo})`, opcionXbarR(r, c.name));
     } else if (accion.id === "capacidad") {
       const [c] = columnasSeleccionadas;
