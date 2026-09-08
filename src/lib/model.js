@@ -101,21 +101,54 @@ export function summarizeProducts(documents) {
 
 // Orden natural del proceso, sólo para presentar las pestañas. Es una
 // preferencia, no una restricción: una etapa que no esté aquí se muestra igual,
-// ordenada alfabéticamente después de las conocidas.
+// ordenada alfabéticamente después de las conocidas. Nada de esto decide qué
+// se detecta —eso lo lee el propio registro (ver parsers/meta.js)—, sólo en
+// qué orden se muestra lo que ya se detectó.
+//
+// Conviven dos recorridos distintos en una sola lista, porque una etapa sólo
+// puede ocupar un lugar: el de sólidos (granular, comprimir, recubrir) y el
+// de cápsulas blandas (preparar el bulk y la gelatina, encapsular, presecar,
+// secar). Las de cápsulas van después de las de sólidos y antes del envase,
+// que es donde caen en el proceso; un producto sólo trae las suyas, así que
+// nunca se ven mezcladas.
+// Se reconocen por una palabra distintiva y no por el nombre exacto: el
+// registro escribe la etapa como quiera ("PREPARACION DE GELATINA",
+// "PREPARACIÓN DE LA MASA GELATINOSA") y con el nombre exacto bastaba una
+// tilde de más para que la etapa cayera al final de las pestañas.
+//
+// CUIDADO con el orden de esta lista: se toma la PRIMERA palabra que
+// aparezca dentro del nombre, y "PRESECADO" contiene "SECADO". Por eso
+// PRESECADO va antes; al revés, un presecado se ordenaría —y se leería—
+// como si fuera el secado, que es otra operación y otro tiempo.
 const ORDEN_ETAPAS = [
   "FABRICACION",
   "GRANULACION",
   "COMPRESION",
   "RECUBRIMIENTO",
   "LAVADO",
+  // Cápsulas blandas, en el orden en que ocurren.
+  "BULK",
+  "GELATIN", // cubre GELATINA y MASA GELATINOSA
+  "ENCAPSULADO",
+  "PRESECADO",
+  "SECADO",
   "ENVASE",
   "ACONDICIONADO",
   "INSPECCION",
   "EMPAQUE",
 ];
 
+/** Sin tildes y en mayúsculas, para comparar nombres de etapa escritos de cualquier forma. */
+function normalizarEtapa(stage) {
+  return String(stage || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
 function ordenEtapa(stage) {
-  const i = ORDEN_ETAPAS.indexOf(stage);
+  const nombre = normalizarEtapa(stage);
+  const i = ORDEN_ETAPAS.findIndex((clave) => nombre.includes(clave));
   return i === -1 ? ORDEN_ETAPAS.length : i;
 }
 

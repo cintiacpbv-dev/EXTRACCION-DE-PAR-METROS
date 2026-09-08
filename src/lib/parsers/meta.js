@@ -115,12 +115,21 @@ export function extractMeta(flatTextRaw, pages) {
   const cabecera = lineasCabecera(pages);
 
   // "Fecha de ENVASE  Inicio: ..." es el indicador más fiable de la etapa.
+  //
+  // El tope de largo llegaba a 28 caracteres, que alcanzaba para las etapas
+  // de sólidos ("ACONDICIONADO", "GRANULACION") pero no para las de cápsulas
+  // blandas: "PREPARACION DE MASA GELATINOSA" tiene 30 y el documento entero
+  // caía en "SIN ETAPA" — y en silencio, que es lo peor: no hay ningún aviso
+  // que diga que la etapa no se pudo leer, sólo un análisis mal agrupado.
+  // Ampliarlo es seguro porque lo que de verdad acota la captura no es el
+  // largo sino los dos anclajes ("Fecha de" delante, "Inicio:"/"Fin:"
+  // detrás) y la clase de caracteres, que sólo admite mayúsculas y espacios.
   let stage = null;
-  const byFecha = text.match(/Fecha de\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,28}?)\s+(?:Inicio|Fin):/);
+  const byFecha = text.match(/Fecha de\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,44}?)\s+(?:Inicio|Fin):/);
   if (byFecha) {
     stage = byFecha[1].trim();
   } else {
-    const byTitle = text.match(/REGISTRO DE MANUFACTURA\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,28}?)\s+(?:Página|Etapa)/);
+    const byTitle = text.match(/REGISTRO DE MANUFACTURA\s+([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{2,44}?)\s+(?:Página|Etapa)/);
     if (byTitle) stage = byTitle[1].trim();
   }
   if (stage) stage = stage.replace(/\s+/g, " ").toUpperCase();
