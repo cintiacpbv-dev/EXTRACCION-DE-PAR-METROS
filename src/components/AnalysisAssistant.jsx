@@ -24,7 +24,11 @@ import {
   intervaloConfianza,
   proporcionUnaMuestra,
   correlacion,
+  correlacionSpearman,
+  kruskalWallis,
+  tukeyHSD,
 } from "../lib/estadistica/pruebas.js";
+import { regresionLineal, pruebaBreuschPagan } from "../lib/estadistica/regresion.js";
 import { graficaIndividuosMR, graficaXbarR, capacidadProceso } from "../lib/estadistica/spc.js";
 import { gageRR } from "../lib/estadistica/gageRR.js";
 import { generarDisenoFactorial, analizarFactorial } from "../lib/estadistica/doe.js";
@@ -73,7 +77,22 @@ const ACCIONES = [
   },
   { id: "boxplot", nombre: "Diagrama de caja", minColumnas: 1, maxColumnas: null, ayuda: "Elige una o más columnas numéricas, para compararlas lado a lado." },
   { id: "dispersion", nombre: "Diagrama de dispersión", minColumnas: 2, maxColumnas: 3, ayuda: "Elige X e Y (numéricas); una tercera columna de texto es opcional, para colorear por grupo." },
-  { id: "correlacion", nombre: "Correlación", minColumnas: 2, maxColumnas: null, ayuda: "Elige dos columnas numéricas para el detalle, o más de dos para una matriz." },
+  { id: "correlacion", nombre: "Correlación (Pearson)", minColumnas: 2, maxColumnas: null, ayuda: "Elige dos columnas numéricas para el detalle, o más de dos para una matriz. Asume relación lineal." },
+  {
+    id: "spearman",
+    nombre: "Correlación (Spearman)",
+    minColumnas: 2,
+    maxColumnas: 2,
+    ayuda: "Elige dos columnas numéricas. No asume relación lineal ni normalidad, sólo que la relación sea monótona (usa los rangos, no los valores) — la alternativa cuando Pearson no corresponde.",
+  },
+  {
+    id: "regresion",
+    nombre: "Regresión lineal (simple o múltiple)",
+    minColumnas: 1,
+    maxColumnas: 10,
+    ayuda: 'Marca los predictores (X) como columnas de la hoja, y elige aparte cuál es la columna de "Respuesta" (Y).',
+    extras: [{ key: "colRespuesta", label: "Columna de respuesta (Y)", tipo: "columna", valorInicial: "" }],
+  },
   {
     id: "t1",
     nombre: "Prueba t (1 muestra)",
@@ -89,7 +108,14 @@ const ACCIONES = [
     nombre: "ANOVA de un factor",
     minColumnas: 3,
     maxColumnas: 10,
-    ayuda: "Elige tres o más columnas numéricas (un grupo o lote por columna) para comparar sus medias a la vez.",
+    ayuda: "Elige tres o más columnas numéricas (un grupo o lote por columna) para comparar sus medias a la vez. Asume varianzas iguales y residuos normales; incluye Tukey HSD por pares.",
+  },
+  {
+    id: "kruskal",
+    nombre: "Kruskal-Wallis (no paramétrico)",
+    minColumnas: 3,
+    maxColumnas: 10,
+    ayuda: "La alternativa al ANOVA cuando no se puede asumir normalidad: compara las distribuciones de tres o más grupos por sus rangos, no por sus medias.",
   },
   {
     id: "varianzas",
@@ -186,8 +212,9 @@ const ACCIONES = [
 
 const GRUPOS = [
   { nombre: "Calidad de datos", ids: ["calidad", "outliers"] },
-  { nombre: "Descriptiva y gráficos", ids: ["descriptiva", "histograma", "normalidad", "boxplot", "dispersion", "correlacion"] },
-  { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "anova1", "varianzas", "intervalos", "proporcion1"] },
+  { nombre: "Descriptiva y gráficos", ids: ["descriptiva", "histograma", "normalidad", "boxplot", "dispersion", "correlacion", "spearman"] },
+  { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "anova1", "kruskal", "varianzas", "intervalos", "proporcion1"] },
+  { nombre: "Regresión", ids: ["regresion"] },
   { nombre: "Control de calidad (SPC)", ids: ["imr", "xbarr", "capacidad", "gagerr"] },
   { nombre: "Diseño de experimentos (DOE)", ids: ["crear_diseno", "analizar_factorial"] },
 ];
@@ -424,6 +451,25 @@ export default function AnalysisAssistant() {
       } else {
         registrarResultado(`Matriz de correlación: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`, tablaMatrizCorrelacion(columnasSeleccionadas));
       }
+    } else if (accion.id === "spearman") {
+      const [a, b] = columnasSeleccionadas;
+      if (a.type !== "numeric" || b.type !== "numeric") {
+        setAviso("Las dos columnas deben ser numéricas.");
+        return;
+      }
+      const r = correlacionSpearman(a.values, b.values);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      registrarResultado(
+        `Correlación de Spearman: ${a.name} vs. ${b.name}`,
+        {
+          encabezados: ["N", "ρ de Spearman", "gl", "t", "Valor p"],
+          filas: [[String(r.n), formatearNumero(r.r), String(r.gl), formatearNumero(r.t), formatearP(r.valorP)]],
+        },
+        ["Correlación indica asociación, no causalidad. Spearman detecta cualquier relación monótona, no sólo la lineal, así que un ρ alto con un r de Pearson bajo es señal de una relación curva, no de que no exista relación."]
+      );
     } else if (accion.id === "t1") {
       const [c] = columnasSeleccionadas;
       const mu0 = valorExtra("mu0", "number") ?? 0;
@@ -506,6 +552,153 @@ export default function AnalysisAssistant() {
           estadoAnova.texto,
           "El ANOVA clásico asume varianzas iguales entre grupos: revisa la Prueba de varianzas antes de apoyarte en este resultado.",
         ]
+      );
+      // Tukey se calcula siempre, no sólo cuando el ANOVA da significativo:
+      // decidir de antemano qué comparaciones "merecen" verse sería ocultar
+      // información, no protegerla. Pero se lee sobre todo cuando el propio
+      // ANOVA encontró diferencia — si no, ninguna comparación por pares
+      // debería salir significativa tampoco, salvo por azar.
+      const tukey = tukeyHSD(r);
+      if (!tukey.error) {
+        registrarResultado(
+          "Tukey HSD (comparaciones por pares)",
+          {
+            encabezados: ["Grupo A", "Grupo B", "Diferencia", `Límite inf. (${(tukey.nivelConfianza * 100).toFixed(0)}%)`, "Límite sup.", "Valor p ajustado"],
+            filas: tukey.comparaciones.map((c) => [
+              c.grupoA,
+              c.grupoB,
+              formatearNumero(c.diferencia),
+              formatearNumero(c.limiteInferior),
+              formatearNumero(c.limiteSuperior),
+              formatearP(c.valorP),
+            ]),
+          },
+          ["El valor p ya está ajustado por hacer varias comparaciones a la vez (no hace falta corregirlo aparte, como sí haría falta repitiendo pruebas t una por una)."]
+        );
+      }
+    } else if (accion.id === "kruskal") {
+      const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
+      if (noNumericas.length > 0) {
+        setAviso(`Todas las columnas deben ser numéricas ("${noNumericas[0].name}" no lo es).`);
+        return;
+      }
+      const r = kruskalWallis(columnasSeleccionadas);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      const estadoKW = estadoComparacion(r.valorP);
+      registrarResultado(
+        `Kruskal-Wallis: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`,
+        {
+          encabezados: ["Grupo", "N", "Suma de rangos", "Rango promedio"],
+          filas: r.resumenGrupos.map((g) => [g.nombre, String(g.n), formatearNumero(g.sumaRangos), formatearNumero(g.rangoPromedio)]),
+        },
+        []
+      );
+      registrarResultado(
+        "Estadístico de Kruskal-Wallis",
+        {
+          encabezados: ["N total", "H", "gl", "Valor p"],
+          filas: [[String(r.N), formatearNumero(r.H), String(r.gl), formatearP(r.valorP)]],
+        },
+        [
+          estadoKW.texto.replace("el modelo y el α utilizados", "los rangos y el α utilizados"),
+          r.correccionEmpates < 0.99 ? `Se corrigió por empates (factor ${formatearNumero(r.correccionEmpates)}): hay valores repetidos entre los grupos.` : "",
+        ].filter(Boolean)
+      );
+    } else if (accion.id === "regresion") {
+      const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
+      if (noNumericas.length > 0) {
+        setAviso(`Todos los predictores deben ser numéricos ("${noNumericas[0].name}" no lo es).`);
+        return;
+      }
+      const colY = columnaExtra("colRespuesta");
+      if (!colY) {
+        setAviso("Elige la columna de respuesta (Y).");
+        return;
+      }
+      if (colY.type !== "numeric") {
+        setAviso(`"${colY.name}" no es una columna numérica.`);
+        return;
+      }
+      const predictores = columnasSeleccionadas.filter((c) => c.id !== colY.id);
+      if (predictores.length === 0) {
+        setAviso("Marca al menos un predictor (X) en la lista de columnas, aparte de la respuesta.");
+        return;
+      }
+      const r = regresionLineal(colY.name, colY.values, predictores);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      registrarResultado(`Regresión: ${colY.name} ~ ${predictores.map((p) => p.name).join(" + ")}`, {
+        encabezados: ["Término", "Coeficiente", "Error Est.", "t", "Valor p"],
+        filas: r.coeficientes.map((c) => [c.nombre, formatearNumero(c.beta), formatearNumero(c.errorEst), formatearNumero(c.t), formatearP(c.valorP)]),
+      });
+
+      const advertenciasModelo = [
+        "No aceptar un modelo sólo porque el R² sea alto: revisa también el valor p de cada coeficiente, el VIF (si hay más de un predictor) y los residuos.",
+      ];
+      if (r.vif) {
+        const altos = r.vif.filter((v) => v.vif != null && v.vif > 5);
+        advertenciasModelo.push(
+          altos.length > 0
+            ? `VIF alto en ${altos.map((v) => `${v.nombre} (${formatearNumero(v.vif)})`).join(", ")}: esos predictores están muy correlacionados entre sí, y sus coeficientes por separado no son confiables (aunque el modelo en conjunto sí prediga bien).`
+            : `VIF de todos los predictores por debajo de 5: no hay señal fuerte de multicolinealidad. (${r.vif.map((v) => `${v.nombre}=${v.vif == null ? "—" : formatearNumero(v.vif)}`).join(", ")})`
+        );
+      }
+      registrarResultado(
+        "Ajuste del modelo",
+        {
+          encabezados: ["N", "R²", "R² ajustado", "Error Est. residual", "F", "gl (modelo)", "gl (residual)", "Valor p (modelo)"],
+          filas: [
+            [
+              String(r.n),
+              formatearNumero(r.r2),
+              formatearNumero(r.r2Ajustado),
+              formatearNumero(r.errorEstandarResidual),
+              formatearNumero(r.F),
+              String(r.glModelo),
+              String(r.glResidual),
+              formatearP(r.valorPModelo),
+            ],
+          ],
+        },
+        advertenciasModelo
+      );
+
+      if (r.normalidadResiduos) {
+        const estadoResiduos = estadoNormalidad(r.normalidadResiduos.valorP);
+        registrarResultado(
+          "Normalidad de los residuos",
+          {
+            encabezados: ["N", "AD", "Valor p", "Estado"],
+            filas: [[String(r.normalidadResiduos.n), formatearNumero(r.normalidadResiduos.ad), formatearP(r.normalidadResiduos.valorP), etiquetaEstado(estadoResiduos.estado)]],
+          },
+          [estadoResiduos.texto.replace("los datos", "los residuos del modelo")]
+        );
+      }
+
+      const bp = pruebaBreuschPagan(r, predictores);
+      if (!bp.error) {
+        registrarResultado(
+          "Prueba de heterocedasticidad (Breusch-Pagan)",
+          {
+            encabezados: ["LM", "gl", "Valor p"],
+            filas: [[formatearNumero(bp.LM), String(bp.gl), formatearP(bp.valorP)]],
+          },
+          [
+            bp.valorP < 0.05
+              ? "Con α = 0.05, hay evidencia de que la varianza del error no es constante (heterocedasticidad): los errores estándar de los coeficientes pueden no ser confiables."
+              : "Con α = 0.05, no se detectó evidencia de que la varianza del error no sea constante.",
+          ]
+        );
+      }
+
+      agregarGrafico(
+        `Residuos vs. ajustados — ${colY.name}`,
+        opcionDispersion({ name: "Valor ajustado", values: r.ajustados }, { name: "Residuo", values: r.residuos })
       );
     } else if (accion.id === "varianzas") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
