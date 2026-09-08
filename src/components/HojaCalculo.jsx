@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useWorkbookStore, etiquetaColumna, textoDeCelda } from "../lib/estadistica/store.js";
+import MenuCeldas from "./MenuCeldas.jsx";
 import { continuarSerie } from "../lib/estadistica/relleno.js";
 import { esFormula } from "../lib/estadistica/formulas.js";
 
@@ -25,10 +26,24 @@ const ANCHO_NUMEROS = 42;
 const MARGEN_FILAS = 6;
 const MARGEN_COLUMNAS = 3;
 
-function formatear(valor) {
+/**
+ * Cómo se ve un valor en su celda.
+ *
+ * Los números llevan los decimales de su columna —los del dato que más traiga,
+ * como en Minitab—, así que "10.30" se ve "10.30" y no "10.3": en un registro
+ * de manufactura eso declara con qué resolución se midió. Y sin separador de
+ * miles, también como Minitab: en una hoja de datos una coma se lee como una
+ * coma decimal y confunde más de lo que ayuda.
+ */
+function formatear(valor, decimales) {
   if (valor === null || valor === undefined) return "";
   if (typeof valor === "number") {
-    return Number.isInteger(valor) ? String(valor) : valor.toLocaleString("es-PE", { maximumFractionDigits: 6 });
+    const d = Number.isFinite(decimales) ? decimales : undefined;
+    return valor.toLocaleString("es-PE", {
+      useGrouping: false,
+      minimumFractionDigits: d,
+      maximumFractionDigits: d ?? 6,
+    });
   }
   return String(valor);
 }
@@ -53,6 +68,12 @@ export default function HojaCalculo() {
   const setCeldas = useWorkbookStore((s) => s.setCeldas);
   const pegarBloque = useWorkbookStore((s) => s.pegarBloque);
   const renombrarColumna = useWorkbookStore((s) => s.renombrarColumna);
+  const insertarFilas = useWorkbookStore((s) => s.insertarFilas);
+  const eliminarFilas = useWorkbookStore((s) => s.eliminarFilas);
+  const insertarColumnas = useWorkbookStore((s) => s.insertarColumnas);
+  const eliminarColumnas = useWorkbookStore((s) => s.eliminarColumnas);
+  const ordenarPorColumna = useWorkbookStore((s) => s.ordenarPorColumna);
+  const setDecimales = useWorkbookStore((s) => s.setDecimales);
 
   const numFilas = Math.max(1, ...columns.map((c) => c.values.length));
 
@@ -68,6 +89,7 @@ export default function HojaCalculo() {
   const edicionRef = useRef(null);
   const [arrastrando, setArrastrando] = useState(null); // "seleccion" | "relleno"
   const [previoRelleno, setPrevioRelleno] = useState(null); // hasta qué fila llega el tirador
+  const [menu, setMenu] = useState(null); // { x, y } del clic derecho
   const [scrollTop, setScrollTop] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [alto, setAlto] = useState(400);
@@ -373,6 +395,128 @@ export default function HojaCalculo() {
       ? { c1: rect.c1, c2: rect.c2, f1: Math.min(rect.f1, previoRelleno), f2: Math.max(rect.f2, previoRelleno) }
       : null;
 
+  /** Selecciona la columna entera al pinchar su etiqueta, como en Minitab. */
+  function seleccionarColumna(e, col) {
+    if (editando) confirmarEdicion({ col: 0, fila: 0 });
+    hojaRef.current?.focus();
+    const desde = e.shiftKey ? ancla.col : col;
+    setAncla({ col: desde, fila: 0 });
+    setFoco({ col, fila: numFilas - 1 });
+  }
+
+  /** Y la fila entera al pinchar su número. */
+  function seleccionarFila(e, fila) {
+    if (editando) confirmarEdicion({ col: 0, fila: 0 });
+    hojaRef.current?.focus();
+    const desde = e.shiftKey ? ancla.fila : fila;
+    setAncla({ col: 0, fila: desde });
+    setFoco({ col: columns.length - 1, fila });
+  }
+
+  // --- el menú del clic derecho --------------------------------------------
+
+  /** Abre el menú sobre la celda pinchada, sin perder la selección que haya. */
+  function alMenuContextual(e, col, fila) {
+    e.preventDefault();
+    if (editando) confirmarEdicion({ col: 0, fila: 0 });
+    hojaRef.current?.focus();
+    // Pinchar fuera de la selección la mueve a esa celda —como en Minitab y en
+    // Excel—; pinchar dentro la respeta, que es lo que se espera cuando se ha
+    // marcado un bloque a propósito para hacerle algo.
+    if (!dentro(rect, col, fila)) {
+      setAncla({ col, fila });
+      setFoco({ col, fila });
+    }
+    setMenu({ x: e.clientX, y: e.clientY });
+  }
+
+  async function copiarAlPortapapeles(cortar) {
+    const texto = textoDelRango();
+    try {
+      await navigator.clipboard.writeText(texto);
+    } catch {
+      // Sin permiso de portapapeles queda el atajo del teclado, que lo maneja
+      // el propio navegador y siempre funciona.
+      return;
+    }
+    if (cortar) borrarRango();
+  }
+
+  async function pegarDelPortapapeles() {
+    let texto = "";
+    try {
+      texto = await navigator.clipboard.readText();
+    } catch {
+      return;
+    }
+    if (!texto) return;
+    const bloque = texto.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n").map((f) => f.split("\t"));
+    pegarBloque(rect.c1, rect.f1, bloque);
+  }
+
+  const filasDelRango = rect.f2 - rect.f1 + 1;
+  const columnasDelRango = rect.c2 - rect.c1 + 1;
+  const columnaFoco = columns[rect.c1];
+  const plural = (n, uno, varios) => (n === 1 ? uno : `${n} ${varios}`);
+
+  const opcionesMenu = [
+    {
+      etiqueta: `Borrar ${plural(filasDelRango * columnasDelRango, "la celda", "celdas")}`,
+      atajo: "Supr",
+      ayuda: "Vacía el contenido y deja las celdas en su sitio",
+      hacer: borrarRango,
+    },
+    {
+      etiqueta: `Eliminar ${plural(filasDelRango, "la fila", "filas")}`,
+      ayuda: "Quita las filas enteras; lo de abajo sube",
+      hacer: () => eliminarFilas(rect.f1, filasDelRango),
+    },
+    { separador: true },
+    { etiqueta: "Copiar celdas", atajo: "Ctrl+C", hacer: () => copiarAlPortapapeles(false) },
+    { etiqueta: "Cortar celdas", atajo: "Ctrl+X", hacer: () => copiarAlPortapapeles(true) },
+    { etiqueta: "Pegar celdas", atajo: "Ctrl+V", hacer: pegarDelPortapapeles },
+    { separador: true },
+    {
+      etiqueta: `Insertar ${plural(filasDelRango, "una fila", "filas")}`,
+      ayuda: "Encima de la selección",
+      hacer: () => insertarFilas(rect.f1, filasDelRango),
+    },
+    {
+      etiqueta: `Insertar ${plural(columnasDelRango, "una columna", "columnas")}`,
+      ayuda: "A la izquierda de la selección",
+      hacer: () => insertarColumnas(rect.c1, columnasDelRango),
+    },
+    {
+      etiqueta: `Eliminar ${plural(columnasDelRango, "la columna", "columnas")}`,
+      ayuda: "Quita las columnas enteras con sus datos",
+      hacer: () => eliminarColumnas(rect.c1, columnasDelRango),
+    },
+    { separador: true },
+    {
+      etiqueta: `Ordenar la hoja por ${columnaFoco?.name ?? ""} ↑`,
+      ayuda: "De menor a mayor, llevándose las filas enteras",
+      hacer: () => ordenarPorColumna(rect.c1, true),
+    },
+    {
+      etiqueta: `Ordenar la hoja por ${columnaFoco?.name ?? ""} ↓`,
+      ayuda: "De mayor a menor, llevándose las filas enteras",
+      hacer: () => ordenarPorColumna(rect.c1, false),
+    },
+    { separador: true },
+    {
+      etiqueta: `Más decimales (${columnaFoco?.decimales ?? 0})`,
+      ayuda: "Con cuántos decimales se muestra la columna",
+      desactivada: columnaFoco?.type !== "numeric" || (columnaFoco?.decimales ?? 0) >= 8,
+      hacer: () => setDecimales(rect.c1, (columnaFoco?.decimales ?? 0) + 1),
+    },
+    {
+      etiqueta: `Menos decimales (${columnaFoco?.decimales ?? 0})`,
+      ayuda: "Con cuántos decimales se muestra la columna",
+      desactivada: columnaFoco?.type !== "numeric" || (columnaFoco?.decimales ?? 0) <= 0,
+      hacer: () => setDecimales(rect.c1, (columnaFoco?.decimales ?? 0) - 1),
+    },
+  ];
+
   const anchoColumnas = columns.length * ANCHO_COLUMNA;
 
   return (
@@ -396,6 +540,15 @@ export default function HojaCalculo() {
                   key={columns[i].id}
                   className={`hoja-etiqueta ${i >= rect.c1 && i <= rect.c2 ? "is-activa" : ""}`}
                   style={{ width: ANCHO_COLUMNA }}
+                  onPointerDown={(e) => {
+                    if (e.button === 0) seleccionarColumna(e, i);
+                  }}
+                  onContextMenu={(e) => {
+                    if (!(i >= rect.c1 && i <= rect.c2)) seleccionarColumna(e, i);
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY });
+                  }}
+                  title={`${etiquetaColumna(i)} — pincha para seleccionar la columna entera`}
                 >
                   {/* La marca del tipo va pegada a la etiqueta, como en Minitab:
                       "C2-T" es una columna de texto y "C3-F" una de fecha. */}
@@ -444,7 +597,19 @@ export default function HojaCalculo() {
         <div style={{ height: numFilas * ALTO_FILA, width: ANCHO_NUMEROS + anchoColumnas, position: "relative" }}>
           {visibles.map((fila) => (
             <div key={fila} className="hoja-fila" style={{ top: fila * ALTO_FILA, height: ALTO_FILA }}>
-              <div className={`hoja-numero ${fila >= rect.f1 && fila <= rect.f2 ? "is-activa" : ""}`} style={{ width: ANCHO_NUMEROS }}>
+              <div
+                className={`hoja-numero ${fila >= rect.f1 && fila <= rect.f2 ? "is-activa" : ""}`}
+                style={{ width: ANCHO_NUMEROS }}
+                onPointerDown={(e) => {
+                  if (e.button === 0) seleccionarFila(e, fila);
+                }}
+                onContextMenu={(e) => {
+                  if (!(fila >= rect.f1 && fila <= rect.f2)) seleccionarFila(e, fila);
+                  e.preventDefault();
+                  setMenu({ x: e.clientX, y: e.clientY });
+                }}
+                title="Pincha para seleccionar la fila entera"
+              >
                 {fila + 1}
               </div>
               <div style={{ width: relleno, flex: "0 0 auto" }} />
@@ -466,6 +631,7 @@ export default function HojaCalculo() {
                     onPointerDown={(e) => alBajarEnCelda(e, col, fila)}
                     onPointerEnter={() => alEntrarEnCelda(col, fila)}
                     onDoubleClick={() => abrirEditor(col, fila)}
+                    onContextMenu={(e) => alMenuContextual(e, col, fila)}
                     title={error || (c.formulas?.[fila] ? c.formulas[fila] : undefined)}
                   >
                     {editandoEsta ? (
@@ -497,7 +663,7 @@ export default function HojaCalculo() {
                       />
                     ) : (
                       <span className={c.values[fila] == null && !error ? "hoja-vacia" : ""}>
-                        {error ? "#¿?" : formatear(c.values[fila])}
+                        {error ? "#¿?" : formatear(c.values[fila], c.decimales)}
                       </span>
                     )}
 
@@ -523,6 +689,8 @@ export default function HojaCalculo() {
           ))}
         </div>
       </div>
+
+      {menu && <MenuCeldas x={menu.x} y={menu.y} opciones={opcionesMenu} onCerrar={() => setMenu(null)} />}
     </div>
   );
 }
