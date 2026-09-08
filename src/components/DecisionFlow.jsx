@@ -1,0 +1,116 @@
+import { useMemo, useState } from "react";
+import { useWorkbookStore } from "../lib/estadistica/store.js";
+import { estadisticaDescriptiva } from "../lib/estadistica/descriptiva.js";
+import { pruebaNormalidad } from "../lib/estadistica/normalidad.js";
+import { graficaIndividuosMR, graficaXbarR, capacidadProceso } from "../lib/estadistica/spc.js";
+import { detectarOutliers } from "../lib/estadistica/outliers.js";
+import { evaluarCalidadDatos } from "../lib/estadistica/calidadDatos.js";
+import { compararLotes } from "../lib/estadistica/comparacion.js";
+import { regresionLinealSimple, regresionLinealMultiple } from "../lib/estadistica/regresion.js";
+
+const PASOS = [
+  ["datos", "Datos"], ["calidad", "Calidad de datos"], ["descriptivos", "Descriptivos"], ["distribucion", "Distribución"],
+  ["outliers", "Outliers"], ["medicion", "Sistema de medición"], ["estabilidad", "Estabilidad"], ["capacidad", "Capacidad"],
+  ["lotes", "Comparación de lotes"], ["correlacion", "Correlación / regresión"], ["criticas", "Variables críticas / DOE"], ["conclusion", "Conclusión"], ["informe", "Informe"],
+];
+
+const estadoClase = { FAVORABLE: "ok", "REQUIERE REVISIÓN": "warn", "NO FAVORABLE": "bad", "NO APTO": "bad", "NO EVALUADO": "idle" };
+
+function numero(x) { return x == null || Number.isNaN(x) ? "—" : Number(x.toFixed(4)).toLocaleString("es-PE", { maximumFractionDigits: 4 }); }
+
+function tarjeta(paso, estado, detalle, onClick) {
+  return { paso, estado, detalle, onClick };
+}
+
+export default function DecisionFlow() {
+  const columns = useWorkbookStore((s) => s.columns);
+  const registrarResultado = useWorkbookStore((s) => s.registrarResultado);
+  const [lsl, setLsl] = useState("");
+  const [usl, setUsl] = useState("");
+  const [target, setTarget] = useState("");
+  const [abierto, setAbierto] = useState(true);
+  const [ejecutados, setEjecutados] = useState({});
+
+  const numericas = useMemo(() => columns.filter((c) => c.type === "numeric" && c.values.some((v) => Number.isFinite(v))), [columns]);
+  const calidad = useMemo(() => evaluarCalidadDatos(columns), [columns]);
+  const principal = numericas[0];
+
+  function ejecutar(id) {
+    if (!principal) return;
+    let resultado;
+    if (id === "descriptivos") resultado = numericas.map((c) => ({ variable: c.name, ...estadisticaDescriptiva(c.values) }));
+    if (id === "distribucion") resultado = pruebaNormalidad(principal.values);
+    if (id === "outliers") resultado = detectarOutliers(principal.values);
+    if (id === "estabilidad") resultado = graficaIndividuosMR(principal.values);
+    if (id === "capacidad") resultado = capacidadProceso(principal.values, { lsl: lsl === "" ? null : Number(lsl), usl: usl === "" ? null : Number(usl) });
+    if (id === "lotes") resultado = compararLotes(numericas);
+    if (id === "correlacion") {
+      if (numericas.length < 2) resultado = { error: "Hacen falta al menos dos variables numéricas." };
+      else resultado = regresionLinealSimple(numericas[0].values, numericas[1].values);
+    }
+    if (id === "criticas") {
+      if (numericas.length < 2) resultado = { error: "Hacen falta al menos dos variables numéricas para evaluar asociación." };
+      else resultado = regresionLinealMultiple(numericas.slice(0, Math.min(4, numericas.length - 1)), numericas[Math.min(4, numericas.length - 1)].values);
+    }
+    if (!resultado) return;
+    setEjecutados((s) => ({ ...s, [id]: resultado }));
+    registrarResultado(`Flujo estadístico — ${PASOS.find((p) => p[0] === id)?.[1] || id}`, {
+      encabezados: ["Método", "Resultado"],
+      filas: [[id, JSON.stringify(resultado)]],
+    }, resultado.error ? [resultado.error] : []);
+  }
+
+  const estados = {
+    datos: numericas.length ? "FAVORABLE" : "NO APTO",
+    calidad: calidad.estado,
+    descriptivos: ejecutados.descriptivos ? "FAVORABLE" : "NO EVALUADO",
+    distribucion: ejecutados.distribucion ? (ejecutados.distribucion.error ? "REQUIERE REVISIÓN" : "FAVORABLE") : "NO EVALUADO",
+    outliers: ejecutados.outliers ? (ejecutados.outliers.error ? "REQUIERE REVISIÓN" : ejecutados.outliers.atipicos.length ? "REQUIERE REVISIÓN" : "FAVORABLE") : "NO EVALUADO",
+    medicion: "NO EVALUADO",
+    estabilidad: ejecutados.estabilidad ? (ejecutados.estabilidad.error ? "REQUIERE REVISIÓN" : (ejecutados.estabilidad.individuos.puntos.some((p) => p.fuera) || ejecutados.estabilidad.rangoMovil.puntos.some((p) => p.fuera) ? "NO FAVORABLE" : "FAVORABLE")) : "NO EVALUADO",
+    capacidad: ejecutados.capacidad ? (ejecutados.estabilidad && estados?.estabilidad === "NO FAVORABLE" ? "REQUIERE REVISIÓN" : ejecutados.capacidad.error ? "REQUIERE REVISIÓN" : "FAVORABLE") : "NO EVALUADO",
+    lotes: ejecutados.lotes ? "FAVORABLE" : "NO EVALUADO",
+    correlacion: ejecutados.correlacion ? "FAVORABLE" : "NO EVALUADO",
+    criticas: ejecutados.criticas ? "REQUIERE REVISIÓN" : "NO EVALUADO",
+    conclusion: "NO EVALUADO",
+    informe: "NO EVALUADO",
+  };
+
+  const conclusion = useMemo(() => {
+    if (!principal) return "NO CONCLUYENTE";
+    if (calidad.estado === "NO APTO") return "NO CONCLUYENTE";
+    if (estados.estabilidad === "NO FAVORABLE") return "REQUIERE REVISIÓN";
+    if (ejecutados.capacidad?.error) return "NO CONCLUYENTE";
+    return ejecutados.descriptivos ? "FAVORABLE" : "NO CONCLUYENTE";
+  }, [principal, calidad.estado, ejecutados, estados.estabilidad]);
+
+  return (
+    <section style={{ margin: "10px 12px 0", border: "1px solid var(--border, #d7dce2)", borderRadius: 12, background: "var(--panel, #fff)", overflow: "hidden" }}>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", borderBottom: abierto ? "1px solid var(--border, #d7dce2)" : "none" }}>
+        <div><strong>Flujo de decisión estadística</strong><div style={{ fontSize: 12, opacity: .72 }}>Datos → calidad → descriptivos → distribución → estabilidad → capacidad → lotes → conclusión</div></div>
+        <button type="button" className="stat-toggle" onClick={() => setAbierto((v) => !v)}>{abierto ? "Ocultar" : "Mostrar"}</button>
+      </header>
+      {abierto && <>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: 10 }}>
+          {PASOS.map(([id, nombre]) => <button key={id} type="button" onClick={() => ejecutar(id)} className="stat-toggle" title={id === "capacidad" ? "La capacidad no sustituye la evaluación de estabilidad." : "Ejecutar o revisar este paso"}><span className={`decision-dot decision-dot--${estadoClase[estados[id]]}`}></span>{nombre}<small style={{ marginLeft: 5, opacity: .65 }}>{estados[id]}</small></button>)}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "end", padding: "0 12px 10px" }}>
+          <label style={{ fontSize: 12 }}>LSL<input value={lsl} onChange={(e) => setLsl(e.target.value)} type="number" style={{ display: "block", width: 100 }} /></label>
+          <label style={{ fontSize: 12 }}>USL<input value={usl} onChange={(e) => setUsl(e.target.value)} type="number" style={{ display: "block", width: 100 }} /></label>
+          <label style={{ fontSize: 12 }}>Target<input value={target} onChange={(e) => setTarget(e.target.value)} type="number" style={{ display: "block", width: 100 }} /></label>
+          <div style={{ fontSize: 12, opacity: .75 }}>Variable principal: <b>{principal?.name || "—"}</b> · n={principal ? principal.values.filter(Number.isFinite).length : 0}</div>
+        </div>
+        <div style={{ padding: "0 12px 12px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 8 }}>
+          <div><b>Calidad:</b> {calidad.estado} · variables {calidad.variables.length}</div>
+          <div><b>Conclusión provisional:</b> {conclusion}. No equivale a “validado”.</div>
+          {ejecutados.distribucion && !ejecutados.distribucion.error && <div><b>Normalidad:</b> AD={numero(ejecutados.distribucion.ad)} · p={numero(ejecutados.distribucion.valorP)}</div>}
+          {ejecutados.outliers && !ejecutados.outliers.error && <div><b>Outliers:</b> {ejecutados.outliers.atipicos.length} detectados · conservar/revisar, no eliminar automáticamente.</div>}
+          {ejecutados.estabilidad && !ejecutados.estabilidad.error && <div><b>I-MR:</b> {estados.estabilidad}. Se revisan causas especiales antes de interpretar capacidad.</div>}
+          {ejecutados.capacidad && !ejecutados.capacidad.error && <div><b>Capacidad:</b> Cp={numero(ejecutados.capacidad.cp)} Cpk={numero(ejecutados.capacidad.cpk)} Pp={numero(ejecutados.capacidad.pp)} Ppk={numero(ejecutados.capacidad.ppk)}</div>}
+          {ejecutados.lotes && !ejecutados.lotes.error && <div><b>Lotes:</b> ANOVA p={numero(ejecutados.lotes.anova?.valorP)} · Welch p={numero(ejecutados.lotes.welch?.valorP)} · Kruskal p={numero(ejecutados.lotes.kruskal?.valorP)}</div>}
+          {ejecutados.correlacion && !ejecutados.correlacion.error && <div><b>Regresión:</b> R²={numero(ejecutados.correlacion.r2)} · p pendiente={numero(ejecutados.correlacion.p)}</div>}
+        </div>
+      </>}
+    </section>
+  );
+}
