@@ -86,6 +86,23 @@ function usePanelAutoOculto(activo) {
   return { plegado: activo && plegado, manejadores };
 }
 
+/**
+ * La tira que queda en el borde cuando un panel está cerrado del todo.
+ *
+ * Sin ella, cerrar el Asistente y plegar después la barra de arriba dejaba el
+ * panel sin ninguna forma de volver: los dos interruptores vivían en la misma
+ * barra. Ahora el panel deja siempre su rótulo en el canto, como los paneles
+ * acoplados de Minitab.
+ */
+function TiraPanel({ nombre, icono, lado, onAbrir }) {
+  return (
+    <button type="button" className={`stat-tira stat-tira--${lado}`} onClick={onAbrir} title={`Mostrar el ${nombre}`}>
+      {icono}
+      <span>{nombre}</span>
+    </button>
+  );
+}
+
 /** El panel lateral con su pestaña, para cuando está plegado. */
 function Lateral({ nombre, icono, plegado, manejadores, children }) {
   return (
@@ -122,6 +139,7 @@ export default function EstadisticaView() {
   const alternarPanel = useWorkbookStore((s) => s.alternarPanel);
   const resultados = useWorkbookStore((s) => s.resultados);
   const graficos = useWorkbookStore((s) => s.graficos);
+  const seleccionActual = useWorkbookStore((s) => s.seleccionActual);
 
   const [exportando, setExportando] = useState(false);
   const [barraAbierta, setBarraAbierta] = useState(true);
@@ -132,6 +150,13 @@ export default function EstadisticaView() {
     const guardado = Number(localStorage.getItem("deteccion-parametros:estadistica:reparto"));
     return Number.isFinite(guardado) && guardado >= 0.15 && guardado <= 0.9 ? guardado : 0.58;
   });
+  // Con el visor vacío no tiene sentido darle más de media pantalla a un
+  // cartel que dice "elige columnas": esa altura es de la hoja, que es donde
+  // se está trabajando. En cuanto hay un resultado o un gráfico, el reparto
+  // vuelve al que haya puesto la persona con el divisor.
+  const hayQueMostrar = seleccionActual != null;
+  const repartoEfectivo = hayQueMostrar ? reparto : Math.min(reparto, 0.26);
+
   const cuerpoRef = useRef(null);
   const arrastrandoRef = useRef(false);
   const total = resultados.length + graficos.length;
@@ -183,14 +208,12 @@ export default function EstadisticaView() {
   // Las columnas de la rejilla se arman con los paneles que estén abiertos:
   // un panel cerrado no deja su hueco vacío, se lo queda el visor. Uno
   // plegado deja sólo el ancho de su pestaña.
-  const anchoLateral = (visible, plegado, ancho) => (!visible ? null : plegado ? "30px" : ancho);
+  const anchoLateral = (visible, plegado, ancho) => (!visible ? "26px" : plegado ? "30px" : ancho);
   const columnas = [
     anchoLateral(paneles.navegador, navAuto.plegado, "210px"),
     "minmax(0, 1fr)",
     anchoLateral(paneles.asistente, asisAuto.plegado, "290px"),
-  ]
-    .filter(Boolean)
-    .join(" ");
+  ].join(" ");
 
   return (
     <div className={`stat-shell ${temaClaro ? "stat-body--claro" : ""}`}>
@@ -267,14 +290,20 @@ export default function EstadisticaView() {
         </div>
       </div>
 
-      <div className="stat-body" style={{ gridTemplateColumns: columnas }}>
-        {paneles.navegador && (
+      {/* Las columnas van por variable y no como "grid-template-columns" en
+          línea: un estilo en línea gana siempre, y en el móvil dejaba las
+          tres columnas de escritorio apretadas en 390 px de ancho, sin que la
+          media query pudiera apilarlas. */}
+      <div className="stat-body" style={{ "--stat-columnas": columnas }}>
+        {paneles.navegador ? (
           <Lateral nombre="Navegador" icono={<IconLayers size={14} />} {...navAuto}>
             <Navegador />
           </Lateral>
+        ) : (
+          <TiraPanel nombre="Navegador" icono={<IconLayers size={13} />} lado="izq" onAbrir={() => alternarPanel("navegador")} />
         )}
         <div className="stat-main" ref={cuerpoRef}>
-          <div className="stat-main__salida" style={paneles.hoja ? { flex: `${reparto} 1 0` } : undefined}>
+          <div className="stat-main__salida" style={paneles.hoja ? { flex: `${repartoEfectivo} 1 0` } : undefined}>
             <OutputViewer />
           </div>
 
@@ -296,16 +325,18 @@ export default function EstadisticaView() {
                 onDoubleClick={() => setReparto(0.58)}
                 title="Arrastra para repartir la altura. Doble clic para volver al reparto de siempre."
               />
-              <div className="stat-main__hoja" style={{ flex: `${1 - reparto} 1 0` }}>
+              <div className="stat-main__hoja" style={{ flex: `${1 - repartoEfectivo} 1 0` }}>
                 <WorkbookGrid />
               </div>
             </>
           )}
         </div>
-        {paneles.asistente && (
+        {paneles.asistente ? (
           <Lateral nombre="Asistente" icono={<IconFlask size={14} />} {...asisAuto}>
             <AnalysisAssistant />
           </Lateral>
+        ) : (
+          <TiraPanel nombre="Asistente" icono={<IconFlask size={13} />} lado="der" onAbrir={() => alternarPanel("asistente")} />
         )}
       </div>
     </div>

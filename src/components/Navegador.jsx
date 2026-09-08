@@ -15,6 +15,7 @@ export default function Navegador() {
   const seleccionar = useWorkbookStore((s) => s.seleccionar);
   const eliminarResultado = useWorkbookStore((s) => s.eliminarResultado);
   const eliminarGrafico = useWorkbookStore((s) => s.eliminarGrafico);
+  const alternarPanel = useWorkbookStore((s) => s.alternarPanel);
 
   const items = useMemo(() => {
     const todos = [
@@ -34,6 +35,18 @@ export default function Navegador() {
       <div className="navegador-header">
         <IconLayers size={15} />
         <h3>Navegador</h3>
+        {/* Se cierra desde el propio panel: la barra de arriba, que es donde
+            estaba el único interruptor, se puede plegar — y con ella plegada
+            no había forma de quitar el panel de en medio. */}
+        <button
+          type="button"
+          className="stat-panel__plegar"
+          onClick={() => alternarPanel("navegador")}
+          title="Ocultar el Navegador"
+          aria-label="Ocultar el Navegador"
+        >
+          ‹
+        </button>
       </div>
       <ul className="navegador-lista">
         {items.length === 0 && <li className="navegador-vacio">Sin resultados todavía.</li>}

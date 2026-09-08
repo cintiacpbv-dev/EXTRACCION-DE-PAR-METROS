@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import HojaCalculo from "./HojaCalculo.jsx";
+import PestanasHojas from "./PestanasHojas.jsx";
 import { useWorkbookStore } from "../lib/estadistica/store.js";
 import { filasATablero, leerExcel, parseCsv } from "../lib/estadistica/csv.js";
 import { IconPlus, IconTrash, IconUpload, IconChevronDown } from "./Icons.jsx";
@@ -37,7 +38,7 @@ export default function WorkbookGrid() {
       if (columnasNuevas.length === 0) {
         setError("El archivo no tiene datos que importar.");
       } else {
-        cargarHoja(columnasNuevas);
+        cargarHoja(columnasNuevas, archivo.name.replace(/\.[^.]+$/, ""));
       }
     } catch (err) {
       setError(`No pude leer el archivo (${err.message}).`);
@@ -80,7 +81,7 @@ export default function WorkbookGrid() {
               type="button"
               className="btn btn--ghost btn--sm btn--peligro"
               onClick={() => {
-                if (window.confirm("¿Vaciar toda la hoja? Se pierden los datos y los resultados de esta sesión.")) limpiarHoja();
+                if (window.confirm("¿Vaciar esta hoja de trabajo? Se pierden sus datos. Las demás hojas y los resultados se quedan.")) limpiarHoja();
               }}
             >
               <IconTrash size={13} /> Vaciar hoja
@@ -92,6 +93,7 @@ export default function WorkbookGrid() {
       </div>
 
       <HojaCalculo />
+      <PestanasHojas />
     </div>
   );
 }
