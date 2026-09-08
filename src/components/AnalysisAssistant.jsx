@@ -27,6 +27,8 @@ import {
   correlacionSpearman,
   kruskalWallis,
   tukeyHSD,
+  welchAnova,
+  gamesHowell,
 } from "../lib/estadistica/pruebas.js";
 import { regresionLineal, pruebaBreuschPagan } from "../lib/estadistica/regresion.js";
 import { graficaIndividuosMR, graficaXbarR, capacidadProceso } from "../lib/estadistica/spc.js";
@@ -109,6 +111,13 @@ const ACCIONES = [
     minColumnas: 3,
     maxColumnas: 10,
     ayuda: "Elige tres o más columnas numéricas (un grupo o lote por columna) para comparar sus medias a la vez. Asume varianzas iguales y residuos normales; incluye Tukey HSD por pares.",
+  },
+  {
+    id: "welch",
+    nombre: "ANOVA de Welch",
+    minColumnas: 3,
+    maxColumnas: 10,
+    ayuda: "Como el ANOVA de un factor, pero sin asumir que los grupos tengan la misma varianza — revisa antes la Prueba de varianzas: si dio diferencia entre grupos, usa este en vez del ANOVA clásico. Incluye Games-Howell por pares.",
   },
   {
     id: "kruskal",
@@ -213,7 +222,7 @@ const ACCIONES = [
 const GRUPOS = [
   { nombre: "Calidad de datos", ids: ["calidad", "outliers"] },
   { nombre: "Descriptiva y gráficos", ids: ["descriptiva", "histograma", "normalidad", "boxplot", "dispersion", "correlacion", "spearman"] },
-  { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "anova1", "kruskal", "varianzas", "intervalos", "proporcion1"] },
+  { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "anova1", "welch", "kruskal", "varianzas", "intervalos", "proporcion1"] },
   { nombre: "Regresión", ids: ["regresion"] },
   { nombre: "Control de calidad (SPC)", ids: ["imr", "xbarr", "capacidad", "gagerr"] },
   { nombre: "Diseño de experimentos (DOE)", ids: ["crear_diseno", "analizar_factorial"] },
@@ -574,6 +583,51 @@ export default function AnalysisAssistant() {
             ]),
           },
           ["El valor p ya está ajustado por hacer varias comparaciones a la vez (no hace falta corregirlo aparte, como sí haría falta repitiendo pruebas t una por una)."]
+        );
+      }
+    } else if (accion.id === "welch") {
+      const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
+      if (noNumericas.length > 0) {
+        setAviso(`Todas las columnas deben ser numéricas ("${noNumericas[0].name}" no lo es).`);
+        return;
+      }
+      const r = welchAnova(columnasSeleccionadas);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      const estadoWelch = estadoComparacion(r.valorP);
+      registrarResultado(`ANOVA de Welch: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`, {
+        encabezados: ["Grupo", "N", "Media", "Desv. Est."],
+        filas: r.resumenGrupos.map((g) => [g.nombre, String(g.n), formatearNumero(g.media), formatearNumero(g.desvEst)]),
+      });
+      registrarResultado(
+        "Estadístico de Welch",
+        {
+          encabezados: ["F", "gl (num.)", "gl (den.)", "Valor p"],
+          filas: [[formatearNumero(r.F), String(r.gl1), formatearNumero(r.gl2), formatearP(r.valorP)]],
+        },
+        [
+          estadoWelch.texto,
+          "A diferencia del ANOVA clásico, este no asume que los grupos tengan la misma varianza: por eso su segundo grado de libertad casi nunca es un número entero.",
+        ]
+      );
+      const gh = gamesHowell(columnasSeleccionadas);
+      if (!gh.error) {
+        registrarResultado(
+          "Games-Howell (comparaciones por pares)",
+          {
+            encabezados: ["Grupo A", "Grupo B", "Diferencia", `Límite inf. (${(gh.nivelConfianza * 100).toFixed(0)}%)`, "Límite sup.", "Valor p ajustado"],
+            filas: gh.comparaciones.map((c) => [
+              c.grupoA,
+              c.grupoB,
+              formatearNumero(c.diferencia),
+              formatearNumero(c.limiteInferior),
+              formatearNumero(c.limiteSuperior),
+              formatearP(c.valorP),
+            ]),
+          },
+          ["Games-Howell, no Tukey: cada par usa su propio error estándar, sin asumir que todos los grupos varíen igual — el que corresponde después de un ANOVA de Welch."]
         );
       }
     } else if (accion.id === "kruskal") {

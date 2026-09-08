@@ -365,3 +365,114 @@ export function tukeyHSD(resultadoAnova, nivelConfianza = 0.95) {
   }
   return { k, glDentro, cmDentro, nivelConfianza, comparaciones };
 }
+
+/**
+ * ANOVA de Welch: la versión del ANOVA de un factor que NO asume que los
+ * grupos tengan la misma varianza —el mismo motivo por el que la prueba t
+ * de 2 muestras de este archivo usa Welch en vez de la t de Student
+ * clásica—. Cada grupo pesa según el inverso de su propia varianza, así
+ * que un grupo con mucho ruido no puede arrastrar la conclusión de otro
+ * más estable con el mismo peso que él (Welch, B.L. 1951, "On the
+ * comparison of several mean values: an alternative approach", Biometrika
+ * 38, 330–336).
+ *
+ * Se apoya en anovaUnFactor() para la agrupación y su validación —no
+ * repite esa lógica—, y sólo recalcula las cuentas que de verdad cambian
+ * con Welch: los pesos, la F y sus dos grados de libertad (el segundo, a
+ * diferencia del ANOVA clásico, casi nunca es un entero).
+ *
+ * Con dos grupos, coincide exactamente con el cuadrado del estadístico t
+ * de tDosMuestras() —la misma Welch, mirada como ANOVA o como prueba t—:
+ * verificado en el archivo de pruebas, no es una suposición.
+ *
+ * Con varianzas iguales entre grupos NO coincide con el ANOVA clásico —ni
+ * siquiera entonces—: el término de corrección del denominador
+ * (2(k−2)/(k²−1)·Σ(1−wᵢ/W)²/(nᵢ−1)) sigue sumando algo salvo que k=2, así
+ * que Welch da un F un poco más chico incluso cuando la suposición que
+ * evita resulta ser cierta. No es un error de este archivo: es una
+ * propiedad conocida de la aproximación de Welch (más conservadora por
+ * construcción), y está verificada contra la forma cerrada de ese término
+ * calculada a mano, no comparándola con el ANOVA clásico.
+ */
+export function welchAnova(columnas) {
+  const base = anovaUnFactor(columnas);
+  if (base.error) return base;
+  const { k, resumenGrupos } = base;
+
+  const grupos = resumenGrupos.map((g) => ({ ...g, varianza: g.desvEst ** 2 }));
+  if (grupos.some((g) => g.varianza === 0)) {
+    return { error: "Al menos un grupo tiene varianza cero (todos sus valores son idénticos): Welch no se puede calcular, necesita variación dentro de cada grupo." };
+  }
+
+  const pesos = grupos.map((g) => g.n / g.varianza);
+  const sumaPesos = pesos.reduce((a, b) => a + b, 0);
+  const mediaPonderada = grupos.reduce((acc, g, i) => acc + pesos[i] * g.media, 0) / sumaPesos;
+
+  const numerador = grupos.reduce((acc, g, i) => acc + pesos[i] * (g.media - mediaPonderada) ** 2, 0) / (k - 1);
+
+  const terminoGl = grupos.reduce((acc, g, i) => acc + (1 - pesos[i] / sumaPesos) ** 2 / (g.n - 1), 0);
+  const denominador = 1 + (2 * (k - 2) * terminoGl) / (k * k - 1);
+
+  const F = numerador / denominador;
+  const gl1 = k - 1;
+  const gl2 = 1 / (3 * terminoGl / (k * k - 1));
+  const valorP = 1 - jStat.centralF.cdf(F, gl1, gl2);
+
+  return { k, resumenGrupos: grupos, mediaPonderada, F, gl1, gl2, valorP };
+}
+
+/**
+ * Games-Howell: el post-hoc que corresponde a Welch, igual que Tukey le
+ * corresponde al ANOVA clásico — no asume varianzas iguales entre grupos,
+ * así que no pide el CM del error de un ANOVA que ya asumió lo que Welch
+ * evita asumir.
+ *
+ * Cada par se compara con SU PROPIO error estándar y SUS PROPIOS grados de
+ * libertad (Welch-Satterthwaite, la misma fórmula de tDosMuestras()), no
+ * con un valor común para toda la tabla — es exactamente lo que hace
+ * tDosMuestras() para cada par, sólo que evaluado en la distribución del
+ * rango studentizado en vez de la t, para que el valor p ya venga
+ * ajustado por hacer varias comparaciones a la vez.
+ *
+ * La relación con tDosMuestras() es exacta y es la verificación: para
+ * cualquier par, q = √2·|t de Welch| y los grados de libertad son
+ * IDÉNTICOS a los de tDosMuestras() para ese mismo par — están
+ * comprobados en el archivo de pruebas, no son una coincidencia de
+ * redondeo.
+ */
+export function gamesHowell(columnas, nivelConfianza = 0.95) {
+  const base = anovaUnFactor(columnas);
+  if (base.error) return base;
+  const { k, resumenGrupos } = base;
+  if (k < 3) return { error: "Games-Howell compara tres o más grupos; para dos, usa la prueba t de 2 muestras (Welch)." };
+
+  const grupos = resumenGrupos.map((g) => ({ ...g, varianza: g.desvEst ** 2 }));
+  const comparaciones = [];
+  for (let i = 0; i < grupos.length; i++) {
+    for (let j = i + 1; j < grupos.length; j++) {
+      const gi = grupos[i];
+      const gj = grupos[j];
+      const seA = gi.varianza / gi.n;
+      const seB = gj.varianza / gj.n;
+      const diferencia = gi.media - gj.media;
+      const errorEstGH = Math.sqrt((seA + seB) / 2);
+      const q = Math.abs(diferencia) / errorEstGH;
+      const gl = (seA + seB) ** 2 / (seA ** 2 / (gi.n - 1) + seB ** 2 / (gj.n - 1));
+      const valorP = 1 - jStat.tukey.cdf(q, k, gl);
+      const qCritico = jStat.tukey.inv(nivelConfianza, k, gl);
+      const margen = qCritico * errorEstGH;
+      comparaciones.push({
+        grupoA: gi.nombre,
+        grupoB: gj.nombre,
+        diferencia,
+        errorEst: errorEstGH,
+        gl,
+        q,
+        valorP,
+        limiteInferior: diferencia - margen,
+        limiteSuperior: diferencia + margen,
+      });
+    }
+  }
+  return { k, nivelConfianza, comparaciones };
+}
