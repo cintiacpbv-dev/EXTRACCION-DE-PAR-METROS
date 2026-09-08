@@ -14,14 +14,29 @@ export function valoresNumericos(values) {
  * Resumen descriptivo de una columna numérica. Devuelve `vacio: true`
  * cuando no hay ningún valor numérico (columna de texto, o toda en blanco).
  */
+/**
+ * La columna hasta su último dato: las filas en blanco del final no son parte
+ * de ella.
+ *
+ * La hoja nace con cientos de filas vacías esperando, como la de Minitab. Sin
+ * recortarlas, diez mediciones en una hoja de quinientas filas se reportan
+ * como "490 datos faltantes" — y un dato faltante, en un registro de lote, es
+ * una desviación, no una fila que todavía no se ha usado. Un hueco *entre*
+ * datos sí se cuenta: ese sí falta.
+ */
+export function hastaElUltimoDato(values) {
+  let fin = values.length;
+  while (fin > 0 && (values[fin - 1] == null || String(values[fin - 1]).trim() === "")) fin -= 1;
+  return values.slice(0, fin);
+}
+
 export function estadisticaDescriptiva(values) {
   // N son las observaciones válidas, y N faltante las celdas en blanco o con
-  // texto — como en Minitab. Contar N sobre el largo de la columna daba
-  // "N = 60" para diez datos escritos en una hoja de sesenta filas: el resto
-  // son filas vacías esperando, no mediciones que falten de un lote.
-  const numericos = valoresNumericos(values);
+  // texto dentro de la columna — como en Minitab.
+  const usados = hastaElUltimoDato(values);
+  const numericos = valoresNumericos(usados);
   const n = numericos.length;
-  const faltantes = values.length - n;
+  const faltantes = usados.length - n;
 
   if (numericos.length === 0) {
     return { n, faltantes, vacio: true };

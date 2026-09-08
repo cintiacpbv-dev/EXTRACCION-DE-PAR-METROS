@@ -16,13 +16,14 @@ import { esFormula } from "../lib/estadistica/formulas.js";
 // fila de nombres —que se deja libre para escribir "pH 1", como en el papel—,
 // y debajo las filas numeradas.
 
-const ALTO_FILA = 26;
-const ANCHO_COLUMNA = 118;
-const ANCHO_NUMEROS = 44;
-// Cuántas filas de más se dibujan por encima y por debajo de lo que se ve.
-// Sin margen, al arrastrar el scroll rápido aparece un hueco en blanco antes
-// de que React alcance a dibujar.
+const ALTO_FILA = 23;
+const ANCHO_COLUMNA = 96;
+const ANCHO_NUMEROS = 42;
+// Cuántas filas y columnas de más se dibujan alrededor de lo que se ve. Sin
+// margen, al arrastrar el scroll rápido aparece un hueco en blanco antes de
+// que React alcance a dibujar.
 const MARGEN_FILAS = 6;
+const MARGEN_COLUMNAS = 3;
 
 function formatear(valor) {
   if (valor === null || valor === undefined) return "";
@@ -68,7 +69,9 @@ export default function HojaCalculo() {
   const [arrastrando, setArrastrando] = useState(null); // "seleccion" | "relleno"
   const [previoRelleno, setPrevioRelleno] = useState(null); // hasta qué fila llega el tirador
   const [scrollTop, setScrollTop] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
   const [alto, setAlto] = useState(400);
+  const [ancho, setAncho] = useState(900);
 
   const hojaRef = useRef(null);
   const cuerpoRef = useRef(null);
@@ -82,10 +85,24 @@ export default function HojaCalculo() {
   const visibles = [];
   for (let i = desde; i < hasta; i++) visibles.push(i);
 
+  // Y lo mismo a lo ancho: la hoja tiene cincuenta columnas y en pantalla
+  // caben quince. Dibujarlas todas multiplicaba por tres las celdas de cada
+  // fila sin que se vieran.
+  const anchoUtil = Math.max(0, ancho - ANCHO_NUMEROS);
+  const desdeCol = Math.max(0, Math.floor(scrollLeft / ANCHO_COLUMNA) - MARGEN_COLUMNAS);
+  const hastaCol = Math.min(columns.length, Math.ceil((scrollLeft + anchoUtil) / ANCHO_COLUMNA) + MARGEN_COLUMNAS);
+  const columnasVisibles = [];
+  for (let i = desdeCol; i < hastaCol; i++) columnasVisibles.push(i);
+  // El hueco que dejan las columnas que quedaron a la izquierda sin dibujar.
+  const relleno = desdeCol * ANCHO_COLUMNA;
+
   useLayoutEffect(() => {
     const el = cuerpoRef.current;
     if (!el) return undefined;
-    const medir = () => setAlto(el.clientHeight);
+    const medir = () => {
+      setAlto(el.clientHeight);
+      setAncho(el.clientWidth);
+    };
     medir();
     const observador = new ResizeObserver(medir);
     observador.observe(el);
@@ -110,6 +127,13 @@ export default function HojaCalculo() {
       const arriba = f * ALTO_FILA;
       if (arriba < el.scrollTop) el.scrollTop = arriba;
       else if (arriba + ALTO_FILA > el.scrollTop + el.clientHeight) el.scrollTop = arriba + ALTO_FILA - el.clientHeight;
+
+      // Y lo mismo a lo ancho, que ahora hace falta: con cincuenta columnas,
+      // avanzar con Tab se salía de la parte visible a la cuarta pulsación.
+      const izquierda = c * ANCHO_COLUMNA;
+      const visibleAncho = el.clientWidth - ANCHO_NUMEROS;
+      if (izquierda < el.scrollLeft) el.scrollLeft = izquierda;
+      else if (izquierda + ANCHO_COLUMNA > el.scrollLeft + visibleAncho) el.scrollLeft = izquierda + ANCHO_COLUMNA - visibleAncho;
     },
     [columns.length, numFilas]
   );
@@ -340,53 +364,72 @@ export default function HojaCalculo() {
       ? { c1: rect.c1, c2: rect.c2, f1: Math.min(rect.f1, previoRelleno), f2: Math.max(rect.f2, previoRelleno) }
       : null;
 
-  const anchoTotal = ANCHO_NUMEROS + columns.length * ANCHO_COLUMNA;
+  const anchoColumnas = columns.length * ANCHO_COLUMNA;
 
   return (
-    <div
-      ref={hojaRef}
-      className="hoja"
-      tabIndex={0}
-      onKeyDown={alTeclear}
-      role="grid"
-      aria-label="Hoja de trabajo"
-    >
-      <div className="hoja-cabecera" style={{ width: anchoTotal }}>
-        <div className="hoja-esquina" style={{ width: ANCHO_NUMEROS }} />
-        {columns.map((c, i) => (
-          <div key={c.id} className={`hoja-etiqueta ${i >= rect.c1 && i <= rect.c2 ? "is-activa" : ""}`} style={{ width: ANCHO_COLUMNA }}>
-            {/* La marca del tipo va pegada a la etiqueta, como en Minitab:
-                "C2-T" es una columna de texto y "C3-F" una de fecha. Ocupa
-                una esquina en vez de una fila entera de la hoja. */}
-            {etiquetaColumna(i)}
-            {c.type === "text" ? "-T" : c.type === "date" ? "-F" : ""}
+    <div ref={hojaRef} className="hoja" tabIndex={0} onKeyDown={alTeclear} role="grid" aria-label="Hoja de trabajo">
+      {/* La cabecera va fuera del área que scrollea y se corre a mano con
+          "translateX": así acompaña a las columnas al desplazarse a lo ancho
+          sin llevarse consigo la columna de números, que en Minitab se queda
+          siempre pegada a la izquierda. */}
+      <div className="hoja-encabezado">
+        {/* La esquina, con la flecha que en Minitab indica hacia dónde avanza
+            el cursor al escribir. */}
+        <div className="hoja-esquina" style={{ width: ANCHO_NUMEROS }} title="Los datos se escriben hacia abajo">
+          ↓
+        </div>
+        <div className="hoja-encabezado__pista">
+          <div className="hoja-encabezado__desliz" style={{ transform: `translateX(${-scrollLeft}px)`, width: anchoColumnas }}>
+            <div className="hoja-cabecera" style={{ width: anchoColumnas }}>
+              <div style={{ width: relleno, flex: "0 0 auto" }} />
+              {columnasVisibles.map((i) => (
+                <div
+                  key={columns[i].id}
+                  className={`hoja-etiqueta ${i >= rect.c1 && i <= rect.c2 ? "is-activa" : ""}`}
+                  style={{ width: ANCHO_COLUMNA }}
+                >
+                  {/* La marca del tipo va pegada a la etiqueta, como en Minitab:
+                      "C2-T" es una columna de texto y "C3-F" una de fecha. */}
+                  {etiquetaColumna(i)}
+                  {columns[i].type === "text" ? "-T" : columns[i].type === "date" ? "-F" : ""}
+                </div>
+              ))}
+            </div>
+
+            <div className="hoja-nombres" style={{ width: anchoColumnas }}>
+              <div style={{ width: relleno, flex: "0 0 auto" }} />
+              {columnasVisibles.map((i) => (
+                <input
+                  key={columns[i].id}
+                  className={`hoja-nombre ${i >= rect.c1 && i <= rect.c2 ? "is-activa" : ""}`}
+                  style={{ width: ANCHO_COLUMNA }}
+                  value={columns[i].nombre ?? ""}
+                  onChange={(e) => renombrarColumna(columns[i].id, e.target.value)}
+                  aria-label={`Nombre de la columna ${etiquetaColumna(i)}`}
+                />
+              ))}
+            </div>
           </div>
-        ))}
+        </div>
       </div>
 
-      <div className="hoja-nombres" style={{ width: anchoTotal }}>
-        <div className="hoja-esquina" style={{ width: ANCHO_NUMEROS }} />
-        {columns.map((c) => (
-          <input
-            key={c.id}
-            className="hoja-nombre"
-            style={{ width: ANCHO_COLUMNA }}
-            value={c.nombre ?? ""}
-            placeholder=""
-            onChange={(e) => renombrarColumna(c.id, e.target.value)}
-            aria-label={`Nombre de la columna ${c.id}`}
-          />
-        ))}
-      </div>
-
-      <div className="hoja-cuerpo" ref={cuerpoRef} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
-        <div style={{ height: numFilas * ALTO_FILA, width: anchoTotal, position: "relative" }}>
+      <div
+        className="hoja-cuerpo"
+        ref={cuerpoRef}
+        onScroll={(e) => {
+          setScrollTop(e.currentTarget.scrollTop);
+          setScrollLeft(e.currentTarget.scrollLeft);
+        }}
+      >
+        <div style={{ height: numFilas * ALTO_FILA, width: ANCHO_NUMEROS + anchoColumnas, position: "relative" }}>
           {visibles.map((fila) => (
             <div key={fila} className="hoja-fila" style={{ top: fila * ALTO_FILA, height: ALTO_FILA }}>
               <div className={`hoja-numero ${fila >= rect.f1 && fila <= rect.f2 ? "is-activa" : ""}`} style={{ width: ANCHO_NUMEROS }}>
                 {fila + 1}
               </div>
-              {columns.map((c, col) => {
+              <div style={{ width: relleno, flex: "0 0 auto" }} />
+              {columnasVisibles.map((col) => {
+                const c = columns[col];
                 const enRango = dentro(rect, col, fila);
                 const esFoco = foco.col === col && foco.fila === fila;
                 const enPrevio = rectPrevio && dentro(rectPrevio, col, fila) && !enRango;

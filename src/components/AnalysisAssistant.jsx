@@ -199,6 +199,7 @@ export default function AnalysisAssistant() {
   const registrarResultado = useWorkbookStore((s) => s.registrarResultado);
   const agregarGrafico = useWorkbookStore((s) => s.agregarGrafico);
   const cargarHoja = useWorkbookStore((s) => s.cargarHoja);
+  const alternarPanel = useWorkbookStore((s) => s.alternarPanel);
   const [accionId, setAccionId] = useState(ACCIONES[0].id);
   const [seleccion, setSeleccion] = useState([]);
   const [extras, setExtras] = useState({});
@@ -206,6 +207,15 @@ export default function AnalysisAssistant() {
 
   const accion = ACCIONES.find((a) => a.id === accionId);
   const columnasSeleccionadas = columns.filter((c) => seleccion.includes(c.id));
+
+  // La hoja tiene cincuenta columnas esperando, como la de Minitab, pero aquí
+  // sólo se listan las que tienen algo: un nombre puesto, datos escritos, o la
+  // marca de estar elegida. Las cincuenta en fila dejaban el panel imposible
+  // de recorrer para llegar al botón de Ejecutar, y una columna vacía no se
+  // puede analizar de todos modos.
+  const columnasConDatos = columns.filter(
+    (c) => seleccion.includes(c.id) || String(c.nombre ?? "").trim() !== "" || c.values.some((v) => v != null)
+  );
 
   function cambiarAccion(id) {
     const nueva = ACCIONES.find((a) => a.id === id);
@@ -625,6 +635,17 @@ export default function AnalysisAssistant() {
       <div className="assistant-header">
         <IconFlask size={16} />
         <h3>Asistente de análisis</h3>
+        {/* Igual que en el Navegador: se cierra desde aquí, sin depender de
+            la barra de arriba, que puede estar plegada. */}
+        <button
+          type="button"
+          className="stat-panel__plegar"
+          onClick={() => alternarPanel("asistente")}
+          title="Ocultar el Asistente"
+          aria-label="Ocultar el Asistente"
+        >
+          ›
+        </button>
       </div>
 
       <AiAdvisor onAplicarSugerencia={aplicarSugerencia} />
@@ -654,7 +675,7 @@ export default function AnalysisAssistant() {
           {e.tipo === "columna" ? (
             <select value={extras[e.key] ?? ""} onChange={(ev) => setExtras((prev) => ({ ...prev, [e.key]: ev.target.value }))}>
               <option value="">— elegir columna —</option>
-              {columns.map((c) => (
+              {columnasConDatos.map((c) => (
                 <option key={c.id} value={c.name}>
                   {c.name}
                 </option>
@@ -673,8 +694,11 @@ export default function AnalysisAssistant() {
 
       <div className="assistant-columnas">
         <span className="assistant-columnas__titulo">Columnas de la hoja</span>
+        {columnasConDatos.length === 0 && (
+          <p className="assistant-ayuda">Escribe o pega datos en la hoja y aparecerán aquí.</p>
+        )}
         <ul>
-          {columns.map((c) => (
+          {columnasConDatos.map((c) => (
             <li key={c.id}>
               <label>
                 <input type="checkbox" checked={seleccion.includes(c.id)} onChange={() => alternarColumna(c.id)} />

@@ -2571,6 +2571,12 @@
   display: flex;
   flex-direction: column;
   background: var(--stat-bg, transparent);
+  /* Los tres colores propios de la gradilla: el gris de las barras de columna
+     y de fila, el mismo gris cuando la columna está seleccionada, y el color
+     con el que se pinta un rango. En claro se cambian por los de Minitab. */
+  --stat-encabezado: #14171c;
+  --stat-encabezado-activo: #2a1206;
+  --stat-seleccion: #2a1206;
 }
 
 .stat-toolbar {
@@ -2796,10 +2802,59 @@ body.esta-redimensionando {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr) 290px;
+  /* Las arma EstadisticaView con los paneles que estén abiertos. Por variable
+     para que el móvil pueda apilarlas. */
+  grid-template-columns: var(--stat-columnas, 210px minmax(0, 1fr) 290px);
   grid-template-rows: 1fr;
   gap: 10px;
   padding: 10px;
+}
+
+/* La tira del canto: lo único que queda de un panel cerrado, y por donde
+   vuelve. Rotulada en vertical, como las pestañas acopladas de Minitab. */
+.stat-tira {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  min-width: 0;
+  writing-mode: vertical-rl;
+  background: var(--stat-encabezado, var(--surface-soft));
+  border: 1px solid var(--stat-border, var(--border));
+  border-radius: var(--radius-sm);
+  color: var(--stat-text-muted, var(--text-muted));
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  justify-content: flex-start;
+}
+
+.stat-tira svg {
+  writing-mode: horizontal-tb;
+}
+
+.stat-tira:hover {
+  color: var(--sky-text);
+  border-color: var(--sky);
+}
+
+/* El botón de plegar que llevan las cabeceras del Navegador y del Asistente. */
+.stat-panel__plegar {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--stat-text-muted, var(--text-muted));
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.stat-panel__plegar:hover {
+  background: var(--stat-seleccion, var(--sky-soft));
+  color: var(--sky-text);
 }
 
 /* ---- Paneles laterales que se pliegan solos ------------------------- */
@@ -3014,11 +3069,14 @@ body.esta-redimensionando {
 }
 
 /* ---- Hoja de trabajo ------------------------------------------------ */
+/* Ocupa toda la altura que le reparte el divisor. Antes eran 300 px fijos, y
+   por debajo de la hoja quedaba una franja negra muerta: la mitad del panel
+   sin filas, en la parte de la pantalla donde más falta hacen. */
 .wb-grid-panel {
-  flex: 0 0 300px;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 200px;
+  min-height: 120px;
   min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -3069,32 +3127,67 @@ body.esta-redimensionando {
   box-shadow: inset 0 0 0 2px var(--sky);
 }
 
+/* ---- Cabecera: barras de columna y de fila como las de Minitab ------ */
+/* La cabecera vive fuera del área que scrollea y se corre con transform, y la
+   columna de números se queda pegada a la izquierda con "sticky": así al ir
+   hacia C31 los rótulos siguen a sus columnas y el número de fila no se va. */
+.hoja-encabezado {
+  display: flex;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--stat-border-strong, var(--border-strong));
+}
+
+.hoja-encabezado__pista {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.hoja-encabezado__desliz {
+  will-change: transform;
+}
+
 .hoja-cabecera,
 .hoja-nombres {
   display: flex;
   flex: 0 0 auto;
-  background: var(--stat-surface-soft, var(--surface-soft));
-  border-bottom: 1px solid var(--stat-border, var(--border));
 }
 
+.hoja-cabecera {
+  background: var(--stat-encabezado, var(--surface-soft));
+}
+
+.hoja-nombres {
+  background: var(--stat-surface, var(--surface));
+  border-top: 1px solid var(--stat-border, var(--border));
+}
+
+/* La esquina, con la flecha de dirección de escritura de Minitab. */
 .hoja-esquina {
   flex: 0 0 auto;
-  border-right: 1px solid var(--stat-border, var(--border));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--stat-encabezado, var(--surface-soft));
+  border-right: 1px solid var(--stat-border-strong, var(--border-strong));
+  color: var(--stat-text-muted, var(--text-muted));
+  font-size: 12px;
+  cursor: default;
 }
 
 /* C1, C2-T, C3-F: la etiqueta fija de la columna, como en Minitab. */
 .hoja-etiqueta {
   flex: 0 0 auto;
-  padding: 4px 8px;
+  padding: 3px 8px;
   text-align: center;
   font-weight: 600;
-  font-size: 11.5px;
-  color: var(--stat-text-muted, var(--text-muted));
+  font-size: 11px;
+  color: var(--stat-text-soft, var(--text-muted));
   border-right: 1px solid var(--stat-border, var(--border));
 }
 
 .hoja-etiqueta.is-activa {
-  background: var(--sky-soft);
+  background: var(--stat-encabezado-activo, var(--sky-soft));
   color: var(--sky-text);
 }
 
@@ -3106,9 +3199,14 @@ body.esta-redimensionando {
   background: transparent;
   color: var(--stat-text, var(--text));
   font: inherit;
+  font-size: 12px;
   font-weight: 600;
-  padding: 4px 8px;
+  padding: 3px 8px;
   min-width: 0;
+}
+
+.hoja-nombre.is-activa {
+  background: var(--stat-encabezado-activo, var(--sky-soft));
 }
 
 .hoja-nombre:focus {
@@ -3133,17 +3231,23 @@ body.esta-redimensionando {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding-right: 8px;
+  padding-right: 7px;
   color: var(--stat-text-muted, var(--text-muted));
-  background: var(--stat-surface-soft, var(--surface-soft));
-  border-right: 1px solid var(--stat-border, var(--border));
+  background: var(--stat-encabezado, var(--surface-soft));
+  border-right: 1px solid var(--stat-border-strong, var(--border-strong));
   border-bottom: 1px solid var(--stat-border, var(--border));
   font-size: 11px;
+  /* Congelada a la izquierda, como en Minitab: al recorrer las columnas hacia
+     la derecha hay que seguir sabiendo en qué fila se está. */
+  position: sticky;
+  left: 0;
+  z-index: 5;
 }
 
 .hoja-numero.is-activa {
-  background: var(--sky-soft);
+  background: var(--stat-encabezado-activo, var(--sky-soft));
   color: var(--sky-text);
+  font-weight: 600;
 }
 
 .hoja-celda {
@@ -3151,7 +3255,7 @@ body.esta-redimensionando {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  padding: 0 8px;
+  padding: 0 7px;
   border-right: 1px solid var(--stat-border, var(--border));
   border-bottom: 1px solid var(--stat-border, var(--border));
   background: var(--stat-surface, var(--surface));
@@ -3168,7 +3272,7 @@ body.esta-redimensionando {
 }
 
 .hoja-celda.is-rango {
-  background: var(--sky-soft);
+  background: var(--stat-seleccion, var(--sky-soft));
 }
 
 /* La celda activa lleva el borde, no el relleno: dentro de una selección
@@ -3181,7 +3285,7 @@ body.esta-redimensionando {
 
 /* Lo que se va a rellenar mientras se arrastra el tirador. */
 .hoja-celda.is-previo {
-  background: color-mix(in srgb, var(--sky-soft) 60%, transparent);
+  background: color-mix(in srgb, var(--stat-seleccion, var(--sky-soft)) 60%, transparent);
   outline: 1px dashed var(--sky);
   outline-offset: -1px;
 }
@@ -3199,7 +3303,7 @@ body.esta-redimensionando {
   inset: 0;
   width: 100%;
   border: none;
-  padding: 0 8px;
+  padding: 0 7px;
   background: var(--stat-surface, var(--surface));
   color: var(--stat-text, var(--text));
   font: inherit;
@@ -3215,10 +3319,134 @@ body.esta-redimensionando {
   width: 7px;
   height: 7px;
   background: var(--sky);
-  border: 1px solid var(--surface);
+  border: 1px solid var(--stat-surface, var(--surface));
   cursor: crosshair;
   z-index: 4;
 }
+
+/* ---- Pestañas de hojas de trabajo ----------------------------------- */
+/* El pie de la gradilla de Minitab: los saltos de hoja, el "+" y las
+   pestañas. Es lo que permite tener un lote por hoja sin borrar el anterior. */
+.hoja-pestanas {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 0 4px;
+  border-top: 1px solid var(--stat-border-strong, var(--border-strong));
+  background: var(--stat-encabezado, var(--surface-soft));
+  overflow: hidden;
+}
+
+.hoja-pestanas__nav {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+  padding-right: 4px;
+  border-right: 1px solid var(--stat-border, var(--border));
+}
+
+.hoja-pestanas__nav button {
+  border: none;
+  background: transparent;
+  color: var(--stat-text-muted, var(--text-muted));
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  padding: 5px 5px;
+  border-radius: 3px;
+}
+
+.hoja-pestanas__nav button:hover:not(:disabled) {
+  background: var(--stat-seleccion, var(--sky-soft));
+  color: var(--sky-text);
+}
+
+.hoja-pestanas__nav button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.hoja-pestanas__mas {
+  font-size: 14px !important;
+  font-weight: 700;
+}
+
+.hoja-pestanas__lista {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.hoja-pestana {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  max-width: 190px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  color: var(--stat-text-muted, var(--text-muted));
+  border: 1px solid transparent;
+  border-bottom: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hoja-pestana span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hoja-pestana:hover {
+  color: var(--stat-text, var(--text));
+}
+
+/* La hoja abierta se marca con el subrayado grueso de Minitab, no con un
+   relleno: la pestaña parece la lengüeta de la hoja que está arriba. */
+.hoja-pestana.is-activa {
+  background: var(--stat-surface, var(--surface));
+  border-color: var(--stat-border, var(--border));
+  color: var(--sky-text);
+  font-weight: 700;
+  box-shadow: inset 0 -2px 0 var(--sky);
+}
+
+.hoja-pestana__editor {
+  border: 1px solid var(--sky);
+  background: var(--stat-surface, var(--surface));
+  color: var(--stat-text, var(--text));
+  font: inherit;
+  font-size: 11.5px;
+  padding: 1px 4px;
+  width: 130px;
+}
+
+.hoja-pestana__cerrar {
+  border: none;
+  background: transparent;
+  color: var(--stat-text-muted, var(--text-muted));
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0;
+}
+
+.hoja-pestana:hover .hoja-pestana__cerrar,
+.hoja-pestana.is-activa .hoja-pestana__cerrar {
+  opacity: 0.75;
+}
+
+.hoja-pestana__cerrar:hover {
+  opacity: 1;
+  color: var(--rojo);
+}
+
 
 /* ---- Asistente de análisis ------------------------------------------ */
 /* Sin columna fija: los paneles se pueden cerrar, así que la tercera columna
@@ -3609,16 +3837,35 @@ body.esta-redimensionando {
    mucho más grande, y un gráfico oscuro dentro de una tarjeta clara sigue
    leyéndose bien — es lo mismo que hacen varias herramientas de este
    estilo, tratar el gráfico como su propio recuadro. */
+/* El claro es el de Minitab: hoja blanca, barras de columna y fila en gris
+   claro, y el celeste como color de trabajo — la selección, la columna
+   activa, la pestaña abierta. El naranja de la aplicación se queda fuera de
+   esta sección en claro: sobre blanco, y encima de una hoja de datos, chilla
+   y no se parece en nada a lo que se está imitando. */
 .stat-body--claro {
-  --stat-bg: #f4f4f2;
+  --stat-bg: #eef1f5;
   --stat-surface: #ffffff;
-  --stat-surface-soft: #ececea;
-  --stat-surface-tint: #f0f0ee;
-  --stat-border: #d7d5d0;
-  --stat-border-strong: #b8b6b0;
-  --stat-text: #1c1b19;
-  --stat-text-soft: #4a4844;
-  --stat-text-muted: #79766f;
+  --stat-surface-soft: #e8edf3;
+  --stat-surface-tint: #f5f8fb;
+  --stat-border: #c8d2dd;
+  --stat-border-strong: #9fadbc;
+  --stat-text: #14181d;
+  --stat-text-soft: #3c4652;
+  --stat-text-muted: #6a7684;
+
+  /* La gradilla */
+  --stat-encabezado: #eaeff5;
+  --stat-encabezado-activo: #bcd7f0;
+  --stat-seleccion: #d6e6f7;
+
+  /* El celeste toma el sitio del naranja dentro de esta sección: así el foco
+     de la celda, el tirador de relleno, el subrayado de la pestaña y los
+     botones activos van todos al mismo color, sin repetirlos uno a uno. */
+  --sky: #1a72b8;
+  --sky-dark: #145a92;
+  --sky-deep: #0f4570;
+  --sky-soft: #d6e6f7;
+  --sky-text: #145a92;
 }
 
 .stat-body--claro .wb-grid-panel,
@@ -3648,7 +3895,7 @@ body.esta-redimensionando {
 }
 
 .stat-body--claro .navegador-lista li.is-activo {
-  background: #e6f0fb;
+  background: var(--stat-seleccion);
 }
 
 .stat-body--claro .navegador-vacio {
@@ -3662,10 +3909,6 @@ body.esta-redimensionando {
 .stat-body--claro .hoja-celda {
   background: var(--stat-surface);
   color: var(--stat-text);
-}
-
-.stat-body--claro .hoja-celda.is-rango {
-  background: #fde8dc;
 }
 
 .stat-body--claro .hoja-tirador {
@@ -3769,8 +4012,8 @@ body.esta-redimensionando {
 }
 
 .stat-body--claro .stat-toggle.is-activo {
-  background: #fde3d3;
-  border-color: #f0b48c;
+  background: var(--stat-seleccion);
+  border-color: var(--sky);
   color: var(--sky-dark);
 }
 
@@ -3817,26 +4060,41 @@ body.esta-redimensionando {
      como si esa sección no existiera. Aquí es ".stat-body" el que
      scrollea, con cada fila a su alto natural en vez de repartirse el
      espacio como en escritorio. */
+  /* Una sola columna y cada sección a su alto: es la página la que scrollea
+     hasta el Asistente, en vez de repartirse una altura fija entre tres. */
   .stat-body {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(160px, 240px) minmax(360px, auto) auto;
+    grid-template-rows: none;
+    grid-auto-rows: auto;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     padding: 10px;
   }
-  .navegador-panel {
-    grid-column: 1;
-    grid-row: 1;
+  /* Los paneles van envueltos en ".stat-lateral" desde que se pliegan solos,
+     así que el alto hay que dárselo al envoltorio: dárselo al panel de dentro
+     no llegaba a ninguna parte. Y plegarse solos aquí no tiene sentido —no
+     hay ratón que pasar por encima para asomarlos—, así que se ven enteros. */
+  .stat-lateral {
+    min-height: 200px;
+  }
+  .stat-lateral.is-plegado .stat-lateral__pestana {
+    display: none;
+  }
+  .stat-lateral.is-plegado .stat-lateral__contenido {
+    display: flex;
   }
   .stat-main {
-    grid-column: 1;
-    grid-row: 2;
+    min-height: 420px;
   }
   .assistant-panel {
-    grid-column: 1;
-    grid-row: 3;
-    /* Ya no comparte alto fijo con las otras columnas: se muestra entero y
-       es la propia página (".stat-body") la que scrollea hasta él. */
     overflow-y: visible;
+  }
+  /* La tira de un panel cerrado, en horizontal: en el móvil no hay canto
+     donde ponerla de pie. */
+  .stat-tira {
+    writing-mode: horizontal-tb;
+    justify-content: center;
+    padding: 8px;
+    min-height: 36px;
   }
 }

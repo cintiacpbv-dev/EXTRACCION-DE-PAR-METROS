@@ -14,10 +14,15 @@ import { create } from "zustand";
 import { detectarTipo } from "./csv.js";
 import { calcularFormula, esFormula } from "./formulas.js";
 
-const COLUMNAS_INICIALES = 8;
-const FILAS_INICIALES = 60;
+// Una hoja nace del tamaño de la de Minitab: columnas y filas de sobra, para
+// que la vista se llene y no quede medio panel en blanco esperando. No cuesta
+// nada tenerlas: sólo se dibujan las celdas que caben en pantalla, y una
+// columna vacía es un array de nulos.
+const COLUMNAS_INICIALES = 50;
+const FILAS_INICIALES = 500;
 
 let contadorColumnas = 0;
+let contadorHojas = 0;
 
 function columnaVacia(filas) {
   contadorColumnas += 1;
@@ -36,9 +41,15 @@ function columnaVacia(filas) {
   };
 }
 
-function hojaEnBlanco() {
+function columnasEnBlanco() {
   contadorColumnas = 0;
   return Array.from({ length: COLUMNAS_INICIALES }, () => columnaVacia(FILAS_INICIALES));
+}
+
+/** Una hoja de trabajo nueva, con su nombre correlativo — "Hoja de trabajo 3". */
+function hojaNueva(columns) {
+  contadorHojas += 1;
+  return { id: `h${contadorHojas}`, nombre: `Hoja de trabajo ${contadorHojas}`, columns: columns || columnasEnBlanco() };
 }
 
 /** Convierte texto pegado o escrito a mano al tipo declarado de la columna. */
@@ -164,7 +175,15 @@ function recalcularFormulas(columns) {
       if (r.error) errores[fila] = r.error;
     }
 
-    return { ...c, values, errores: Object.keys(errores).length ? errores : undefined };
+    // Con las fórmulas ya calculadas se puede decidir el tipo de la columna.
+    // Arriba, al escribirla, las celdas con fórmula no votan —lo escrito en
+    // ellas es "=PROMEDIO(C1)", que como texto arrastraría la columna entera—,
+    // y una columna que sólo lleva fórmulas se quedaba sin nada que votara y
+    // salía marcada "C3-T", de texto: el Asistente no la ofrecía para ningún
+    // análisis aunque su contenido fueran números.
+    const tipo = detectarTipo(values.map((v) => (v == null ? "" : String(v))));
+
+    return { ...c, type: tipo, values, errores: Object.keys(errores).length ? errores : undefined };
   });
 }
 
@@ -242,8 +261,28 @@ function recordarPaneles(paneles) {
   }
 }
 
+/**
+ * Devuelve el trozo de estado que deja las columnas nuevas en su sitio.
+ *
+ * Las columnas viven dos veces: sueltas en "columns" —de donde las leen la
+ * hoja, el Asistente y los gráficos, que sólo saben de la hoja que está a la
+ * vista— y dentro de su hoja en "hojas", que es lo que permite cambiar de
+ * pestaña sin perder nada. Todo lo que las modifica pasa por aquí, así que
+ * las dos copias no pueden separarse.
+ */
+function conColumnas(s, columns) {
+  return {
+    columns,
+    hojas: s.hojas.map((h, i) => (i === s.hojaActiva ? { ...h, columns } : h)),
+  };
+}
+
+const HOJA_INICIAL = hojaNueva();
+
 export const useWorkbookStore = create((set) => ({
-  columns: hojaEnBlanco(),
+  hojas: [HOJA_INICIAL],
+  hojaActiva: 0,
+  columns: HOJA_INICIAL.columns,
   resultados: [],
   graficos: [],
   paneles: panelesGuardados(),
@@ -292,28 +331,26 @@ export const useWorkbookStore = create((set) => ({
 
   renombrarColumna(id, nombre) {
     // Renombrar puede cambiar a qué apunta una fórmula que use ese nombre.
-    set((s) => ({ columns: recalcularFormulas(conNombres(s.columns.map((c) => (c.id === id ? { ...c, nombre } : c)))) }));
+    set((s) => conColumnas(s, recalcularFormulas(conNombres(s.columns.map((c) => (c.id === id ? { ...c, nombre } : c))))));
   },
 
   agregarColumna() {
-    set((s) => ({ columns: conNombres([...s.columns, columnaVacia(s.columns[0]?.values.length || FILAS_INICIALES)]) }));
+    set((s) => conColumnas(s, conNombres([...s.columns, columnaVacia(s.columns[0]?.values.length || FILAS_INICIALES)])));
   },
 
   eliminarColumna(id) {
     // Al quitar una columna, las etiquetas C1, C2… de las que vienen detrás
     // se corren, y con ellas lo que significan las fórmulas que las nombran.
-    set((s) => ({ columns: recalcularFormulas(conNombres(s.columns.filter((c) => c.id !== id))) }));
+    set((s) => conColumnas(s, recalcularFormulas(conNombres(s.columns.filter((c) => c.id !== id)))));
   },
 
   agregarFilas(cantidad = 20) {
-    set((s) => ({
-      columns: s.columns.map((c) => ({ ...c, values: [...c.values, ...new Array(cantidad).fill(null)] })),
-    }));
+    set((s) => conColumnas(s, s.columns.map((c) => ({ ...c, values: [...c.values, ...new Array(cantidad).fill(null)] }))));
   },
 
   /** Escribe una celda (edición manual desde la hoja). */
   setCelda(colIdx, filaIdx, valorTexto) {
-    set((s) => ({ columns: escribirCeldas(s.columns, [{ colIdx, filaIdx, texto: valorTexto }]) }));
+    set((s) => conColumnas(s, escribirCeldas(s.columns, [{ colIdx, filaIdx, texto: valorTexto }])));
   },
 
   /**
@@ -321,7 +358,7 @@ export const useWorkbookStore = create((set) => ({
    * borrar o cortar una selección. `cambios` son { colIdx, filaIdx, texto }.
    */
   setCeldas(cambios) {
-    set((s) => ({ columns: escribirCeldas(s.columns, cambios) }));
+    set((s) => conColumnas(s, escribirCeldas(s.columns, cambios)));
   },
 
   /**
@@ -341,31 +378,71 @@ export const useWorkbookStore = create((set) => ({
           cambios.push({ colIdx, filaIdx: filaIdxInicio + r, texto: bloque[r][k] ?? "" });
         }
       }
-      return { columns: escribirCeldas(s.columns, cambios) };
+      return conColumnas(s, escribirCeldas(s.columns, cambios));
+    });
+  },
+
+  // ---- Hojas de trabajo ---------------------------------------------
+  // Varias hojas en el mismo proyecto, como en Minitab: los datos de cada
+  // lote, de cada producto o de cada estudio en la suya, sin tener que
+  // vaciar la anterior para empezar la siguiente. Los resultados y los
+  // gráficos son del proyecto entero y no de una hoja: un informe compara
+  // cosas de varias.
+
+  agregarHoja() {
+    set((s) => {
+      const hoja = hojaNueva();
+      return { hojas: [...s.hojas, hoja], hojaActiva: s.hojas.length, columns: hoja.columns };
+    });
+  },
+
+  elegirHoja(indice) {
+    set((s) => {
+      const i = Math.max(0, Math.min(s.hojas.length - 1, indice));
+      return { hojaActiva: i, columns: s.hojas[i].columns };
+    });
+  },
+
+  renombrarHoja(indice, nombre) {
+    set((s) => ({ hojas: s.hojas.map((h, i) => (i === indice ? { ...h, nombre: nombre.trim() || h.nombre } : h)) }));
+  },
+
+  /** Cierra una hoja. Nunca deja el proyecto sin ninguna. */
+  eliminarHoja(indice) {
+    set((s) => {
+      if (s.hojas.length <= 1) return {};
+      const hojas = s.hojas.filter((_, i) => i !== indice);
+      const activa = Math.max(0, Math.min(hojas.length - 1, s.hojaActiva > indice ? s.hojaActiva - 1 : s.hojaActiva));
+      return { hojas, hojaActiva: activa, columns: hojas[activa].columns };
     });
   },
 
   /**
-   * Reemplaza toda la hoja (importar CSV/Excel). filasATablero() ya trae el
-   * tipo detectado de cada columna, así que aquí sólo hace falta convertir
-   * los valores con él.
+   * Importar CSV/Excel. filasATablero() ya trae el tipo detectado de cada
+   * columna, así que aquí sólo hace falta convertir los valores con él.
+   *
+   * Lo importado entra en una hoja nueva y no encima de la que se está
+   * usando —igual que "Abrir hoja de trabajo" en Minitab—: así traer un
+   * archivo no borra lo que ya se tenía escrito ni deja colgados los
+   * resultados que salieron de esos datos.
    */
-  cargarHoja(columnasNuevas) {
+  cargarHoja(columnasNuevas, nombre) {
     contadorColumnas = 0;
-    set({
-      columns: columnasNuevas.map((c) => {
-        contadorColumnas += 1;
-        const convertir = coerce(c.type);
-        return { id: `c${contadorColumnas}`, nombre: c.name || "", name: c.name || `C${contadorColumnas}`, type: c.type, formulas: {}, values: c.values.map((v) => (v == null ? null : convertir(String(v)))) };
-      }),
-      resultados: [],
-      graficos: [],
-      seleccionActual: null,
+    const columns = columnasNuevas.map((c) => {
+      contadorColumnas += 1;
+      const convertir = coerce(c.type);
+      return { id: `c${contadorColumnas}`, nombre: c.name || "", name: c.name || `C${contadorColumnas}`, type: c.type, formulas: {}, values: c.values.map((v) => (v == null ? null : convertir(String(v)))) };
+    });
+    set((s) => {
+      const base = hojaNueva(columns);
+      const hoja = nombre ? { ...base, nombre } : base;
+      return { hojas: [...s.hojas, hoja], hojaActiva: s.hojas.length, columns };
     });
   },
 
+  /** Vacía la hoja que se está usando; las demás y los resultados siguen. */
   limpiarHoja() {
-    set({ columns: hojaEnBlanco(), resultados: [], graficos: [], seleccionActual: null });
+    set((s) => conColumnas(s, columnasEnBlanco()));
   },
 
   // Lo último que se genera se abre solo en el visor, como en Minitab: no

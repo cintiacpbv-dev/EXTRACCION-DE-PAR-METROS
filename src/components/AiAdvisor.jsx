@@ -44,7 +44,11 @@ export default function AiAdvisor({ onAplicarSugerencia }) {
     setError("");
     setSugerencia(null);
     try {
-      const columnasResumen = columns.map((c) => ({ nombre: c.name, tipo: c.type, resumen: resumenColumna(c) }));
+      // Sólo las columnas que tienen algo: mandarle a la IA cincuenta columnas
+      // vacías la despista y gasta contexto en describir la nada.
+      const columnasResumen = columns
+        .filter((c) => c.values.some((v) => v != null))
+        .map((c) => ({ nombre: c.name, tipo: c.type, resumen: resumenColumna(c) }));
       const respuesta = await fetch("/api/sugerencia-estadistica", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
