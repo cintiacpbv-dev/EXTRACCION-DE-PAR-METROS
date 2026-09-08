@@ -3337,6 +3337,68 @@ body.esta-redimensionando {
   z-index: 4;
 }
 
+/* ---- Menú del clic derecho ------------------------------------------ */
+.menu-celdas {
+  position: fixed;
+  z-index: 60;
+  min-width: 232px;
+  padding: 4px;
+  background: var(--stat-surface, var(--surface));
+  border: 1px solid var(--stat-border-strong, var(--border-strong));
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  font-size: 12.5px;
+}
+
+.menu-celdas__opcion {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--stat-text, var(--text));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.menu-celdas__opcion span {
+  flex: 1;
+  white-space: nowrap;
+}
+
+/* El atajo de teclado a la derecha, apagado: está para aprenderlo, no para
+   leerlo cada vez. */
+.menu-celdas__opcion small {
+  color: var(--stat-text-muted, var(--text-muted));
+  font-size: 11px;
+}
+
+.menu-celdas__opcion:hover:not(:disabled) {
+  background: var(--stat-seleccion, var(--sky-soft));
+  color: var(--sky-text);
+}
+
+.menu-celdas__opcion:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.menu-celdas__raya {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--stat-border, var(--border));
+}
+
+/* Las cabeceras seleccionan su columna o su fila entera, así que se pinchan. */
+.hoja-etiqueta,
+.hoja-numero {
+  cursor: pointer;
+}
+
 /* ---- Pestañas de hojas de trabajo ----------------------------------- */
 /* El pie de la gradilla de Minitab: los saltos de hoja, el "+" y las
    pestañas. Es lo que permite tener un lote por hoja sin borrar el anterior. */

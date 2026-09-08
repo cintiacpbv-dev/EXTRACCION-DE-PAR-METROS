@@ -33,6 +33,9 @@ function columnaVacia(filas) {
     nombre: "",
     name: `C${contadorColumnas}`,
     type: "numeric",
+    // Con cuántos decimales se muestra la columna: los del dato que más traiga
+    // (ver decimalesDe). Una columna en blanco todavía no lo sabe.
+    decimales: 0,
     values: new Array(filas).fill(null),
     // Lo que se escribió en las celdas que llevan fórmula, tal cual, para
     // poder volver a mostrarlo al editarlas y recalcularlas cuando cambie
@@ -80,6 +83,33 @@ export function coerce(tipo) {
  * "=C1*2", que como texto arrastraría toda la columna a tipo texto aunque su
  * resultado sea un número.
  */
+/**
+ * Con cuántos decimales se muestra una columna: los del valor que más traiga.
+ *
+ * Es lo que hace Minitab, y no es un capricho de presentación. En un registro
+ * de manufactura "10.30" y "10.3" no dicen lo mismo: el primero declara que se
+ * midió a la centésima. Guardar el número y enseñarlo recortado —10.30
+ * escrito, 10.3 en pantalla— borra la resolución con la que se tomó el dato.
+ *
+ * Se decide por columna y no por celda porque así queda alineado por la coma
+ * decimal, que es como se compara una columna de un vistazo.
+ */
+const MAX_DECIMALES = 8;
+
+export function decimalesDe(valoresTexto) {
+  let maximo = 0;
+  for (const texto of valoresTexto) {
+    const t = String(texto ?? "").trim();
+    if (t === "") continue;
+    // Se admite la coma como decimal porque se admite al escribir (ver coerce).
+    const punto = /^-?\d*[.,](\d+)$|^-?\d+[.,](\d+)$/.exec(t);
+    if (!punto) continue;
+    const cifras = (punto[1] || punto[2] || "").length;
+    if (cifras > maximo) maximo = cifras;
+  }
+  return Math.min(maximo, MAX_DECIMALES);
+}
+
 function recalcularColumna(c, valoresTexto) {
   const sinFormulas = valoresTexto.map((t, i) => (c.formulas?.[i] ? "" : t));
   // Una columna sin nada escrito no es de texto: está vacía, y se rotula "C1"
@@ -89,7 +119,12 @@ function recalcularColumna(c, valoresTexto) {
   // numéricas al empezar a escribirlas.
   const tipo = sinFormulas.every((t) => t.trim() === "") ? "numeric" : detectarTipo(sinFormulas);
   const convertir = coerce(tipo);
-  return { ...c, type: tipo, values: valoresTexto.map((t, i) => (c.formulas?.[i] ? c.values[i] : t.trim() === "" ? null : convertir(t))) };
+  return {
+    ...c,
+    type: tipo,
+    decimales: tipo === "numeric" ? decimalesDe(valoresTexto) : 0,
+    values: valoresTexto.map((t, i) => (c.formulas?.[i] ? c.values[i] : t.trim() === "" ? null : convertir(t))),
+  };
 }
 
 /** Los valores ya guardados, de vuelta a texto — para recalcular el tipo sin perder lo que ya había. */
@@ -233,6 +268,27 @@ function escribirCeldas(columns, cambios) {
   });
 
   return recalcularFormulas(conNombres(siguientes));
+}
+
+/**
+ * Corre las fórmulas de una columna cuando se insertan o se quitan filas.
+ *
+ * Las fórmulas se guardan por número de fila, así que al meter una fila en
+ * medio hay que moverlas: si no, la de la fila 5 se quedaría en la 5 cuando su
+ * dato ya está en la 6. Las que caen dentro de las filas eliminadas se van con
+ * ellas.
+ */
+function correrFormulas(formulas, desde, delta) {
+  const claves = Object.keys(formulas || {});
+  if (claves.length === 0) return formulas;
+  const siguientes = {};
+  for (const clave of claves) {
+    const fila = Number(clave);
+    if (fila < desde) siguientes[fila] = formulas[clave];
+    else if (delta < 0 && fila < desde - delta) continue;
+    else siguientes[fila + delta] = formulas[clave];
+  }
+  return siguientes;
 }
 
 // Qué paneles laterales quedan abiertos. Se recuerda entre sesiones porque es
@@ -387,6 +443,124 @@ export const useWorkbookStore = create((set) => ({
     });
   },
 
+  // ---- Operaciones sobre filas y columnas ---------------------------
+  // Las del menú del clic derecho de Minitab: insertar y eliminar celdas,
+  // filas y columnas, ordenar, y los decimales con los que se muestra una
+  // columna. Todas pasan por conColumnas() para no separar la hoja activa
+  // de su copia en "hojas".
+
+  /** Inserta filas en blanco antes de "desde"; lo que había baja. */
+  insertarFilas(desde, cantidad = 1) {
+    set((s) =>
+      conColumnas(
+        s,
+        s.columns.map((c) => {
+          const values = [...c.values];
+          values.splice(desde, 0, ...new Array(cantidad).fill(null));
+          // Se recorta la cola sólo mientras esté vacía: si la hoja llegaba
+          // hasta el final con datos, insertar una fila arriba no puede tirar
+          // por el borde la última medición.
+          while (values.length > c.values.length && values[values.length - 1] == null) values.pop();
+          return { ...c, values, formulas: correrFormulas(c.formulas, desde, cantidad) };
+        })
+      )
+    );
+  },
+
+  /** Quita filas enteras; lo de abajo sube. Es "Eliminar celdas" de Minitab. */
+  eliminarFilas(desde, cantidad = 1) {
+    set((s) =>
+      conColumnas(
+        s,
+        s.columns.map((c) => {
+          const values = [...c.values];
+          values.splice(desde, cantidad);
+          while (values.length < c.values.length) values.push(null);
+          return { ...c, values, formulas: correrFormulas(c.formulas, desde, -cantidad) };
+        })
+      )
+    );
+  },
+
+  insertarColumnas(desde, cantidad = 1) {
+    set((s) => {
+      const filas = s.columns[0]?.values.length || FILAS_INICIALES;
+      const nuevas = Array.from({ length: cantidad }, () => columnaVacia(filas));
+      const columns = [...s.columns];
+      columns.splice(desde, 0, ...nuevas);
+      return conColumnas(s, recalcularFormulas(conNombres(columns)));
+    });
+  },
+
+  eliminarColumnas(desde, cantidad = 1) {
+    set((s) => {
+      const columns = [...s.columns];
+      columns.splice(desde, cantidad);
+      // Nunca se queda sin ninguna: una hoja sin columnas no se puede usar.
+      if (columns.length === 0) columns.push(columnaVacia(s.columns[0]?.values.length || FILAS_INICIALES));
+      return conColumnas(s, recalcularFormulas(conNombres(columns)));
+    });
+  },
+
+  /**
+   * Ordena la hoja por una columna, llevándose las filas enteras.
+   *
+   * Arrastrar las demás columnas es lo que hace falta: ordenar sólo la columna
+   * elegida rompería la correspondencia entre el lote y su medida, que es
+   * justo lo que hace que la hoja signifique algo.
+   *
+   * Se ordena hasta el último dato de la hoja; las filas en blanco del final
+   * se quedan donde están, y los vacíos intercalados van al final.
+   */
+  ordenarPorColumna(colIdx, ascendente = true) {
+    set((s) => {
+      const columna = s.columns[colIdx];
+      if (!columna) return {};
+      let fin = 0;
+      for (const c of s.columns) {
+        for (let i = c.values.length - 1; i >= fin; i--) {
+          if (c.values[i] != null) {
+            fin = Math.max(fin, i + 1);
+            break;
+          }
+        }
+      }
+      if (fin <= 1) return {};
+
+      const orden = Array.from({ length: fin }, (_, i) => i).sort((a, b) => {
+        const va = columna.values[a];
+        const vb = columna.values[b];
+        if (va == null && vb == null) return a - b;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb), "es");
+        return ascendente ? cmp : -cmp;
+      });
+
+      return conColumnas(
+        s,
+        s.columns.map((c) => {
+          const values = [...c.values];
+          for (let i = 0; i < fin; i++) values[i] = c.values[orden[i]];
+          // Una fórmula se refiere a su propia fila: reordenar las filas la
+          // dejaría apuntando a otro dato, así que se queda con su resultado.
+          const formulas = Object.keys(c.formulas || {}).length ? {} : c.formulas;
+          return { ...c, values, formulas };
+        })
+      );
+    });
+  },
+
+  /** Con cuántos decimales se muestra una columna ("Formato de columna"). */
+  setDecimales(colIdx, decimales) {
+    set((s) =>
+      conColumnas(
+        s,
+        s.columns.map((c, i) => (i === colIdx ? { ...c, decimales: Math.max(0, Math.min(8, decimales)) } : c))
+      )
+    );
+  },
+
   // ---- Hojas de trabajo ---------------------------------------------
   // Varias hojas en el mismo proyecto, como en Minitab: los datos de cada
   // lote, de cada producto o de cada estudio en la suya, sin tener que
@@ -436,7 +610,17 @@ export const useWorkbookStore = create((set) => ({
     const columns = columnasNuevas.map((c) => {
       contadorColumnas += 1;
       const convertir = coerce(c.type);
-      return { id: `c${contadorColumnas}`, nombre: c.name || "", name: c.name || `C${contadorColumnas}`, type: c.type, formulas: {}, values: c.values.map((v) => (v == null ? null : convertir(String(v)))) };
+      return {
+        id: `c${contadorColumnas}`,
+        nombre: c.name || "",
+        name: c.name || `C${contadorColumnas}`,
+        type: c.type,
+        // Un archivo trae su propia resolución: "10.30" en el CSV se enseña
+        // "10.30", igual que si se hubiera tecleado.
+        decimales: c.type === "numeric" ? decimalesDe(c.values.map((v) => (v == null ? "" : String(v)))) : 0,
+        formulas: {},
+        values: c.values.map((v) => (v == null ? null : convertir(String(v)))),
+      };
     });
     set((s) => {
       const base = hojaNueva(columns);
