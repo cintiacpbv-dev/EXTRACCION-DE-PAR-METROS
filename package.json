@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test:estadistica": "node scripts/test-estadistica.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },
