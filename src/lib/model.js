@@ -135,15 +135,36 @@ export function listStages(documents, familia) {
 }
 
 /**
- * Construye la tabla maestra de una etapa: la unión ordenada de los parámetros
- * detectados en todos los lotes, agrupada por sección, con una columna por lote
- * y las estadísticas calculadas sobre los valores numéricos.
+ * Construye la tabla maestra: la unión ordenada de los parámetros detectados
+ * en todos los lotes, agrupada por sección, con una columna por lote y las
+ * estadísticas calculadas sobre los valores numéricos.
  *
  * Si un lote no registró un parámetro que otro sí trae, la celda queda vacía;
  * así la comparación entre lotes nunca desalinea las filas.
+ *
+ * Con `stage` en null se combinan TODAS las etapas del producto en un solo
+ * análisis —la misma convención que ya usan aggregateEquipos() y la
+ * exportación del FORMATO A09—: es lo que se quiere cuando un análisis se
+ * carga en paquete (fabricación + envasado + acondicionado del mismo lote),
+ * porque las tres etapas son el mismo lote recorriendo el proceso, no tres
+ * análisis distintos. Cada lote sigue siendo UNA columna: lo que crece es el
+ * número de filas, no el de columnas.
+ *
+ * Combinando hay que separar por etapa a propósito. El identificador de un
+ * parámetro sale de su sección y su rótulo (ver genericParser), no de la
+ * etapa, así que un "pH" de fabricación y otro de envasado colisionarían en
+ * la misma fila y se pisarían el valor. Por eso, al combinar, la clave lleva
+ * delante la etapa y la sección se rotula con ella.
  */
 export function buildTable(documents, familia, stage, { onlyCritical = true } = {}) {
-  const docs = documents.filter((d) => d.familia === familia && d.stage === stage);
+  const combinada = stage == null;
+  const docsFamilia = documents.filter((d) => d.familia === familia && (combinada || d.stage === stage));
+  // Combinando, las etapas se recorren en el orden del proceso para que las
+  // secciones salgan en ese orden y no en el que se subieron los archivos.
+  // El orden dentro de una misma etapa no cambia: sort() es estable y
+  // compararEtapas() devuelve 0 entre iguales, así que la vista de una sola
+  // etapa se comporta exactamente igual que antes.
+  const docs = combinada ? [...docsFamilia].sort((a, b) => compararEtapas(a.stage, b.stage)) : docsFamilia;
   const lotes = [...new Set(docs.map(claveLote))].sort();
 
   const rowsById = new Map();
@@ -153,12 +174,15 @@ export function buildTable(documents, familia, stage, { onlyCritical = true } = 
     for (const p of doc.params) {
       if (onlyCritical && !PROCESS_VIEW.has(p.category)) continue;
 
-      if (!sectionOrder.includes(p.section)) sectionOrder.push(p.section);
+      const seccion = combinada ? `${doc.stage} · ${p.section}` : p.section;
+      const clave = combinada ? `${doc.stage}::${p.id}` : p.id;
 
-      if (!rowsById.has(p.id)) {
-        rowsById.set(p.id, {
-          id: p.id,
-          section: p.section,
+      if (!sectionOrder.includes(seccion)) sectionOrder.push(seccion);
+
+      if (!rowsById.has(clave)) {
+        rowsById.set(clave, {
+          id: clave,
+          section: seccion,
           label: p.label,
           setpoint: p.setpoint,
           // El rango se deja vacío en vez de "Referencial" (ver opcionesParams).
@@ -175,7 +199,7 @@ export function buildTable(documents, familia, stage, { onlyCritical = true } = 
         });
       }
 
-      const row = rowsById.get(p.id);
+      const row = rowsById.get(clave);
       row.values[claveLote(doc)] = p.value;
       if (p.valueType === "number") row.valueType = "number";
       if (!row.setpoint && p.setpoint) row.setpoint = p.setpoint;
@@ -202,9 +226,13 @@ export function buildTable(documents, familia, stage, { onlyCritical = true } = 
  * Une los operarios ("Realizado / Por") y supervisores ("VB") de todos los
  * lotes cargados de un producto en una etapa, sumando cuántas veces
  * intervino cada uno.
+ *
+ * Con `stage` en null suma las de todas las etapas, igual que buildTable():
+ * en un análisis cargado en paquete, quien firma fabricación y quien firma
+ * acondicionado son los participantes del mismo análisis.
  */
 export function aggregatePersonnel(documents, familia, stage) {
-  const docsStage = documents.filter((d) => d.familia === familia && d.stage === stage);
+  const docsStage = documents.filter((d) => d.familia === familia && (stage == null || d.stage === stage));
 
   const sum = (role) => {
     const counter = new Map();
