@@ -227,6 +227,15 @@ export default function HojaCalculo() {
   // --- teclado -------------------------------------------------------------
 
   function alTeclear(e) {
+    // Las teclas que van a un campo de la hoja —la fila de nombres— son
+    // suyas: aquí sólo se atienden las que recibe la gradilla en sí.
+    //
+    // Sin esto, escribir en la fila de nombres no hacía nada. La tecla subía
+    // hasta este manejador, que la tomaba por el principio de una edición:
+    // le hacía preventDefault —así que la letra no llegaba a entrar en el
+    // campo— y abría el editor de la celda, llevándose el foco. La fila que
+    // en Minitab es para poner "LOTE 1" quedaba imposible de rellenar.
+    if (e.target !== e.currentTarget) return;
     if (editando) return;
     const ext = e.shiftKey;
 
@@ -404,7 +413,18 @@ export default function HojaCalculo() {
                   className={`hoja-nombre ${i >= rect.c1 && i <= rect.c2 ? "is-activa" : ""}`}
                   style={{ width: ANCHO_COLUMNA }}
                   value={columns[i].nombre ?? ""}
+                  placeholder="nombre"
                   onChange={(e) => renombrarColumna(columns[i].id, e.target.value)}
+                  onKeyDown={(e) => {
+                    // Enter baja al primer dato de esa columna, como en
+                    // Minitab: se nombra la columna y se sigue escribiendo.
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      irA(i, 0);
+                      hojaRef.current?.focus();
+                    }
+                  }}
+                  title="Nombre de la columna: lo que se ve en los gráficos y en las tablas de resultados"
                   aria-label={`Nombre de la columna ${etiquetaColumna(i)}`}
                 />
               ))}

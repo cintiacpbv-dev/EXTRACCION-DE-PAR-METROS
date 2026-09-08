@@ -82,7 +82,12 @@ export function coerce(tipo) {
  */
 function recalcularColumna(c, valoresTexto) {
   const sinFormulas = valoresTexto.map((t, i) => (c.formulas?.[i] ? "" : t));
-  const tipo = detectarTipo(sinFormulas);
+  // Una columna sin nada escrito no es de texto: está vacía, y se rotula "C1"
+  // a secas, como en Minitab. detectarTipo() da "text" cuando no hay ningún
+  // valor que mirar, y eso marcaba "C1-T" a columnas en blanco en cuanto algo
+  // las hacía recalcularse — con lo que el Asistente ya no las daba por
+  // numéricas al empezar a escribirlas.
+  const tipo = sinFormulas.every((t) => t.trim() === "") ? "numeric" : detectarTipo(sinFormulas);
   const convertir = coerce(tipo);
   return { ...c, type: tipo, values: valoresTexto.map((t, i) => (c.formulas?.[i] ? c.values[i] : t.trim() === "" ? null : convertir(t))) };
 }
