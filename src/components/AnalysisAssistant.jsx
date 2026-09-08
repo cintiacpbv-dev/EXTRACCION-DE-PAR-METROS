@@ -28,10 +28,40 @@ import {
 import { graficaIndividuosMR, graficaXbarR, capacidadProceso } from "../lib/estadistica/spc.js";
 import { gageRR } from "../lib/estadistica/gageRR.js";
 import { generarDisenoFactorial, analizarFactorial } from "../lib/estadistica/doe.js";
+import { calidadDeColumnas } from "../lib/estadistica/calidad.js";
+import { outliers } from "../lib/estadistica/outliers.js";
+import { estadoNormalidad, estadoComparacion, estadoCapacidadFinal, estadoEstabilidad, estadoGageRR, etiquetaEstado } from "../lib/estadistica/estado.js";
 import AiAdvisor from "./AiAdvisor.jsx";
 import { IconAlert, IconFlask } from "./Icons.jsx";
 
 const ACCIONES = [
+  {
+    id: "calidad",
+    nombre: "Calidad de datos",
+    minColumnas: 1,
+    maxColumnas: null,
+    ayuda: "Elige una o más columnas: antes de correr cualquier prueba, mira cuántos datos tienes de verdad, cuántos faltan y cuántos son duplicados.",
+  },
+  {
+    id: "outliers",
+    nombre: "Detección de valores atípicos",
+    minColumnas: 1,
+    maxColumnas: 1,
+    ayuda: "Elige una columna numérica. Señala filas; nunca las quita — decidir qué hacer con ellas es tuyo.",
+    extras: [
+      {
+        key: "metodo",
+        label: "Método",
+        tipo: "opciones",
+        valorInicial: "iqr",
+        opciones: [
+          { value: "iqr", label: "IQR (1.5×RIC) — el de Minitab por defecto" },
+          { value: "zscore", label: "Z-score (|z| > 3)" },
+          { value: "mad", label: "MAD robusto (|puntuación| > 3.5)" },
+        ],
+      },
+    ],
+  },
   { id: "descriptiva", nombre: "Estadística descriptiva", minColumnas: 1, maxColumnas: null, ayuda: "Elige una o más columnas numéricas." },
   { id: "histograma", nombre: "Histograma", minColumnas: 1, maxColumnas: 1, ayuda: "Elige una columna numérica." },
   {
@@ -106,6 +136,18 @@ const ACCIONES = [
       { key: "lsl", label: "Límite inferior de especificación (LEI, opcional)", tipo: "number", valorInicial: "" },
       { key: "usl", label: "Límite superior de especificación (LES, opcional)", tipo: "number", valorInicial: "" },
       { key: "subgrupo", label: "Tamaño de subgrupo para Cp/Cpk (opcional; vacío = sólo Pp/Ppk)", tipo: "number", valorInicial: "" },
+      {
+        key: "umbral",
+        label: "Umbral aceptable para el índice",
+        tipo: "opciones",
+        valorInicial: "1.33",
+        opciones: [
+          { value: "1", label: "1.00" },
+          { value: "1.33", label: "1.33 (habitual)" },
+          { value: "1.67", label: "1.67" },
+          { value: "2", label: "2.00 (Six Sigma)" },
+        ],
+      },
     ],
   },
   {
@@ -143,6 +185,7 @@ const ACCIONES = [
 ];
 
 const GRUPOS = [
+  { nombre: "Calidad de datos", ids: ["calidad", "outliers"] },
   { nombre: "Descriptiva y gráficos", ids: ["descriptiva", "histograma", "normalidad", "boxplot", "dispersion", "correlacion"] },
   { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "anova1", "varianzas", "intervalos", "proporcion1"] },
   { nombre: "Control de calidad (SPC)", ids: ["imr", "xbarr", "capacidad", "gagerr"] },
@@ -263,7 +306,52 @@ export default function AnalysisAssistant() {
       return;
     }
 
-    if (accion.id === "descriptiva") {
+    if (accion.id === "calidad") {
+      const r = calidadDeColumnas(columnasSeleccionadas);
+      registrarResultado(
+        `Calidad de datos: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`,
+        {
+          encabezados: ["Columna", "Tipo", "N", "Faltantes", "No numéricos", "Duplicados", "Usables"],
+          filas: r.columnas.map((f) => [
+            f.nombre,
+            f.tipo === "numeric" ? "Numérico" : f.tipo === "date" ? "Fecha" : "Texto",
+            String(f.n),
+            String(f.faltantes),
+            String(f.noNumericos),
+            String(f.duplicados),
+            String(f.usables),
+          ]),
+        },
+        [
+          `${r.numColumnas} columna(s): ${r.numVariablesNumericas} numérica(s), ${r.numVariablesTexto} de texto, ${r.numVariablesFecha} de fecha.`,
+          r.hayOrdenTemporal
+            ? "Hay al menos una columna de fecha: se puede comprobar el orden temporal para SPC."
+            : "No hay ninguna columna de fecha: no se puede confirmar el orden temporal de los datos para SPC — se asume el orden de las filas.",
+        ]
+      );
+    } else if (accion.id === "outliers") {
+      const [c] = columnasSeleccionadas;
+      if (c.type !== "numeric") {
+        setAviso(`"${c.name}" no es una columna numérica.`);
+        return;
+      }
+      const metodo = extras.metodo || "iqr";
+      const r = outliers(c.values, metodo);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      registrarResultado(
+        `Valores atípicos (${r.metodo}): ${c.name}`,
+        {
+          encabezados: ["Fila", "Valor"],
+          filas: r.detectados.length > 0 ? r.detectados.map((d) => [String(d.fila + 1), formatearNumero(d.valor)]) : [["—", "Ningún valor detectado por este método"]],
+        },
+        [
+          `N = ${r.n}. ${r.detectados.length} valor(es) señalado(s) como posible atípico. No se ha quitado ninguno de la columna: revísalos y decide tú si corresponde excluir alguno.`,
+        ]
+      );
+    } else if (accion.id === "descriptiva") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
       registrarResultado(
         `Estadística descriptiva: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`,
@@ -288,10 +376,15 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
-      registrarResultado(`Prueba de normalidad: ${c.name}`, {
-        encabezados: ["N", "Media", "Desv. Est.", "AD", "Valor p"],
-        filas: [[String(r.n), formatearNumero(r.media), formatearNumero(r.desvEst), formatearNumero(r.ad), formatearP(r.valorP)]],
-      });
+      const estado = estadoNormalidad(r.valorP);
+      registrarResultado(
+        `Prueba de normalidad: ${c.name}`,
+        {
+          encabezados: ["N", "Media", "Desv. Est.", "AD", "Valor p", "Estado"],
+          filas: [[String(r.n), formatearNumero(r.media), formatearNumero(r.desvEst), formatearNumero(r.ad), formatearP(r.valorP), etiquetaEstado(estado.estado)]],
+        },
+        [estado.texto]
+      );
       agregarGrafico(`Gráfica de probabilidad — ${c.name}`, opcionProbabilidadNormal(r, c.name));
     } else if (accion.id === "boxplot") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
@@ -320,10 +413,14 @@ export default function AnalysisAssistant() {
           setAviso(r.error);
           return;
         }
-        registrarResultado(`Correlación: ${a.name} vs. ${b.name}`, {
-          encabezados: ["N", "r de Pearson", "gl", "t", "Valor p"],
-          filas: [[String(r.n), formatearNumero(r.r), String(r.gl), formatearNumero(r.t), formatearP(r.valorP)]],
-        });
+        registrarResultado(
+          `Correlación: ${a.name} vs. ${b.name}`,
+          {
+            encabezados: ["N", "r de Pearson", "gl", "t", "Valor p"],
+            filas: [[String(r.n), formatearNumero(r.r), String(r.gl), formatearNumero(r.t), formatearP(r.valorP)]],
+          },
+          ["Correlación indica asociación, no causalidad: que dos variables se muevan juntas no dice cuál —si alguna— causa a la otra."]
+        );
       } else {
         registrarResultado(`Matriz de correlación: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`, tablaMatrizCorrelacion(columnasSeleccionadas));
       }
@@ -335,10 +432,15 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
-      registrarResultado(`Prueba t (1 muestra): ${c.name}`, {
-        encabezados: ["N", "Media", "Desv. Est.", "μ₀", "t", "gl", "Valor p"],
-        filas: [[String(r.n), formatearNumero(r.media), formatearNumero(r.desvEst), formatearNumero(r.mu0), formatearNumero(r.t), String(r.gl), formatearP(r.valorP)]],
-      });
+      const estado1 = estadoComparacion(r.valorP);
+      registrarResultado(
+        `Prueba t (1 muestra): ${c.name}`,
+        {
+          encabezados: ["N", "Media", "Desv. Est.", "μ₀", "t", "gl", "Valor p"],
+          filas: [[String(r.n), formatearNumero(r.media), formatearNumero(r.desvEst), formatearNumero(r.mu0), formatearNumero(r.t), String(r.gl), formatearP(r.valorP)]],
+        },
+        [estado1.texto.replace("entre los grupos", "respecto al valor de referencia")]
+      );
     } else if (accion.id === "t2") {
       const [a, b] = columnasSeleccionadas;
       const r = tDosMuestras(a.values, b.values);
@@ -346,14 +448,19 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
-      registrarResultado(`Prueba t (2 muestras): ${a.name} vs. ${b.name}`, {
-        encabezados: ["Columna", "N", "Media", "Desv. Est.", "Diferencia", "t (Welch)", "gl", "Valor p"],
-        filas: [
-          [a.name, String(r.nA), formatearNumero(r.mediaA), formatearNumero(r.desvEstA), "", "", "", ""],
-          [b.name, String(r.nB), formatearNumero(r.mediaB), formatearNumero(r.desvEstB), "", "", "", ""],
-          [`Diferencia (${a.name} − ${b.name})`, "", "", "", formatearNumero(r.diferencia), formatearNumero(r.t), formatearNumero(r.gl), formatearP(r.valorP)],
-        ],
-      });
+      const estado2 = estadoComparacion(r.valorP);
+      registrarResultado(
+        `Prueba t (2 muestras): ${a.name} vs. ${b.name}`,
+        {
+          encabezados: ["Columna", "N", "Media", "Desv. Est.", "Diferencia", "t (Welch)", "gl", "Valor p"],
+          filas: [
+            [a.name, String(r.nA), formatearNumero(r.mediaA), formatearNumero(r.desvEstA), "", "", "", ""],
+            [b.name, String(r.nB), formatearNumero(r.mediaB), formatearNumero(r.desvEstB), "", "", "", ""],
+            [`Diferencia (${a.name} − ${b.name})`, "", "", "", formatearNumero(r.diferencia), formatearNumero(r.t), formatearNumero(r.gl), formatearP(r.valorP)],
+          ],
+        },
+        [estado2.texto]
+      );
     } else if (accion.id === "tpareada") {
       const [a, b] = columnasSeleccionadas;
       const r = tPareada(a.values, b.values);
@@ -361,10 +468,15 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
-      registrarResultado(`Prueba t pareada: ${a.name} − ${b.name}`, {
-        encabezados: ["N pares", "Media diferencia", "Desv. Est. diferencia", "t", "gl", "Valor p"],
-        filas: [[String(r.nPares), formatearNumero(r.mediaDiferencia), formatearNumero(r.desvEst), formatearNumero(r.t), String(r.gl), formatearP(r.valorP)]],
-      });
+      const estadoP = estadoComparacion(r.valorP);
+      registrarResultado(
+        `Prueba t pareada: ${a.name} − ${b.name}`,
+        {
+          encabezados: ["N pares", "Media diferencia", "Desv. Est. diferencia", "t", "gl", "Valor p"],
+          filas: [[String(r.nPares), formatearNumero(r.mediaDiferencia), formatearNumero(r.desvEst), formatearNumero(r.t), String(r.gl), formatearP(r.valorP)]],
+        },
+        [estadoP.texto.replace("entre los grupos", "entre las dos condiciones")]
+      );
     } else if (accion.id === "anova1") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
       if (noNumericas.length > 0) {
@@ -380,13 +492,21 @@ export default function AnalysisAssistant() {
         encabezados: ["Grupo", "N", "Media", "Desv. Est."],
         filas: r.resumenGrupos.map((g) => [g.nombre, String(g.n), formatearNumero(g.media), formatearNumero(g.desvEst)]),
       });
-      registrarResultado("Tabla ANOVA", {
-        encabezados: ["Fuente", "gl", "SC", "CM", "F", "Valor p"],
-        filas: [
-          ["Entre grupos", String(r.glEntre), formatearNumero(r.scEntre), formatearNumero(r.cmEntre), formatearNumero(r.F), formatearP(r.valorP)],
-          ["Dentro de los grupos (error)", String(r.glDentro), formatearNumero(r.scDentro), formatearNumero(r.cmDentro), "—", "—"],
-        ],
-      });
+      const estadoAnova = estadoComparacion(r.valorP);
+      registrarResultado(
+        "Tabla ANOVA",
+        {
+          encabezados: ["Fuente", "gl", "SC", "CM", "F", "Valor p"],
+          filas: [
+            ["Entre grupos", String(r.glEntre), formatearNumero(r.scEntre), formatearNumero(r.cmEntre), formatearNumero(r.F), formatearP(r.valorP)],
+            ["Dentro de los grupos (error)", String(r.glDentro), formatearNumero(r.scDentro), formatearNumero(r.cmDentro), "—", "—"],
+          ],
+        },
+        [
+          estadoAnova.texto,
+          "El ANOVA clásico asume varianzas iguales entre grupos: revisa la Prueba de varianzas antes de apoyarte en este resultado.",
+        ]
+      );
     } else if (accion.id === "varianzas") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
       if (noNumericas.length > 0) {
@@ -400,14 +520,18 @@ export default function AnalysisAssistant() {
           setAviso(r.error);
           return;
         }
-        registrarResultado(`Prueba de varianzas (F): ${a.name} vs. ${b.name}`, {
-          encabezados: ["Columna", "N", "Varianza", "Desv. Est.", "F", "gl (num.)", "gl (den.)", "Valor p"],
-          filas: [
-            [a.name, String(r.nA), formatearNumero(r.varianzaA), formatearNumero(r.desvEstA), "", "", "", ""],
-            [b.name, String(r.nB), formatearNumero(r.varianzaB), formatearNumero(r.desvEstB), "", "", "", ""],
-            [`F = Var(${a.name}) / Var(${b.name})`, "", "", "", formatearNumero(r.F), String(r.glA), String(r.glB), formatearP(r.valorP)],
-          ],
-        });
+        registrarResultado(
+          `Prueba de varianzas (F): ${a.name} vs. ${b.name}`,
+          {
+            encabezados: ["Columna", "N", "Varianza", "Desv. Est.", "F", "gl (num.)", "gl (den.)", "Valor p"],
+            filas: [
+              [a.name, String(r.nA), formatearNumero(r.varianzaA), formatearNumero(r.desvEstA), "", "", "", ""],
+              [b.name, String(r.nB), formatearNumero(r.varianzaB), formatearNumero(r.desvEstB), "", "", "", ""],
+              [`F = Var(${a.name}) / Var(${b.name})`, "", "", "", formatearNumero(r.F), String(r.glA), String(r.glB), formatearP(r.valorP)],
+            ],
+          },
+          [estadoComparacion(r.valorP).texto.replace("diferencia entre los grupos", "diferencia entre las dos varianzas")]
+        );
       } else {
         const r = pruebaVarianzasMultiple(columnasSeleccionadas);
         if (r.error) {
@@ -420,7 +544,10 @@ export default function AnalysisAssistant() {
             encabezados: ["Grupo", "N", "Varianza", "Desv. Est."],
             filas: r.resumenGrupos.map((g) => [g.nombre, String(g.n), formatearNumero(g.varianza), formatearNumero(g.desvEst)]),
           },
-          [`Levene: F(${r.glEntre}, ${r.glDentro}) = ${formatearNumero(r.F)}, valor p = ${formatearP(r.valorP)}.`]
+          [
+            `Levene: F(${r.glEntre}, ${r.glDentro}) = ${formatearNumero(r.F)}, valor p = ${formatearP(r.valorP)}.`,
+            estadoComparacion(r.valorP).texto.replace("diferencia entre los grupos", "diferencia entre las varianzas de los grupos"),
+          ]
         );
       }
     } else if (accion.id === "intervalos") {
@@ -507,15 +634,28 @@ export default function AnalysisAssistant() {
         setAviso(`"${c.name}" no es una columna numérica.`);
         return;
       }
+      const umbral = Number(extras.umbral ?? 1.33) || 1.33;
       const r = capacidadProceso(c.values, { lsl, usl, tamanoSubgrupo: subgrupo });
       if (r.error) {
         setAviso(r.error);
         return;
       }
+      // La estabilidad manda sobre la lectura de la capacidad: un Cpk alto
+      // en un proceso con puntos fuera de control no es evidencia de nada
+      // (regla pedida explícitamente, y correcta) — se calcula igual, como
+      // referencia técnica, pero el estado final lo dice estadoCapacidadFinal.
+      const estabilidad = estadoEstabilidad(r.estabilidad.puntosFuera);
+      const indicePrincipal = r.cpk ?? r.ppk;
+      const estadoFinal = estadoCapacidadFinal(indicePrincipal, umbral, estabilidad);
+      const advertencias = [];
+      if (r.cp == null) advertencias.push('Sin tamaño de subgrupo no se puede estimar la variación "dentro" del proceso: sólo se calculan Pp/Ppk.');
+      if (estabilidad.texto) advertencias.push(estabilidad.texto);
+      if (estadoFinal.texto) advertencias.push(estadoFinal.texto);
+      advertencias.push(`Umbral usado para clasificar el índice: ${umbral}.`);
       registrarResultado(
         `Capacidad de proceso: ${c.name}`,
         {
-          encabezados: ["N", "Media", "Desv. Est. global", "LEI", "LES", "Pp", "Ppk", "Cp", "Cpk"],
+          encabezados: ["N", "Media", "Desv. Est. global", "LEI", "LES", "Pp", "Ppk", "Cp", "Cpk", "Estabilidad", "Estado"],
           filas: [
             [
               String(r.n),
@@ -527,10 +667,12 @@ export default function AnalysisAssistant() {
               formatearNumero(r.ppk),
               r.cp != null ? formatearNumero(r.cp) : "—",
               r.cpk != null ? formatearNumero(r.cpk) : "—",
+              r.estabilidad.puntosFuera == null ? "—" : `${r.estabilidad.puntosFuera} fuera de control`,
+              etiquetaEstado(estadoFinal.estado),
             ],
           ],
         },
-        r.cp == null ? ['Sin tamaño de subgrupo no se puede estimar la variación "dentro" del proceso: sólo se calculan Pp/Ppk.'] : []
+        advertencias
       );
       agregarGrafico(`Capacidad — ${c.name}`, opcionCapacidad(c.values, c.name, { lsl, usl }));
     } else if (accion.id === "gagerr") {
@@ -550,24 +692,26 @@ export default function AnalysisAssistant() {
         encabezados: ["Fuente", "gl", "SC", "CM", "F", "Valor p"],
         filas: r.tabla.map((t) => [t.fuente, String(t.gl), formatearNumero(t.sc), formatearNumero(t.cm), t.F != null ? formatearNumero(t.F) : "—", t.valorP != null ? formatearP(t.valorP) : "—"]),
       });
+      const estadoMSA = estadoGageRR(r.componentes[2].porcentajeStudyVar);
       registrarResultado(
         `Componentes de varianza: ${colMedicion.name}`,
         {
           encabezados: ["Componente", "Varianza", "Desv. Est.", `Var. de estudio (${r.kStudyVar}σ)`, "% Contribución", "% Var. de estudio"],
-          filas: r.componentes.map((c) => [
-            c.nombre,
-            formatearNumero(c.varianza),
-            formatearNumero(c.desvEst),
-            formatearNumero(c.studyVar),
-            `${formatearNumero(c.porcentajeContribucion)}%`,
-            `${formatearNumero(c.porcentajeStudyVar)}%`,
-          ]),
+          filas: [
+            ...r.componentes.map((c) => [
+              c.nombre,
+              formatearNumero(c.varianza),
+              formatearNumero(c.desvEst),
+              formatearNumero(c.studyVar),
+              `${formatearNumero(c.porcentajeContribucion)}%`,
+              `${formatearNumero(c.porcentajeStudyVar)}%`,
+            ]),
+            ["Estado del sistema de medición", "", "", "", "", etiquetaEstado(estadoMSA.estado)],
+          ],
         },
         [
-          `Número de categorías distintas (ndc): ${r.ndc}.`,
-          r.aceptable
-            ? "El sistema de medición se ve aceptable (Gage R&R por debajo del 30% de %Variación de estudio, el corte habitual de AIAG)."
-            : "El sistema de medición NO se ve aceptable (Gage R&R por encima del 30% de %Variación de estudio, el corte habitual de AIAG).",
+          `Número de categorías distintas (ndc): ${r.ndc}${r.ndc != null && r.ndc < 5 ? " (AIAG recomienda ndc ≥ 5)" : ""}.`,
+          estadoMSA.texto,
         ]
       );
       agregarGrafico(`Gage R&R — ${colMedicion.name}`, opcionGageRR(r));
@@ -678,6 +822,18 @@ export default function AnalysisAssistant() {
               {columnasConDatos.map((c) => (
                 <option key={c.id} value={c.name}>
                   {c.name}
+                </option>
+              ))}
+            </select>
+          ) : e.tipo === "opciones" ? (
+            // Una lista cerrada de valores (el método de detección, el umbral
+            // de Cpk aceptable): con un número libre, cualquier corte se
+            // podría escribir por error; con esto sólo se puede elegir uno
+            // de los que de verdad están documentados.
+            <select value={extras[e.key] ?? e.valorInicial} onChange={(ev) => setExtras((prev) => ({ ...prev, [e.key]: ev.target.value }))}>
+              {e.opciones.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </select>

@@ -107,12 +107,27 @@ export function graficaXbarR(values, tamanoSubgrupo) {
   };
 }
 
+/** Cuenta los puntos fuera de control de una carta ya calculada (I-MR o Xbar-R). */
+function contarFueraDeControl(carta) {
+  if (!carta || carta.error) return null;
+  const individuos = carta.individuos?.puntos ?? carta.medias?.puntos ?? [];
+  const rangos = carta.rangoMovil?.puntos ?? carta.rangos?.puntos ?? [];
+  return individuos.filter((p) => p.fuera).length + rangos.filter((p) => p.fuera).length;
+}
+
 /**
  * Capacidad de proceso. Pp/Ppk siempre se pueden calcular (usan la
  * variación total de los datos); Cp/Cpk necesitan una estimación de la
  * variación "dentro" del proceso, que sale de un tamaño de subgrupo — sin
  * uno, sólo se devuelve Pp/Ppk, que es información real y no un valor
  * inventado.
+ *
+ * La capacidad no se interpreta sola: junto con los índices se devuelve
+ * "estabilidad" (puntos fuera de control de la misma carta que estimó la
+ * variación "dentro"), porque el índice de un proceso que no está bajo
+ * control no se puede leer de forma convencional aunque el número dé alto
+ * — eso lo decide estadoCapacidadFinal() en estado.js, no este archivo,
+ * que sólo calcula.
  */
 export function capacidadProceso(values, { lsl, usl, tamanoSubgrupo } = {}) {
   const datos = soloNumericos(values);
@@ -124,7 +139,7 @@ export function capacidadProceso(values, { lsl, usl, tamanoSubgrupo } = {}) {
   const varianza = datos.reduce((acc, x) => acc + (x - media) ** 2, 0) / (n - 1);
   const sigmaGlobal = Math.sqrt(varianza);
 
-  const resultado = { n, media, sigmaGlobal, lsl: lsl ?? null, usl: usl ?? null };
+  const resultado = { n, media, sigmaGlobal, lsl: lsl ?? null, usl: usl ?? null, estabilidad: { puntosFuera: null } };
 
   if (lsl != null && usl != null) {
     resultado.pp = (usl - lsl) / (6 * sigmaGlobal);
@@ -135,15 +150,17 @@ export function capacidadProceso(values, { lsl, usl, tamanoSubgrupo } = {}) {
 
   if (tamanoSubgrupo && tamanoSubgrupo >= 2) {
     let sigmaDentro = null;
+    let carta = null;
     if (tamanoSubgrupo === 2 && datos.length >= 3) {
       // Sin agrupar de a pares: el rango móvil punto-a-punto es la forma
       // habitual de estimar sigma "dentro" cuando no hay subgrupos reales.
-      const g = graficaIndividuosMR(datos);
-      if (!g.error) sigmaDentro = g.sigmaEstimada;
+      carta = graficaIndividuosMR(datos);
+      if (!carta.error) sigmaDentro = carta.sigmaEstimada;
     } else {
-      const g = graficaXbarR(datos, tamanoSubgrupo);
-      if (!g.error) sigmaDentro = g.sigmaEstimada;
+      carta = graficaXbarR(datos, tamanoSubgrupo);
+      if (!carta.error) sigmaDentro = carta.sigmaEstimada;
     }
+    resultado.estabilidad.puntosFuera = contarFueraDeControl(carta);
     if (sigmaDentro) {
       resultado.sigmaDentro = sigmaDentro;
       if (lsl != null && usl != null) resultado.cp = (usl - lsl) / (6 * sigmaDentro);
@@ -151,6 +168,12 @@ export function capacidadProceso(values, { lsl, usl, tamanoSubgrupo } = {}) {
       const cpkInferior = lsl != null ? (media - lsl) / (3 * sigmaDentro) : null;
       resultado.cpk = Math.min(...[cpuSuperior, cpkInferior].filter((v) => v != null));
     }
+  } else if (datos.length >= 3) {
+    // Sin subgrupo no hay Cp/Cpk, pero la estabilidad de la serie (I-MR
+    // sobre el orden en que viene la hoja) igual se puede — y se debe —
+    // mirar antes de leer Pp/Ppk como si el proceso estuviera bajo control.
+    const carta = graficaIndividuosMR(datos);
+    resultado.estabilidad.puntosFuera = contarFueraDeControl(carta);
   }
 
   return resultado;
