@@ -2627,6 +2627,75 @@
   display: none;
 }
 
+/* ---- Tira de estado por etapa (dashboard) ---------------------------- */
+.dash-tira {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--stat-border, var(--border));
+  background: var(--stat-surface-soft, var(--surface-soft));
+}
+
+.dash-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--stat-border, var(--border));
+  background: var(--stat-surface, var(--surface));
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--stat-text-soft, var(--text-muted));
+  cursor: default;
+}
+
+.dash-chip__punto {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+/* Color propio y fijo para el nombre: los modificadores de abajo cambian
+   "color" en .dash-chip para que el punto (currentColor) lo tome, pero sin
+   esto la etiqueta lo heredaría también, y ocho chips en fila competirían
+   entre sí por la atención en vez de leerse de un vistazo. */
+.dash-chip__nombre {
+  color: var(--stat-text-soft, var(--text-muted));
+}
+
+/* Los mismos tres colores de siempre (--ok/--ambar/--rojo), pero sólo en el
+   puntito y el borde: la etiqueta se sigue leyendo en el color de texto
+   normal, para que ocho chips en fila no compitan entre sí por la
+   atención. */
+.dash-chip--favorable {
+  border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+  color: var(--ok);
+}
+
+.dash-chip--revision {
+  border-color: color-mix(in srgb, var(--ambar) 55%, transparent);
+  color: var(--ambar);
+}
+
+.dash-chip--no-favorable {
+  border-color: color-mix(in srgb, var(--rojo) 55%, transparent);
+  color: var(--rojo);
+}
+
+.dash-chip--no-evaluado {
+  opacity: 0.55;
+}
+
+.dash-chip--no-evaluado .dash-chip__punto {
+  background: transparent;
+  border: 1.5px solid currentColor;
+}
+
 /* La misma idea en la barra de la hoja: plegada deja sólo su nombre. */
 .wb-toolbar-tirador {
   display: inline-flex;

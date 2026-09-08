@@ -124,6 +124,43 @@ export function estadoGageRR(porcentajeStudyVar) {
   return { estado: ESTADO.NO_FAVORABLE, texto: "Sistema de medición no aceptable (AIAG: %Variación del estudio ≥ 30%)." };
 }
 
+/** Clasifica el resumen de calidadDeColumnas() (ver calidad.js). */
+export function estadoCalidad(resumen) {
+  if (!resumen) return { estado: ESTADO.NO_EVALUADO, texto: "Todavía no se corrió Calidad de datos." };
+  const problemas = [];
+  if (resumen.totalFaltantes > 0) problemas.push(`${resumen.totalFaltantes} dato(s) faltante(s)`);
+  if (resumen.totalDuplicados > 0) problemas.push(`${resumen.totalDuplicados} valor(es) duplicado(s)`);
+  if (resumen.totalNoNumericos > 0) problemas.push(`${resumen.totalNoNumericos} valor(es) no numérico(s) en columna(s) declaradas numéricas`);
+  if (problemas.length === 0) {
+    return { estado: ESTADO.FAVORABLE, texto: "Sin datos faltantes, duplicados ni valores no numéricos en las columnas evaluadas." };
+  }
+  return { estado: ESTADO.REQUIERE_REVISION, texto: `Se encontraron: ${problemas.join(", ")}. Revísalos antes de apoyarte en los análisis que siguen.` };
+}
+
+/**
+ * Clasifica un hallazgo de asociación (correlación o regresión) entre dos
+ * variables. No usa FAVORABLE/NO_FAVORABLE como "bueno/malo": encontrar una
+ * asociación es información útil en cualquier de los dos sentidos, así que
+ * FAVORABLE aquí significa "esta variable quedó caracterizada", y no
+ * encontrar nada se marca REQUIERE_REVISION —no porque sea un mal
+ * resultado, sino porque la pregunta de qué variables son críticas sigue
+ * abierta y conviene seguir mirando (otra variable, otra relación no
+ * lineal) antes de dar la etapa por cerrada.
+ */
+export function estadoAsociacion(valorP, alfa = 0.05) {
+  if (valorP == null || Number.isNaN(valorP)) return { estado: ESTADO.NO_EVALUADO, texto: "No se pudo calcular el valor p." };
+  if (valorP < alfa) {
+    return {
+      estado: ESTADO.FAVORABLE,
+      texto: `Con α = ${alfa}, se encontró evidencia estadística de asociación (valor p = ${valorP < 0.0001 ? "< 0.0001" : valorP.toFixed(4)}). Asociación, no causalidad.`,
+    };
+  }
+  return {
+    estado: ESTADO.REQUIERE_REVISION,
+    texto: `Con α = ${alfa}, no se encontró evidencia suficiente de asociación con esta variable (valor p = ${valorP.toFixed(4)}). No descarta una relación no lineal, ni que el factor crítico sea otra variable.`,
+  };
+}
+
 /**
  * Clasifica una comparación de grupos (ANOVA, Kruskal-Wallis, t) por su
  * valor p, con el lenguaje correcto: nunca "son iguales", porque no rechazar

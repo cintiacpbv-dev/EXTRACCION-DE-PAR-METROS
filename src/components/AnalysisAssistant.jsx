@@ -36,7 +36,18 @@ import { gageRR } from "../lib/estadistica/gageRR.js";
 import { generarDisenoFactorial, analizarFactorial } from "../lib/estadistica/doe.js";
 import { calidadDeColumnas } from "../lib/estadistica/calidad.js";
 import { outliers } from "../lib/estadistica/outliers.js";
-import { estadoNormalidad, estadoComparacion, estadoCapacidadFinal, estadoEstabilidad, estadoGageRR, etiquetaEstado } from "../lib/estadistica/estado.js";
+import {
+  ESTADO,
+  estadoNormalidad,
+  estadoComparacion,
+  estadoCapacidadFinal,
+  estadoEstabilidad,
+  estadoGageRR,
+  estadoCalidad,
+  estadoAsociacion,
+  etiquetaEstado,
+} from "../lib/estadistica/estado.js";
+import { motorConclusion } from "../lib/estadistica/dashboard.js";
 import AiAdvisor from "./AiAdvisor.jsx";
 import { IconAlert, IconFlask } from "./Icons.jsx";
 
@@ -217,6 +228,20 @@ const ACCIONES = [
     ayuda: 'Marca las columnas de los FACTORES (con valores -1 y 1) y elige aparte cuál es la columna de "Respuesta".',
     extras: [{ key: "colRespuesta", label: "Columna de respuesta", tipo: "columna", valorInicial: "" }],
   },
+  {
+    id: "variables_criticas",
+    nombre: "Variables críticas: resumen",
+    minColumnas: 0,
+    maxColumnas: 0,
+    ayuda: "Reúne lo que ya encontraron Correlación, Spearman y Regresión sobre qué variables están asociadas con la respuesta. No corre nada nuevo: si no has hecho ninguno de esos análisis todavía, aquí no va a haber nada que reunir.",
+  },
+  {
+    id: "conclusion",
+    nombre: "Conclusión del proyecto",
+    minColumnas: 0,
+    maxColumnas: 0,
+    ayuda: "El estado de cada etapa del flujo (Datos, Calidad, Distribución, MSA, Estabilidad, Capacidad, Lotes, Variables críticas) según lo que ya se corrió, y una conclusión armada a partir de eso — nunca una frase fija como \"proceso validado\".",
+  },
 ];
 
 const GRUPOS = [
@@ -226,6 +251,7 @@ const GRUPOS = [
   { nombre: "Regresión", ids: ["regresion"] },
   { nombre: "Control de calidad (SPC)", ids: ["imr", "xbarr", "capacidad", "gagerr"] },
   { nombre: "Diseño de experimentos (DOE)", ids: ["crear_diseno", "analizar_factorial"] },
+  { nombre: "Conclusión", ids: ["variables_criticas", "conclusion"] },
 ];
 
 function formatearNumero(n) {
@@ -276,6 +302,8 @@ function tablaMatrizCorrelacion(columnasSeleccionadas) {
 export default function AnalysisAssistant() {
   const columns = useWorkbookStore((s) => s.columns);
   const registrarResultado = useWorkbookStore((s) => s.registrarResultado);
+  const registrarHallazgo = useWorkbookStore((s) => s.registrarHallazgo);
+  const hallazgos = useWorkbookStore((s) => s.hallazgos);
   const agregarGrafico = useWorkbookStore((s) => s.agregarGrafico);
   const cargarHoja = useWorkbookStore((s) => s.cargarHoja);
   const alternarPanel = useWorkbookStore((s) => s.alternarPanel);
@@ -365,6 +393,12 @@ export default function AnalysisAssistant() {
             : "No hay ninguna columna de fecha: no se puede confirmar el orden temporal de los datos para SPC — se asume el orden de las filas.",
         ]
       );
+      // Correr esto es lo que dice que hay datos con los que trabajar —la
+      // etapa "Datos" del dashboard—, y su propio contenido dice cómo de
+      // limpios están —la etapa "Calidad"—.
+      registrarHallazgo("datos", ESTADO.FAVORABLE, `${r.numColumnas} columna(s) evaluada(s).`);
+      const estadoCal = estadoCalidad(r);
+      registrarHallazgo("calidad", estadoCal.estado, estadoCal.texto);
     } else if (accion.id === "outliers") {
       const [c] = columnasSeleccionadas;
       if (c.type !== "numeric") {
@@ -421,6 +455,7 @@ export default function AnalysisAssistant() {
         },
         [estado.texto]
       );
+      registrarHallazgo("distribucion", estado.estado, `${c.name}: ${estado.texto}`);
       agregarGrafico(`Gráfica de probabilidad — ${c.name}`, opcionProbabilidadNormal(r, c.name));
     } else if (accion.id === "boxplot") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
@@ -457,6 +492,8 @@ export default function AnalysisAssistant() {
           },
           ["Correlación indica asociación, no causalidad: que dos variables se muevan juntas no dice cuál —si alguna— causa a la otra."]
         );
+        const estadoAsoc = estadoAsociacion(r.valorP);
+        registrarHallazgo("variables_criticas", estadoAsoc.estado, `${a.name} vs. ${b.name} (Pearson): ${estadoAsoc.texto}`);
       } else {
         registrarResultado(`Matriz de correlación: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`, tablaMatrizCorrelacion(columnasSeleccionadas));
       }
@@ -479,6 +516,8 @@ export default function AnalysisAssistant() {
         },
         ["Correlación indica asociación, no causalidad. Spearman detecta cualquier relación monótona, no sólo la lineal, así que un ρ alto con un r de Pearson bajo es señal de una relación curva, no de que no exista relación."]
       );
+      const estadoAsocSp = estadoAsociacion(r.valorP);
+      registrarHallazgo("variables_criticas", estadoAsocSp.estado, `${a.name} vs. ${b.name} (Spearman): ${estadoAsocSp.texto}`);
     } else if (accion.id === "t1") {
       const [c] = columnasSeleccionadas;
       const mu0 = valorExtra("mu0", "number") ?? 0;
@@ -562,6 +601,7 @@ export default function AnalysisAssistant() {
           "El ANOVA clásico asume varianzas iguales entre grupos: revisa la Prueba de varianzas antes de apoyarte en este resultado.",
         ]
       );
+      registrarHallazgo("lotes", estadoAnova.estado, `ANOVA (${columnasSeleccionadas.map((c) => c.name).join(", ")}): ${estadoAnova.texto}`);
       // Tukey se calcula siempre, no sólo cuando el ANOVA da significativo:
       // decidir de antemano qué comparaciones "merecen" verse sería ocultar
       // información, no protegerla. Pero se lee sobre todo cuando el propio
@@ -612,6 +652,7 @@ export default function AnalysisAssistant() {
           "A diferencia del ANOVA clásico, este no asume que los grupos tengan la misma varianza: por eso su segundo grado de libertad casi nunca es un número entero.",
         ]
       );
+      registrarHallazgo("lotes", estadoWelch.estado, `ANOVA de Welch (${columnasSeleccionadas.map((c) => c.name).join(", ")}): ${estadoWelch.texto}`);
       const gh = gamesHowell(columnasSeleccionadas);
       if (!gh.error) {
         registrarResultado(
@@ -661,6 +702,7 @@ export default function AnalysisAssistant() {
           r.correccionEmpates < 0.99 ? `Se corrigió por empates (factor ${formatearNumero(r.correccionEmpates)}): hay valores repetidos entre los grupos.` : "",
         ].filter(Boolean)
       );
+      registrarHallazgo("lotes", estadoKW.estado, `Kruskal-Wallis (${columnasSeleccionadas.map((c) => c.name).join(", ")}): ${estadoKW.texto}`);
     } else if (accion.id === "regresion") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
       if (noNumericas.length > 0) {
@@ -720,6 +762,12 @@ export default function AnalysisAssistant() {
           ],
         },
         advertenciasModelo
+      );
+      const estadoModelo = estadoAsociacion(r.valorPModelo);
+      registrarHallazgo(
+        "variables_criticas",
+        estadoModelo.estado,
+        `Regresión ${colY.name} ~ ${predictores.map((p) => p.name).join(" + ")}: ${estadoModelo.texto} (R²=${formatearNumero(r.r2)})`
       );
 
       if (r.normalidadResiduos) {
@@ -921,6 +969,8 @@ export default function AnalysisAssistant() {
         },
         advertencias
       );
+      registrarHallazgo("estabilidad", estabilidad.estado, `${c.name}: ${estabilidad.texto ?? "sin evaluar"}`);
+      registrarHallazgo("capacidad", estadoFinal.estado, `${c.name}: ${estadoFinal.texto ?? `índice=${formatearNumero(indicePrincipal)}, umbral=${umbral}`}`);
       agregarGrafico(`Capacidad — ${c.name}`, opcionCapacidad(c.values, c.name, { lsl, usl }));
     } else if (accion.id === "gagerr") {
       const colParte = columnaExtra("colParte");
@@ -961,6 +1011,7 @@ export default function AnalysisAssistant() {
           estadoMSA.texto,
         ]
       );
+      registrarHallazgo("msa", estadoMSA.estado, `Gage R&R (${colMedicion.name}): ${estadoMSA.texto}`);
       agregarGrafico(`Gage R&R — ${colMedicion.name}`, opcionGageRR(r));
     } else if (accion.id === "crear_diseno") {
       const numFactores = valorExtra("numFactores", "number");
@@ -1017,6 +1068,36 @@ export default function AnalysisAssistant() {
         r.hayReplicas ? [] : ["Sin corridas repetidas con la misma combinación de factores no hay forma de estimar el error experimental: se muestra la magnitud de los efectos, sin valor p."]
       );
       agregarGrafico(`Pareto de efectos — ${colRespuesta.name}`, opcionParetoEfectos(r));
+    } else if (accion.id === "variables_criticas") {
+      // No corre nada: sólo reúne lo que ya dejaron Correlación, Spearman y
+      // Regresión en "hallazgos" (ver dashboard.js). Integrar sin repetir
+      // el cálculo es justamente el punto — si hiciera su propia cuenta,
+      // podría no coincidir con lo que ya se le mostró a la persona.
+      const evidencia = hallazgos.filter((h) => h.etapa === "variables_criticas");
+      if (evidencia.length === 0) {
+        setAviso('Todavía no hay nada que reunir: corre Correlación, Spearman o Regresión primero. (Esto no ejecuta ningún análisis nuevo, sólo junta lo que ya se hizo.)');
+        return;
+      }
+      registrarResultado(
+        "Variables críticas: resumen de evidencia",
+        {
+          encabezados: ["Cuándo", "Estado", "Hallazgo"],
+          filas: evidencia.map((h) => [new Date(h.timestamp).toLocaleTimeString("es-PE"), etiquetaEstado(h.estado), h.resumen]),
+        },
+        [
+          "Variable asociada estadísticamente con la respuesta — nunca \"variable que causa el resultado\": ninguno de estos análisis prueba causalidad por sí solo.",
+        ]
+      );
+    } else if (accion.id === "conclusion") {
+      const c = motorConclusion(hallazgos);
+      registrarResultado(
+        "Estado del proyecto por etapa",
+        {
+          encabezados: ["Etapa", "Estado", "Último hallazgo"],
+          filas: c.filas.map((f) => [f.etapa, f.estado, f.resumen]),
+        },
+        [c.texto]
+      );
     }
     setSeleccion([]);
   }

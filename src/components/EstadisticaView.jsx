@@ -3,6 +3,7 @@ import Navegador from "./Navegador.jsx";
 import WorkbookGrid from "./WorkbookGrid.jsx";
 import AnalysisAssistant from "./AnalysisAssistant.jsx";
 import OutputViewer from "./OutputViewer.jsx";
+import DashboardEstado from "./DashboardEstado.jsx";
 import { useWorkbookStore } from "../lib/estadistica/store.js";
 import { exportarInformeWord } from "../lib/estadistica/exportar.js";
 import { IconLayers, IconGrid, IconFlask, IconDownload } from "./Icons.jsx";
@@ -289,6 +290,11 @@ export default function EstadisticaView() {
           </button>
         </div>
       </div>
+
+      {/* Se pliega junto con la barra de arriba, no aparte: quien la
+          escondió para darle más alto al gráfico no quiere que esta tira
+          se la vuelva a quitar. */}
+      {barraAbierta && <DashboardEstado />}
 
       {/* Las columnas van por variable y no como "grid-template-columns" en
           línea: un estilo en línea gana siempre, y en el móvil dejaba las
