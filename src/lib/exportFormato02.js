@@ -28,7 +28,6 @@ import {
   Document,
   HeadingLevel,
   Packer,
-  PageOrientation,
   Paragraph,
   ShadingType,
   Table,
@@ -52,25 +51,25 @@ const AMARILLO_FUERA = "FFFF00";
 
 const A4_ANCHO = 11907;
 const A4_ALTO = 16840;
-const MARGEN = 850;
-// Apaisado: el ancho de la hoja es el lado largo del A4.
-const ANCHO_UTIL = A4_ALTO - MARGEN * 2;
 
-// Las siete columnas, en veinteavos de punto, sumando exactamente el ancho
-// útil. Los dos primeros tramos son el parámetro (grupo y detalle); los tres
-// últimos, las casillas que se llenan en planta y por eso van estrechas pero
-// legibles. Si la suma pasara del ancho útil, Word saca la tabla por fuera
-// del margen derecho y el cuadro deja de imprimirse entero.
-const COLS = [2400, 2400, 3600, 2400, 1800, 1300, 1240];
+// Los márgenes del Formato 9 de la empresa, que es una hoja vertical: el
+// izquierdo un poco más estrecho que los demás, para el encuadernado.
+const MARGEN = { top: 1418, right: 1418, bottom: 1418, left: 1276 };
+const ANCHO_UTIL = A4_ANCHO - MARGEN.left - MARGEN.right;
+
+// Las siete columnas, en veinteavos de punto, con las proporciones del
+// formato de la empresa y sumando exactamente el ancho útil. Los dos
+// primeros tramos son el parámetro (grupo y detalle); los tres últimos, las
+// casillas que se llenan en planta y por eso van estrechas pero legibles. Si
+// la suma pasara del ancho útil, Word saca la tabla por fuera del margen
+// derecho y el cuadro deja de imprimirse entero.
+const COLS = [1215, 1474, 1985, 1419, 1275, 993, 852];
 
 function pagina() {
   return {
     page: {
-      // Las medidas van en vertical y la orientación las gira: la librería
-      // hace el intercambio ella sola. Pasándolas ya giradas las giraba otra
-      // vez, y salía una hoja vertical rotulada como apaisada.
-      size: { width: A4_ANCHO, height: A4_ALTO, orientation: PageOrientation.LANDSCAPE },
-      margin: { top: MARGEN, right: MARGEN, bottom: MARGEN, left: MARGEN },
+      size: { width: A4_ANCHO, height: A4_ALTO },
+      margin: MARGEN,
     },
   };
 }
@@ -286,7 +285,7 @@ function recuadroObservaciones() {
  * cargó va en blanco.
  */
 function resumenDeFechas(etapas) {
-  const anchos = [4600, 2700, 2700, 2700, 2440];
+  const anchos = [3213, 1500, 1500, 1500, 1500];
   const parte = (valor, cual) => {
     const m = String(valor || "").match(/^(\S+)(?:\s+(\S+))?/);
     if (!m) return "";
@@ -322,7 +321,7 @@ function resumenDeFechas(etapas) {
 
 /** Quién lo hizo y quién lo revisó, con su fecha. Se firma a mano. */
 function bloqueFirmas() {
-  const anchos = [3000, 5570, 2000, 4570];
+  const anchos = [1800, 3400, 1200, 2813];
   const fila = (rotulo) =>
     new TableRow({
       height: { value: 500, rule: "atLeast" },
