@@ -110,6 +110,21 @@ function tabla(anchos, filas) {
  * trae así —son casillas para llenar a pie de máquina— y rellenarlas con
  * suposiciones sería justo lo contrario de para lo que sirve el documento.
  */
+/**
+ * "Temperatura: (15 °C – 30 °C) 20.3" — el rango que exige el formato y la
+ * lectura que trae el registro, en ese orden.
+ *
+ * El rango va aunque no haya lectura: es la especificación de la sala, y es
+ * lo que el formato en blanco lleva impreso para que quien lo llene sepa
+ * contra qué compara.
+ */
+function ambiental(rotulo, lectura, rango) {
+  const partes = [`${rotulo}:`];
+  if (rango) partes.push(`(${rango})`);
+  if (lectura) partes.push(lectura);
+  return partes.join(" ");
+}
+
 function cabeceraEtapa(datos) {
   const [a, b, c] = [COLS[0] + COLS[1], COLS[2] + COLS[3], COLS[4] + COLS[5] + COLS[6]];
   const anchos = [a, b, c];
@@ -125,8 +140,8 @@ function cabeceraEtapa(datos) {
     new TableRow({
       children: [
         celda("Condiciones ambientales", { bold: true, fill: AZUL_CABECERA, width: a }),
-        celda(datos.temperatura ? `Temperatura: ${datos.temperatura}` : "Temperatura:", { width: b }),
-        celda(datos.humedad ? `Humedad: ${datos.humedad}` : "Humedad:", { width: c }),
+        celda(ambiental("Temperatura", datos.temperatura, datos.temperaturaRango), { width: b }),
+        celda(ambiental("Humedad", datos.humedad, datos.humedadRango), { width: c }),
       ],
     }),
     new TableRow({ children: par("Inicio", datos.inicio || "") }),
@@ -215,6 +230,112 @@ function cuadroEtapa(emparejado) {
  * maqueta, y así el mismo documento sirve para los tres casos —protocolo
  * solo, registros solos, o los dos—.
  */
+/**
+ * Una tabla del documento de origen, copiada tal cual: el esquema de
+ * muestreo de la etapa, o el recuadro de "Observaciones:".
+ *
+ * Se reparte el ancho útil entre las columnas de la rejilla y se respetan
+ * las celdas combinadas, que es lo único que hace falta para que la tabla se
+ * vea como en el papel. No se interpreta nada de su contenido: cada producto
+ * tiene su muestreo, y una lectura "inteligente" acabaría inventando
+ * ensayos.
+ */
+function tablaCopiada(filas) {
+  const columnas = Math.max(1, ...filas.map((f) => f.total || f.celdas.length));
+  const ancho = Math.floor(COLS.reduce((a, b) => a + b, 0) / columnas);
+  const anchos = Array(columnas).fill(ancho);
+  // El sobrante del redondeo va a la última columna, o el borde derecho de la
+  // tabla queda desalineado con el del cuadro de arriba.
+  anchos[columnas - 1] += COLS.reduce((a, b) => a + b, 0) - ancho * columnas;
+
+  return tabla(
+    anchos,
+    filas.map((f, i) =>
+      new TableRow({
+        children: f.celdas.map((c) =>
+          celda(c.texto, {
+            bold: i === 0,
+            fill: i === 0 ? AZUL_CABECERA : undefined,
+            colSpan: c.ancho > 1 ? c.ancho : undefined,
+            width: ancho * (c.ancho || 1),
+          })
+        ),
+      })
+    )
+  );
+}
+
+/** El recuadro de observaciones que cierra cada etapa en el formato de la empresa. */
+function recuadroObservaciones() {
+  const total = COLS.reduce((a, b) => a + b, 0);
+  return tabla(
+    [total],
+    [
+      new TableRow({ children: [celda("Observaciones:", { bold: true, fill: AZUL_CABECERA, width: total })] }),
+      new TableRow({ height: { value: 900, rule: "atLeast" }, children: [celda("", { width: total })] }),
+    ]
+  );
+}
+
+/**
+ * El resumen de fechas del final: una fila por etapa, con el día y la hora en
+ * que empezó y en que terminó.
+ *
+ * Sale de la misma cabecera que ya se calculó para cada etapa, así que dice
+ * exactamente lo mismo que las tablas de arriba; la etapa cuyo registro no se
+ * cargó va en blanco.
+ */
+function resumenDeFechas(etapas) {
+  const anchos = [4600, 2700, 2700, 2700, 2440];
+  const parte = (valor, cual) => {
+    const m = String(valor || "").match(/^(\S+)(?:\s+(\S+))?/);
+    if (!m) return "";
+    return cual === "fecha" ? m[1] : m[2] || "";
+  };
+
+  const filas = [
+    new TableRow({
+      tableHeader: true,
+      children: ["Etapa", "Fecha inicial", "Hora inicial", "Fecha final", "Hora final"].map((t, i) =>
+        celda(t, { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: anchos[i] })
+      ),
+    }),
+  ];
+
+  for (const e of etapas) {
+    const c = e.cabecera || {};
+    filas.push(
+      new TableRow({
+        children: [
+          celda(e.etapa, { width: anchos[0] }),
+          celda(parte(c.inicio, "fecha"), { align: AlignmentType.CENTER, width: anchos[1] }),
+          celda(parte(c.inicio, "hora"), { align: AlignmentType.CENTER, width: anchos[2] }),
+          celda(parte(c.final, "fecha"), { align: AlignmentType.CENTER, width: anchos[3] }),
+          celda(parte(c.final, "hora"), { align: AlignmentType.CENTER, width: anchos[4] }),
+        ],
+      })
+    );
+  }
+
+  return tabla(anchos, filas);
+}
+
+/** Quién lo hizo y quién lo revisó, con su fecha. Se firma a mano. */
+function bloqueFirmas() {
+  const anchos = [3000, 5570, 2000, 4570];
+  const fila = (rotulo) =>
+    new TableRow({
+      height: { value: 500, rule: "atLeast" },
+      children: [
+        celda(rotulo, { bold: true, fill: AZUL_CABECERA, width: anchos[0] }),
+        celda("", { width: anchos[1] }),
+        celda("Fecha:", { bold: true, fill: AZUL_CABECERA, width: anchos[2] }),
+        celda("", { width: anchos[3] }),
+      ],
+    });
+  return tabla(anchos, [fila("Realizado por:"), fila("Revisado por:")]);
+}
+
 export function construirFormato02({ etapas, producto = "", lote = "", corrida = "", opciones = {} }) {
   const hijos = [
     new Paragraph({
@@ -242,10 +363,36 @@ export function construirFormato02({ etapas, producto = "", lote = "", corrida =
         children: [new TextRun({ text: `Etapa de ${etapa.etapa}`, font: FUENTE, size: 20, bold: true })],
       })
     );
-    hijos.push(cabeceraEtapa(etapa.cabecera || {}));
+    hijos.push(cabeceraEtapa({ ...(etapa.cabecera || {}), ...(etapa.cabeceraFormato || {}) }));
     hijos.push(new Paragraph({ spacing: { after: 80 }, children: [] }));
     hijos.push(cuadroEtapa(emparejado));
+
+    // El recuadro de observaciones cierra cada etapa, como en el formato de
+    // la empresa: es donde se anota a mano lo que no cabe en una casilla.
+    hijos.push(new Paragraph({ spacing: { after: 80 }, children: [] }));
+    hijos.push(recuadroObservaciones());
+
+    // Y detrás, lo que el documento de origen tuviera para esta etapa: su
+    // esquema de muestreo, sus atributos de calidad. Copiado tal cual.
+    for (const anexo of etapa.anexos || []) {
+      hijos.push(new Paragraph({ spacing: { after: 80 }, children: [] }));
+      hijos.push(tablaCopiada(anexo));
+    }
   });
+
+  // El cierre del formato: el resumen de fechas de todas las etapas y las
+  // firmas.
+  hijos.push(
+    new Paragraph({
+      heading: HeadingLevel.HEADING_2,
+      pageBreakBefore: true,
+      spacing: { before: 240, after: 120 },
+      children: [new TextRun({ text: "Tiempo de las etapas", font: FUENTE, size: 20, bold: true })],
+    })
+  );
+  hijos.push(resumenDeFechas(etapas));
+  hijos.push(new Paragraph({ spacing: { after: 240 }, children: [] }));
+  hijos.push(bloqueFirmas());
 
   const datosEncabezado = {
     titulo: ["VERIFICACIÓN DEL PROCESO DE MANUFACTURA", producto || ""],

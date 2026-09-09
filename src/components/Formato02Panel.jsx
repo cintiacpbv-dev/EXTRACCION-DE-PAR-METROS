@@ -66,7 +66,11 @@ export default function Formato02Panel({ documents = [], familia, lote, opciones
     if (protocolo) {
       return protocolo.etapas.map((e) => ({
         etapa: e.etapa,
+        // Dos cabeceras que se suman: la del formato trae los rangos de sala
+        // que exige el documento, y la del registro las lecturas del lote.
+        cabeceraFormato: e.cabeceraFormato,
         cabecera: cabeceraDeEtapa(registros, e.etapa),
+        anexos: e.anexos,
         emparejado: emparejarEtapa(e.filas, ambitoDe(registros, e.etapa)),
       }));
     }
