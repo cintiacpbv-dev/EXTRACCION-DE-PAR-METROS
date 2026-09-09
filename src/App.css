@@ -1857,6 +1857,78 @@
   color: var(--ok);
 }
 
+/* --- Formato 8: verificación de personal --- */
+
+.f8-controles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 12px 0;
+}
+
+.f8-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.f8-campo select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+
+/* Los roles se encienden y se apagan con un clic: los apagados quedan
+   atenuados en vez de desaparecer, para que se vea que existen. */
+.f8-roles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.f8-roles .sap-pastilla {
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+.f8-roles .sap-pastilla[aria-pressed="false"] {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.f8-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+/* El mismo amarillo que lleva la casilla en el documento, para que lo que se
+   ve en pantalla y lo que se imprime señalen lo mismo. */
+.protocolo-tabla tr.is-vencida {
+  background: var(--ambar-soft);
+}
+
+.f8-estado--ok {
+  color: var(--ok);
+}
+
+.f8-estado--vencida {
+  color: var(--ambar);
+  font-weight: 600;
+}
+
+.f8-estado--sin {
+  color: var(--text-muted);
+}
+
 /* ==================================================================
    Ritmo y color de la página
    ------------------------------------------------------------------
