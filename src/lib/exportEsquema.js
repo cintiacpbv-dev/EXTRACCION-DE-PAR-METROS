@@ -1,4 +1,4 @@
-// FORMATO 01: el esquema del proceso.
+// FORMATO 10: el esquema del proceso.
 //
 // Copia la hoja del formato de la empresa: un marco que encierra el diagrama,
 // la fila de pesada arriba —INSUMOS, PESADA, verificación de la orden—, las
@@ -573,7 +573,7 @@ export async function exportEsquemaToWord(esquemas, opciones = {}) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${nombre}_FORMATO_01_ESQUEMA.docx`;
+  a.download = `${nombre}_FORMATO_10_ESQUEMA.docx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

@@ -6,7 +6,7 @@ import { esquemaDeRegistro, ordenarEtapas } from "../lib/esquema/modelo.js";
 import { exportEsquemaToWord } from "../lib/exportEsquema.js";
 
 /**
- * Formato 01: el esquema del proceso, dibujado a partir de los registros.
+ * Formato 10: el esquema del proceso, dibujado a partir de los registros.
  *
  * Se suben los registros del producto —uno por etapa— y sale el diagrama de
  * flujo: cada operación en su caja con el tiempo, la temperatura, la velocidad
@@ -17,7 +17,7 @@ import { exportEsquemaToWord } from "../lib/exportEsquema.js";
  * no un lote, así que da igual de qué lote sea el registro que se suba y no
  * tiene sentido acumularlos en el análisis.
  */
-export default function Formato01Panel() {
+export default function Formato10Panel() {
   const [abierto, setAbierto] = useState(false);
   const [esquemas, setEsquemas] = useState([]);
   const [trabajando, setTrabajando] = useState("");
@@ -77,7 +77,7 @@ export default function Formato01Panel() {
             <IconFileText size={16} />
           </span>
           <div>
-            <strong>Formato 01 · Esquema del proceso</strong>
+            <strong>Formato 10 · Esquema del proceso</strong>
             <p className="muted">{resumen}</p>
           </div>
           <IconChevronDown size={16} className="sap-chevron" />
@@ -93,7 +93,7 @@ export default function Formato01Panel() {
           <IconFileText size={16} />
         </span>
         <div>
-          <strong>Formato 01 · Esquema del proceso</strong>
+          <strong>Formato 10 · Esquema del proceso</strong>
           <p className="muted">{trabajando || resumen}</p>
         </div>
         <IconChevronDown size={16} className="sap-chevron is-open" />
@@ -142,7 +142,7 @@ export default function Formato01Panel() {
             </div>
 
             <button className="btn btn--primary" onClick={descargar} disabled={!!trabajando}>
-              <IconDownload size={15} /> Descargar Formato 01 (.docx)
+              <IconDownload size={15} /> Descargar Formato 10 (.docx)
             </button>
 
             <p className="muted protocolo-nota">

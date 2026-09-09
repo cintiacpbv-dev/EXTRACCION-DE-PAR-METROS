@@ -8,7 +8,8 @@ import ProductImagePicker from "./components/ProductImagePicker.jsx";
 import SapPanel from "./components/SapPanel.jsx";
 import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
 import Formato3Panel from "./components/Formato3Panel.jsx";
-import Formato01Panel from "./components/Formato01Panel.jsx";
+import Formato02Panel from "./components/Formato02Panel.jsx";
+import Formato10Panel from "./components/Formato10Panel.jsx";
 import RiesgoView from "./components/RiesgoView.jsx";
 import EstadisticaView from "./components/EstadisticaViewLazy.jsx";
 import BarraProgreso from "./components/BarraProgreso.jsx";
@@ -32,7 +33,6 @@ import {
 } from "./components/Icons.jsx";
 import ArchivosOmitidos from "./components/ArchivosOmitidos.jsx";
 import ConsultaPdf from "./components/ConsultaPdf.jsx";
-import { construirPreguntaValidacion } from "./lib/consultaPdf.js";
 import { processPdfFile } from "./lib/parsers/index.js";
 import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
 import { analisisPrevio, huellaDeArchivo, olvidarAnalisis, recordarAnalisis } from "./lib/analizados.js";
@@ -70,6 +70,12 @@ import {
   withFamilies,
 } from "./lib/model.js";
 import "./App.css";
+
+// El valor de "stage" que significa "todas las etapas juntas". Es una cadena
+// y no null porque null ya tiene otro significado en ese estado —"todavía no
+// se ha elegido ninguna"—, y confundir las dos cosas haría imposible
+// distinguir "el usuario pidió verlas juntas" de "acaba de entrar".
+const TODAS_LAS_ETAPAS = "__todas__";
 
 // La URL refleja qué se está viendo (#/ · #/nuevo · #/producto/<nombre>) para
 // poder recargar la página, mandar un enlace, o usar atrás/adelante del
@@ -279,7 +285,7 @@ export default function App() {
 
   // Con la omisión activa las muestras médicas se apartan de TODO lo que se
   // ve y se exporta, no sólo de las cargas nuevas: las que ya estaban
-  // guardadas seguían apareciendo en las tablas y en el FORMATO A09.
+  // guardadas seguían apareciendo en las tablas y en el Formato 01.
   const docs = useMemo(
     () => (omitirMM ? todosDocs.filter((d) => !documentoEsMuestraMedica(d)) : todosDocs),
     [todosDocs, omitirMM]
@@ -324,19 +330,41 @@ export default function App() {
     () => (productoActivo ? listStages(docs, productoActivo) : []),
     [docs, productoActivo]
   );
-  const stageActiva = stage && stages.includes(stage) ? stage : stages[0] ?? null;
+  /**
+   * Qué etapa se está mirando. `null` significa TODAS a la vez: un análisis
+   * cargado en paquete (fabricación + envasado + acondicionado del mismo
+   * lote) es un solo análisis, no tres, así que se muestran juntas.
+   *
+   * Sin elección explícita, se abre combinado en cuanto hay más de una
+   * etapa; con una sola etapa cargada, esa etapa ES el análisis y no hace
+   * falta ninguna pestaña de "todas". Elegir una etapa concreta sigue
+   * estando a un clic, para mirar una sola cuando se quiere.
+   */
+  const stageActiva =
+    stage === TODAS_LAS_ETAPAS
+      ? null
+      : stage && stages.includes(stage)
+        ? stage
+        : stages.length > 1
+          ? null
+          : (stages[0] ?? null);
+
+  // Ojo con la condición: "stageActiva" en null ya no es "no hay nada que
+  // mostrar" sino "todas las etapas juntas". Lo que decide si hay tabla es
+  // que el producto tenga alguna etapa cargada, no que haya UNA elegida.
+  const hayEtapas = stages.length > 0;
 
   const table = useMemo(
     () =>
-      productoActivo && stageActiva
+      productoActivo && hayEtapas
         ? buildTable(docs, productoActivo, stageActiva, { onlyCritical })
         : null,
-    [docs, productoActivo, stageActiva, onlyCritical]
+    [docs, productoActivo, stageActiva, hayEtapas, onlyCritical]
   );
 
   const personnel = useMemo(
-    () => (productoActivo && stageActiva ? aggregatePersonnel(docs, productoActivo, stageActiva) : null),
-    [docs, productoActivo, stageActiva]
+    () => (productoActivo && hayEtapas ? aggregatePersonnel(docs, productoActivo, stageActiva) : null),
+    [docs, productoActivo, stageActiva, hayEtapas]
   );
 
   // Qué documentos hay ya en el análisis, con la misma clave que usa el
@@ -637,7 +665,14 @@ export default function App() {
     if (nuevos.length > 0) {
       const familiaNueva = withFamilies(next).find((d) => docKey(d) === docKey(nuevos[0]))?.familia;
       setBlank(false);
-      setStage(nuevos[0].stage);
+      // Lo que se acaba de subir es lo que manda. Si el paquete traía varias
+      // etapas —fabricación, envasado y acondicionado del mismo lote—, el
+      // análisis se abre con las tres juntas, que es lo que se subió; si
+      // traía una sola, se abre en esa. En ningún caso se cae en la primera
+      // etapa de la lista dejando el resto del paquete escondido detrás de
+      // una pestaña.
+      const etapasSubidas = new Set(nuevos.map((d) => d.stage));
+      setStage(etapasSubidas.size > 1 ? TODAS_LAS_ETAPAS : nuevos[0].stage);
       if (familiaNueva) {
         setProducto(familiaNueva);
         writeRoute("product", familiaNueva, false);
@@ -793,28 +828,21 @@ export default function App() {
     if (!ok) pushMessage("No hay datos para exportar en este producto.", "error");
   }
 
-  // Con "etapa" el FORMATO A09 sale enfocado sólo a la etapa activa: si de
+  // Con "etapa" el Formato 01 sale enfocado sólo a la etapa activa: si de
   // este producto sólo se cargó Acondicionado, no debe mostrar columnas
   // vacías de Fabricación o Envase.
-  const stageParaInforme = reportScope === "etapa" ? stageActiva : null;
+  // Viendo las etapas juntas no hay "sólo esta etapa" que enfocar: el
+  // informe sale de todas, que es justo lo que se está mirando.
+  const stageParaInforme = reportScope === "etapa" && stageActiva ? stageActiva : null;
 
-  async function handleExportFormatoA09() {
+  async function handleExportFormato01() {
     if (!productoActivo) return;
     try {
       await exportCuadrosToWord(docs, productoActivo, { onlyCritical, stage: stageParaInforme });
-      pushMessage("FORMATO A09 generado con el formato del reporte de referencia.", "success");
+      pushMessage("Formato 01 generado con el formato del reporte de referencia.", "success");
     } catch (err) {
-      pushMessage(`No se pudo generar el FORMATO A09: ${err.message}`, "error");
+      pushMessage(`No se pudo generar el Formato 01: ${err.message}`, "error");
     }
-  }
-
-  function handleValidarBibliografia() {
-    const pregunta = construirPreguntaValidacion(table, productoActivo, stageActiva);
-    if (!pregunta) {
-      pushMessage("No hay parámetros con rango para validar contra la bibliografía.", "error");
-      return;
-    }
-    openConsulta(pregunta);
   }
 
   async function handleCopy() {
@@ -991,6 +1019,17 @@ export default function App() {
                       <IconLayers size={13} /> Etapa
                     </span>
                     <div className="tabs">
+                      {/* Con una sola etapa cargada no hace falta la pestaña:
+                          esa etapa ya ES todo el análisis. */}
+                      {stages.length > 1 && (
+                        <button
+                          className={`tab ${stageActiva === null ? "is-active" : ""}`}
+                          onClick={() => setStage(TODAS_LAS_ETAPAS)}
+                          title="Un solo análisis con las etapas que se cargaron, una debajo de otra y con las mismas columnas de lote"
+                        >
+                          Todas ({stages.length})
+                        </button>
+                      )}
                       {stages.map((s) => (
                         <button
                           key={s}
@@ -1105,13 +1144,19 @@ export default function App() {
               <Formato3Panel documents={docs} familia={productoActivo} />
             )}
 
+            {/* El Formato 02 se arma con el protocolo y los registros de este
+                producto; con el protocolo solo, sale en blanco para planta. */}
+            {!blank && productDocs.length > 0 && (
+              <Formato02Panel documents={docs} familia={productoActivo} />
+            )}
+
             {/* El esquema lee sus propios registros: describe el proceso, no
                 un lote, así que no depende de lo que haya cargado el análisis. */}
-            <Formato01Panel />
+            <Formato10Panel />
 
             {!blank && <h2 className="seccion-titulo">Resultados del análisis</h2>}
 
-            {!blank && <PersonnelPanel personnel={personnel} stage={stageActiva} />}
+            {!blank && <PersonnelPanel personnel={personnel} stage={stageActiva ?? "todas las etapas"} />}
 
             {!blank && (
               <section className="card card--table">
@@ -1173,37 +1218,32 @@ export default function App() {
                     {copyState === "copied" ? "Copiado" : copyState === "error" ? "No se pudo copiar" : "Copiar tabla"}
                   </button>
 
-                  {stages.length > 1 && (
-                    <div className="switch" role="group" aria-label="Alcance del FORMATO A09">
+                  {/* Con las etapas juntas el alcance ya no se elige: el
+                      informe sale de las mismas etapas que se están mirando,
+                      así que el conmutador sólo aparece dentro de una etapa
+                      concreta. */}
+                  {stages.length > 1 && stageActiva && (
+                    <div className="switch" role="group" aria-label="Alcance del Formato 01">
                       <button
                         className={`switch__opt ${reportScope === "etapa" ? "is-active" : ""}`}
                         onClick={() => setReportScope("etapa")}
-                        title="El FORMATO A09 sale enfocado sólo a esta etapa"
+                        title="El Formato 01 sale enfocado sólo a esta etapa"
                       >
-                        FORMATO A09: solo {stageActiva}
+                        Formato 01: solo {stageActiva}
                       </button>
                       <button
                         className={`switch__opt ${reportScope === "todas" ? "is-active" : ""}`}
                         onClick={() => setReportScope("todas")}
-                        title="El FORMATO A09 combina todas las etapas cargadas"
+                        title="El Formato 01 combina todas las etapas cargadas"
                       >
                         Todas las etapas
                       </button>
                     </div>
                   )}
 
-                  <button
-                    className="btn btn--ghost"
-                    onClick={handleValidarBibliografia}
-                    disabled={!table}
-                    title="Abre Consulta PDF con una pregunta armada a partir de estos parámetros críticos"
-                  >
-                    <IconMessageSquare size={16} />
-                    Validar contra bibliografía
-                  </button>
-                  <button className="btn btn--ghost" onClick={handleExportFormatoA09} disabled={!productoActivo}>
+                  <button className="btn btn--ghost" onClick={handleExportFormato01} disabled={!productoActivo}>
                     <IconFileText size={16} />
-                    FORMATO A09
+                    Formato 01
                   </button>
                   <button className="btn btn--primary" onClick={handleExport} disabled={!productoActivo}>
                     <IconDownload size={16} />

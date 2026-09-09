@@ -24,14 +24,61 @@ import {
   intervaloConfianza,
   proporcionUnaMuestra,
   correlacion,
+  correlacionSpearman,
+  kruskalWallis,
+  tukeyHSD,
+  welchAnova,
+  gamesHowell,
 } from "../lib/estadistica/pruebas.js";
-import { graficaIndividuosMR, graficaXbarR, capacidadProceso } from "../lib/estadistica/spc.js";
+import { regresionLineal, pruebaBreuschPagan } from "../lib/estadistica/regresion.js";
+import { graficaIndividuosMR, graficaXbarR, capacidadProceso, contarFueraDeControl } from "../lib/estadistica/spc.js";
 import { gageRR } from "../lib/estadistica/gageRR.js";
 import { generarDisenoFactorial, analizarFactorial } from "../lib/estadistica/doe.js";
+import { calidadDeColumnas } from "../lib/estadistica/calidad.js";
+import { outliers } from "../lib/estadistica/outliers.js";
+import {
+  ESTADO,
+  estadoNormalidad,
+  estadoComparacion,
+  estadoCapacidadFinal,
+  estadoEstabilidad,
+  estadoGageRR,
+  estadoCalidad,
+  estadoAsociacion,
+  etiquetaEstado,
+} from "../lib/estadistica/estado.js";
+import { motorConclusion } from "../lib/estadistica/dashboard.js";
 import AiAdvisor from "./AiAdvisor.jsx";
 import { IconAlert, IconFlask } from "./Icons.jsx";
 
 const ACCIONES = [
+  {
+    id: "calidad",
+    nombre: "Calidad de datos",
+    minColumnas: 1,
+    maxColumnas: null,
+    ayuda: "Elige una o más columnas: antes de correr cualquier prueba, mira cuántos datos tienes de verdad, cuántos faltan y cuántos son duplicados.",
+  },
+  {
+    id: "outliers",
+    nombre: "Detección de valores atípicos",
+    minColumnas: 1,
+    maxColumnas: 1,
+    ayuda: "Elige una columna numérica. Señala filas; nunca las quita — decidir qué hacer con ellas es tuyo.",
+    extras: [
+      {
+        key: "metodo",
+        label: "Método",
+        tipo: "opciones",
+        valorInicial: "iqr",
+        opciones: [
+          { value: "iqr", label: "IQR (1.5×RIC) — el de Minitab por defecto" },
+          { value: "zscore", label: "Z-score (|z| > 3)" },
+          { value: "mad", label: "MAD robusto (|puntuación| > 3.5)" },
+        ],
+      },
+    ],
+  },
   { id: "descriptiva", nombre: "Estadística descriptiva", minColumnas: 1, maxColumnas: null, ayuda: "Elige una o más columnas numéricas." },
   { id: "histograma", nombre: "Histograma", minColumnas: 1, maxColumnas: 1, ayuda: "Elige una columna numérica." },
   {
@@ -43,7 +90,22 @@ const ACCIONES = [
   },
   { id: "boxplot", nombre: "Diagrama de caja", minColumnas: 1, maxColumnas: null, ayuda: "Elige una o más columnas numéricas, para compararlas lado a lado." },
   { id: "dispersion", nombre: "Diagrama de dispersión", minColumnas: 2, maxColumnas: 3, ayuda: "Elige X e Y (numéricas); una tercera columna de texto es opcional, para colorear por grupo." },
-  { id: "correlacion", nombre: "Correlación", minColumnas: 2, maxColumnas: null, ayuda: "Elige dos columnas numéricas para el detalle, o más de dos para una matriz." },
+  { id: "correlacion", nombre: "Correlación (Pearson)", minColumnas: 2, maxColumnas: null, ayuda: "Elige dos columnas numéricas para el detalle, o más de dos para una matriz. Asume relación lineal." },
+  {
+    id: "spearman",
+    nombre: "Correlación (Spearman)",
+    minColumnas: 2,
+    maxColumnas: 2,
+    ayuda: "Elige dos columnas numéricas. No asume relación lineal ni normalidad, sólo que la relación sea monótona (usa los rangos, no los valores) — la alternativa cuando Pearson no corresponde.",
+  },
+  {
+    id: "regresion",
+    nombre: "Regresión lineal (simple o múltiple)",
+    minColumnas: 1,
+    maxColumnas: 10,
+    ayuda: 'Marca los predictores (X) como columnas de la hoja, y elige aparte cuál es la columna de "Respuesta" (Y).',
+    extras: [{ key: "colRespuesta", label: "Columna de respuesta (Y)", tipo: "columna", valorInicial: "" }],
+  },
   {
     id: "t1",
     nombre: "Prueba t (1 muestra)",
@@ -59,7 +121,21 @@ const ACCIONES = [
     nombre: "ANOVA de un factor",
     minColumnas: 3,
     maxColumnas: 10,
-    ayuda: "Elige tres o más columnas numéricas (un grupo o lote por columna) para comparar sus medias a la vez.",
+    ayuda: "Elige tres o más columnas numéricas (un grupo o lote por columna) para comparar sus medias a la vez. Asume varianzas iguales y residuos normales; incluye Tukey HSD por pares.",
+  },
+  {
+    id: "welch",
+    nombre: "ANOVA de Welch",
+    minColumnas: 3,
+    maxColumnas: 10,
+    ayuda: "Como el ANOVA de un factor, pero sin asumir que los grupos tengan la misma varianza — revisa antes la Prueba de varianzas: si dio diferencia entre grupos, usa este en vez del ANOVA clásico. Incluye Games-Howell por pares.",
+  },
+  {
+    id: "kruskal",
+    nombre: "Kruskal-Wallis (no paramétrico)",
+    minColumnas: 3,
+    maxColumnas: 10,
+    ayuda: "La alternativa al ANOVA cuando no se puede asumir normalidad: compara las distribuciones de tres o más grupos por sus rangos, no por sus medias.",
   },
   {
     id: "varianzas",
@@ -106,6 +182,18 @@ const ACCIONES = [
       { key: "lsl", label: "Límite inferior de especificación (LEI, opcional)", tipo: "number", valorInicial: "" },
       { key: "usl", label: "Límite superior de especificación (LES, opcional)", tipo: "number", valorInicial: "" },
       { key: "subgrupo", label: "Tamaño de subgrupo para Cp/Cpk (opcional; vacío = sólo Pp/Ppk)", tipo: "number", valorInicial: "" },
+      {
+        key: "umbral",
+        label: "Umbral aceptable para el índice",
+        tipo: "opciones",
+        valorInicial: "1.33",
+        opciones: [
+          { value: "1", label: "1.00" },
+          { value: "1.33", label: "1.33 (habitual)" },
+          { value: "1.67", label: "1.67" },
+          { value: "2", label: "2.00 (Six Sigma)" },
+        ],
+      },
     ],
   },
   {
@@ -140,13 +228,30 @@ const ACCIONES = [
     ayuda: 'Marca las columnas de los FACTORES (con valores -1 y 1) y elige aparte cuál es la columna de "Respuesta".',
     extras: [{ key: "colRespuesta", label: "Columna de respuesta", tipo: "columna", valorInicial: "" }],
   },
+  {
+    id: "variables_criticas",
+    nombre: "Variables críticas: resumen",
+    minColumnas: 0,
+    maxColumnas: 0,
+    ayuda: "Reúne lo que ya encontraron Correlación, Spearman y Regresión sobre qué variables están asociadas con la respuesta. No corre nada nuevo: si no has hecho ninguno de esos análisis todavía, aquí no va a haber nada que reunir.",
+  },
+  {
+    id: "conclusion",
+    nombre: "Conclusión del proyecto",
+    minColumnas: 0,
+    maxColumnas: 0,
+    ayuda: "El estado de cada etapa del flujo (Datos, Calidad, Distribución, MSA, Estabilidad, Capacidad, Lotes, Variables críticas) según lo que ya se corrió, y una conclusión armada a partir de eso — nunca una frase fija como \"proceso validado\".",
+  },
 ];
 
 const GRUPOS = [
-  { nombre: "Descriptiva y gráficos", ids: ["descriptiva", "histograma", "normalidad", "boxplot", "dispersion", "correlacion"] },
-  { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "anova1", "varianzas", "intervalos", "proporcion1"] },
+  { nombre: "Calidad de datos", ids: ["calidad", "outliers"] },
+  { nombre: "Descriptiva y gráficos", ids: ["descriptiva", "histograma", "normalidad", "boxplot", "dispersion", "correlacion", "spearman"] },
+  { nombre: "Pruebas de hipótesis", ids: ["t1", "t2", "tpareada", "anova1", "welch", "kruskal", "varianzas", "intervalos", "proporcion1"] },
+  { nombre: "Regresión", ids: ["regresion"] },
   { nombre: "Control de calidad (SPC)", ids: ["imr", "xbarr", "capacidad", "gagerr"] },
   { nombre: "Diseño de experimentos (DOE)", ids: ["crear_diseno", "analizar_factorial"] },
+  { nombre: "Conclusión", ids: ["variables_criticas", "conclusion"] },
 ];
 
 function formatearNumero(n) {
@@ -197,6 +302,8 @@ function tablaMatrizCorrelacion(columnasSeleccionadas) {
 export default function AnalysisAssistant() {
   const columns = useWorkbookStore((s) => s.columns);
   const registrarResultado = useWorkbookStore((s) => s.registrarResultado);
+  const registrarHallazgo = useWorkbookStore((s) => s.registrarHallazgo);
+  const hallazgos = useWorkbookStore((s) => s.hallazgos);
   const agregarGrafico = useWorkbookStore((s) => s.agregarGrafico);
   const cargarHoja = useWorkbookStore((s) => s.cargarHoja);
   const alternarPanel = useWorkbookStore((s) => s.alternarPanel);
@@ -263,7 +370,58 @@ export default function AnalysisAssistant() {
       return;
     }
 
-    if (accion.id === "descriptiva") {
+    if (accion.id === "calidad") {
+      const r = calidadDeColumnas(columnasSeleccionadas);
+      registrarResultado(
+        `Calidad de datos: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`,
+        {
+          encabezados: ["Columna", "Tipo", "N", "Faltantes", "No numéricos", "Duplicados", "Usables"],
+          filas: r.columnas.map((f) => [
+            f.nombre,
+            f.tipo === "numeric" ? "Numérico" : f.tipo === "date" ? "Fecha" : "Texto",
+            String(f.n),
+            String(f.faltantes),
+            String(f.noNumericos),
+            String(f.duplicados),
+            String(f.usables),
+          ]),
+        },
+        [
+          `${r.numColumnas} columna(s): ${r.numVariablesNumericas} numérica(s), ${r.numVariablesTexto} de texto, ${r.numVariablesFecha} de fecha.`,
+          r.hayOrdenTemporal
+            ? "Hay al menos una columna de fecha: se puede comprobar el orden temporal para SPC."
+            : "No hay ninguna columna de fecha: no se puede confirmar el orden temporal de los datos para SPC — se asume el orden de las filas.",
+        ]
+      );
+      // Correr esto es lo que dice que hay datos con los que trabajar —la
+      // etapa "Datos" del dashboard—, y su propio contenido dice cómo de
+      // limpios están —la etapa "Calidad"—.
+      registrarHallazgo("datos", ESTADO.FAVORABLE, `${r.numColumnas} columna(s) evaluada(s).`);
+      const estadoCal = estadoCalidad(r);
+      registrarHallazgo("calidad", estadoCal.estado, estadoCal.texto);
+    } else if (accion.id === "outliers") {
+      const [c] = columnasSeleccionadas;
+      if (c.type !== "numeric") {
+        setAviso(`"${c.name}" no es una columna numérica.`);
+        return;
+      }
+      const metodo = extras.metodo || "iqr";
+      const r = outliers(c.values, metodo);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      registrarResultado(
+        `Valores atípicos (${r.metodo}): ${c.name}`,
+        {
+          encabezados: ["Fila", "Valor"],
+          filas: r.detectados.length > 0 ? r.detectados.map((d) => [String(d.fila + 1), formatearNumero(d.valor)]) : [["—", "Ningún valor detectado por este método"]],
+        },
+        [
+          `N = ${r.n}. ${r.detectados.length} valor(es) señalado(s) como posible atípico. No se ha quitado ninguno de la columna: revísalos y decide tú si corresponde excluir alguno.`,
+        ]
+      );
+    } else if (accion.id === "descriptiva") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
       registrarResultado(
         `Estadística descriptiva: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`,
@@ -288,10 +446,16 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
-      registrarResultado(`Prueba de normalidad: ${c.name}`, {
-        encabezados: ["N", "Media", "Desv. Est.", "AD", "Valor p"],
-        filas: [[String(r.n), formatearNumero(r.media), formatearNumero(r.desvEst), formatearNumero(r.ad), formatearP(r.valorP)]],
-      });
+      const estado = estadoNormalidad(r.valorP);
+      registrarResultado(
+        `Prueba de normalidad: ${c.name}`,
+        {
+          encabezados: ["N", "Media", "Desv. Est.", "AD", "Valor p", "Estado"],
+          filas: [[String(r.n), formatearNumero(r.media), formatearNumero(r.desvEst), formatearNumero(r.ad), formatearP(r.valorP), etiquetaEstado(estado.estado)]],
+        },
+        [estado.texto]
+      );
+      registrarHallazgo("distribucion", estado.estado, `${c.name}: ${estado.texto}`);
       agregarGrafico(`Gráfica de probabilidad — ${c.name}`, opcionProbabilidadNormal(r, c.name));
     } else if (accion.id === "boxplot") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
@@ -320,13 +484,40 @@ export default function AnalysisAssistant() {
           setAviso(r.error);
           return;
         }
-        registrarResultado(`Correlación: ${a.name} vs. ${b.name}`, {
-          encabezados: ["N", "r de Pearson", "gl", "t", "Valor p"],
-          filas: [[String(r.n), formatearNumero(r.r), String(r.gl), formatearNumero(r.t), formatearP(r.valorP)]],
-        });
+        registrarResultado(
+          `Correlación: ${a.name} vs. ${b.name}`,
+          {
+            encabezados: ["N", "r de Pearson", "gl", "t", "Valor p"],
+            filas: [[String(r.n), formatearNumero(r.r), String(r.gl), formatearNumero(r.t), formatearP(r.valorP)]],
+          },
+          ["Correlación indica asociación, no causalidad: que dos variables se muevan juntas no dice cuál —si alguna— causa a la otra."]
+        );
+        const estadoAsoc = estadoAsociacion(r.valorP);
+        registrarHallazgo("variables_criticas", estadoAsoc.estado, `${a.name} vs. ${b.name} (Pearson): ${estadoAsoc.texto}`);
       } else {
         registrarResultado(`Matriz de correlación: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`, tablaMatrizCorrelacion(columnasSeleccionadas));
       }
+    } else if (accion.id === "spearman") {
+      const [a, b] = columnasSeleccionadas;
+      if (a.type !== "numeric" || b.type !== "numeric") {
+        setAviso("Las dos columnas deben ser numéricas.");
+        return;
+      }
+      const r = correlacionSpearman(a.values, b.values);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      registrarResultado(
+        `Correlación de Spearman: ${a.name} vs. ${b.name}`,
+        {
+          encabezados: ["N", "ρ de Spearman", "gl", "t", "Valor p"],
+          filas: [[String(r.n), formatearNumero(r.r), String(r.gl), formatearNumero(r.t), formatearP(r.valorP)]],
+        },
+        ["Correlación indica asociación, no causalidad. Spearman detecta cualquier relación monótona, no sólo la lineal, así que un ρ alto con un r de Pearson bajo es señal de una relación curva, no de que no exista relación."]
+      );
+      const estadoAsocSp = estadoAsociacion(r.valorP);
+      registrarHallazgo("variables_criticas", estadoAsocSp.estado, `${a.name} vs. ${b.name} (Spearman): ${estadoAsocSp.texto}`);
     } else if (accion.id === "t1") {
       const [c] = columnasSeleccionadas;
       const mu0 = valorExtra("mu0", "number") ?? 0;
@@ -335,10 +526,15 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
-      registrarResultado(`Prueba t (1 muestra): ${c.name}`, {
-        encabezados: ["N", "Media", "Desv. Est.", "μ₀", "t", "gl", "Valor p"],
-        filas: [[String(r.n), formatearNumero(r.media), formatearNumero(r.desvEst), formatearNumero(r.mu0), formatearNumero(r.t), String(r.gl), formatearP(r.valorP)]],
-      });
+      const estado1 = estadoComparacion(r.valorP);
+      registrarResultado(
+        `Prueba t (1 muestra): ${c.name}`,
+        {
+          encabezados: ["N", "Media", "Desv. Est.", "μ₀", "t", "gl", "Valor p"],
+          filas: [[String(r.n), formatearNumero(r.media), formatearNumero(r.desvEst), formatearNumero(r.mu0), formatearNumero(r.t), String(r.gl), formatearP(r.valorP)]],
+        },
+        [estado1.texto.replace("entre los grupos", "respecto al valor de referencia")]
+      );
     } else if (accion.id === "t2") {
       const [a, b] = columnasSeleccionadas;
       const r = tDosMuestras(a.values, b.values);
@@ -346,14 +542,19 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
-      registrarResultado(`Prueba t (2 muestras): ${a.name} vs. ${b.name}`, {
-        encabezados: ["Columna", "N", "Media", "Desv. Est.", "Diferencia", "t (Welch)", "gl", "Valor p"],
-        filas: [
-          [a.name, String(r.nA), formatearNumero(r.mediaA), formatearNumero(r.desvEstA), "", "", "", ""],
-          [b.name, String(r.nB), formatearNumero(r.mediaB), formatearNumero(r.desvEstB), "", "", "", ""],
-          [`Diferencia (${a.name} − ${b.name})`, "", "", "", formatearNumero(r.diferencia), formatearNumero(r.t), formatearNumero(r.gl), formatearP(r.valorP)],
-        ],
-      });
+      const estado2 = estadoComparacion(r.valorP);
+      registrarResultado(
+        `Prueba t (2 muestras): ${a.name} vs. ${b.name}`,
+        {
+          encabezados: ["Columna", "N", "Media", "Desv. Est.", "Diferencia", "t (Welch)", "gl", "Valor p"],
+          filas: [
+            [a.name, String(r.nA), formatearNumero(r.mediaA), formatearNumero(r.desvEstA), "", "", "", ""],
+            [b.name, String(r.nB), formatearNumero(r.mediaB), formatearNumero(r.desvEstB), "", "", "", ""],
+            [`Diferencia (${a.name} − ${b.name})`, "", "", "", formatearNumero(r.diferencia), formatearNumero(r.t), formatearNumero(r.gl), formatearP(r.valorP)],
+          ],
+        },
+        [estado2.texto]
+      );
     } else if (accion.id === "tpareada") {
       const [a, b] = columnasSeleccionadas;
       const r = tPareada(a.values, b.values);
@@ -361,10 +562,15 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
-      registrarResultado(`Prueba t pareada: ${a.name} − ${b.name}`, {
-        encabezados: ["N pares", "Media diferencia", "Desv. Est. diferencia", "t", "gl", "Valor p"],
-        filas: [[String(r.nPares), formatearNumero(r.mediaDiferencia), formatearNumero(r.desvEst), formatearNumero(r.t), String(r.gl), formatearP(r.valorP)]],
-      });
+      const estadoP = estadoComparacion(r.valorP);
+      registrarResultado(
+        `Prueba t pareada: ${a.name} − ${b.name}`,
+        {
+          encabezados: ["N pares", "Media diferencia", "Desv. Est. diferencia", "t", "gl", "Valor p"],
+          filas: [[String(r.nPares), formatearNumero(r.mediaDiferencia), formatearNumero(r.desvEst), formatearNumero(r.t), String(r.gl), formatearP(r.valorP)]],
+        },
+        [estadoP.texto.replace("entre los grupos", "entre las dos condiciones")]
+      );
     } else if (accion.id === "anova1") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
       if (noNumericas.length > 0) {
@@ -380,13 +586,222 @@ export default function AnalysisAssistant() {
         encabezados: ["Grupo", "N", "Media", "Desv. Est."],
         filas: r.resumenGrupos.map((g) => [g.nombre, String(g.n), formatearNumero(g.media), formatearNumero(g.desvEst)]),
       });
-      registrarResultado("Tabla ANOVA", {
-        encabezados: ["Fuente", "gl", "SC", "CM", "F", "Valor p"],
-        filas: [
-          ["Entre grupos", String(r.glEntre), formatearNumero(r.scEntre), formatearNumero(r.cmEntre), formatearNumero(r.F), formatearP(r.valorP)],
-          ["Dentro de los grupos (error)", String(r.glDentro), formatearNumero(r.scDentro), formatearNumero(r.cmDentro), "—", "—"],
-        ],
+      const estadoAnova = estadoComparacion(r.valorP);
+      registrarResultado(
+        "Tabla ANOVA",
+        {
+          encabezados: ["Fuente", "gl", "SC", "CM", "F", "Valor p"],
+          filas: [
+            ["Entre grupos", String(r.glEntre), formatearNumero(r.scEntre), formatearNumero(r.cmEntre), formatearNumero(r.F), formatearP(r.valorP)],
+            ["Dentro de los grupos (error)", String(r.glDentro), formatearNumero(r.scDentro), formatearNumero(r.cmDentro), "—", "—"],
+          ],
+        },
+        [
+          estadoAnova.texto,
+          "El ANOVA clásico asume varianzas iguales entre grupos: revisa la Prueba de varianzas antes de apoyarte en este resultado.",
+        ]
+      );
+      registrarHallazgo("lotes", estadoAnova.estado, `ANOVA (${columnasSeleccionadas.map((c) => c.name).join(", ")}): ${estadoAnova.texto}`);
+      // Tukey se calcula siempre, no sólo cuando el ANOVA da significativo:
+      // decidir de antemano qué comparaciones "merecen" verse sería ocultar
+      // información, no protegerla. Pero se lee sobre todo cuando el propio
+      // ANOVA encontró diferencia — si no, ninguna comparación por pares
+      // debería salir significativa tampoco, salvo por azar.
+      const tukey = tukeyHSD(r);
+      if (!tukey.error) {
+        registrarResultado(
+          "Tukey HSD (comparaciones por pares)",
+          {
+            encabezados: ["Grupo A", "Grupo B", "Diferencia", `Límite inf. (${(tukey.nivelConfianza * 100).toFixed(0)}%)`, "Límite sup.", "Valor p ajustado"],
+            filas: tukey.comparaciones.map((c) => [
+              c.grupoA,
+              c.grupoB,
+              formatearNumero(c.diferencia),
+              formatearNumero(c.limiteInferior),
+              formatearNumero(c.limiteSuperior),
+              formatearP(c.valorP),
+            ]),
+          },
+          ["El valor p ya está ajustado por hacer varias comparaciones a la vez (no hace falta corregirlo aparte, como sí haría falta repitiendo pruebas t una por una)."]
+        );
+      }
+    } else if (accion.id === "welch") {
+      const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
+      if (noNumericas.length > 0) {
+        setAviso(`Todas las columnas deben ser numéricas ("${noNumericas[0].name}" no lo es).`);
+        return;
+      }
+      const r = welchAnova(columnasSeleccionadas);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      const estadoWelch = estadoComparacion(r.valorP);
+      registrarResultado(`ANOVA de Welch: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`, {
+        encabezados: ["Grupo", "N", "Media", "Desv. Est."],
+        filas: r.resumenGrupos.map((g) => [g.nombre, String(g.n), formatearNumero(g.media), formatearNumero(g.desvEst)]),
       });
+      registrarResultado(
+        "Estadístico de Welch",
+        {
+          encabezados: ["F", "gl (num.)", "gl (den.)", "Valor p"],
+          filas: [[formatearNumero(r.F), String(r.gl1), formatearNumero(r.gl2), formatearP(r.valorP)]],
+        },
+        [
+          estadoWelch.texto,
+          "A diferencia del ANOVA clásico, este no asume que los grupos tengan la misma varianza: por eso su segundo grado de libertad casi nunca es un número entero.",
+        ]
+      );
+      registrarHallazgo("lotes", estadoWelch.estado, `ANOVA de Welch (${columnasSeleccionadas.map((c) => c.name).join(", ")}): ${estadoWelch.texto}`);
+      const gh = gamesHowell(columnasSeleccionadas);
+      if (!gh.error) {
+        registrarResultado(
+          "Games-Howell (comparaciones por pares)",
+          {
+            encabezados: ["Grupo A", "Grupo B", "Diferencia", `Límite inf. (${(gh.nivelConfianza * 100).toFixed(0)}%)`, "Límite sup.", "Valor p ajustado"],
+            filas: gh.comparaciones.map((c) => [
+              c.grupoA,
+              c.grupoB,
+              formatearNumero(c.diferencia),
+              formatearNumero(c.limiteInferior),
+              formatearNumero(c.limiteSuperior),
+              formatearP(c.valorP),
+            ]),
+          },
+          ["Games-Howell, no Tukey: cada par usa su propio error estándar, sin asumir que todos los grupos varíen igual — el que corresponde después de un ANOVA de Welch."]
+        );
+      }
+    } else if (accion.id === "kruskal") {
+      const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
+      if (noNumericas.length > 0) {
+        setAviso(`Todas las columnas deben ser numéricas ("${noNumericas[0].name}" no lo es).`);
+        return;
+      }
+      const r = kruskalWallis(columnasSeleccionadas);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      const estadoKW = estadoComparacion(r.valorP);
+      registrarResultado(
+        `Kruskal-Wallis: ${columnasSeleccionadas.map((c) => c.name).join(", ")}`,
+        {
+          encabezados: ["Grupo", "N", "Suma de rangos", "Rango promedio"],
+          filas: r.resumenGrupos.map((g) => [g.nombre, String(g.n), formatearNumero(g.sumaRangos), formatearNumero(g.rangoPromedio)]),
+        },
+        []
+      );
+      registrarResultado(
+        "Estadístico de Kruskal-Wallis",
+        {
+          encabezados: ["N total", "H", "gl", "Valor p"],
+          filas: [[String(r.N), formatearNumero(r.H), String(r.gl), formatearP(r.valorP)]],
+        },
+        [
+          estadoKW.texto.replace("el modelo y el α utilizados", "los rangos y el α utilizados"),
+          r.correccionEmpates < 0.99 ? `Se corrigió por empates (factor ${formatearNumero(r.correccionEmpates)}): hay valores repetidos entre los grupos.` : "",
+        ].filter(Boolean)
+      );
+      registrarHallazgo("lotes", estadoKW.estado, `Kruskal-Wallis (${columnasSeleccionadas.map((c) => c.name).join(", ")}): ${estadoKW.texto}`);
+    } else if (accion.id === "regresion") {
+      const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
+      if (noNumericas.length > 0) {
+        setAviso(`Todos los predictores deben ser numéricos ("${noNumericas[0].name}" no lo es).`);
+        return;
+      }
+      const colY = columnaExtra("colRespuesta");
+      if (!colY) {
+        setAviso("Elige la columna de respuesta (Y).");
+        return;
+      }
+      if (colY.type !== "numeric") {
+        setAviso(`"${colY.name}" no es una columna numérica.`);
+        return;
+      }
+      const predictores = columnasSeleccionadas.filter((c) => c.id !== colY.id);
+      if (predictores.length === 0) {
+        setAviso("Marca al menos un predictor (X) en la lista de columnas, aparte de la respuesta.");
+        return;
+      }
+      const r = regresionLineal(colY.name, colY.values, predictores);
+      if (r.error) {
+        setAviso(r.error);
+        return;
+      }
+      registrarResultado(`Regresión: ${colY.name} ~ ${predictores.map((p) => p.name).join(" + ")}`, {
+        encabezados: ["Término", "Coeficiente", "Error Est.", "t", "Valor p"],
+        filas: r.coeficientes.map((c) => [c.nombre, formatearNumero(c.beta), formatearNumero(c.errorEst), formatearNumero(c.t), formatearP(c.valorP)]),
+      });
+
+      const advertenciasModelo = [
+        "No aceptar un modelo sólo porque el R² sea alto: revisa también el valor p de cada coeficiente, el VIF (si hay más de un predictor) y los residuos.",
+      ];
+      if (r.vif) {
+        const altos = r.vif.filter((v) => v.vif != null && v.vif > 5);
+        advertenciasModelo.push(
+          altos.length > 0
+            ? `VIF alto en ${altos.map((v) => `${v.nombre} (${formatearNumero(v.vif)})`).join(", ")}: esos predictores están muy correlacionados entre sí, y sus coeficientes por separado no son confiables (aunque el modelo en conjunto sí prediga bien).`
+            : `VIF de todos los predictores por debajo de 5: no hay señal fuerte de multicolinealidad. (${r.vif.map((v) => `${v.nombre}=${v.vif == null ? "—" : formatearNumero(v.vif)}`).join(", ")})`
+        );
+      }
+      registrarResultado(
+        "Ajuste del modelo",
+        {
+          encabezados: ["N", "R²", "R² ajustado", "Error Est. residual", "F", "gl (modelo)", "gl (residual)", "Valor p (modelo)"],
+          filas: [
+            [
+              String(r.n),
+              formatearNumero(r.r2),
+              formatearNumero(r.r2Ajustado),
+              formatearNumero(r.errorEstandarResidual),
+              formatearNumero(r.F),
+              String(r.glModelo),
+              String(r.glResidual),
+              formatearP(r.valorPModelo),
+            ],
+          ],
+        },
+        advertenciasModelo
+      );
+      const estadoModelo = estadoAsociacion(r.valorPModelo);
+      registrarHallazgo(
+        "variables_criticas",
+        estadoModelo.estado,
+        `Regresión ${colY.name} ~ ${predictores.map((p) => p.name).join(" + ")}: ${estadoModelo.texto} (R²=${formatearNumero(r.r2)})`
+      );
+
+      if (r.normalidadResiduos) {
+        const estadoResiduos = estadoNormalidad(r.normalidadResiduos.valorP);
+        registrarResultado(
+          "Normalidad de los residuos",
+          {
+            encabezados: ["N", "AD", "Valor p", "Estado"],
+            filas: [[String(r.normalidadResiduos.n), formatearNumero(r.normalidadResiduos.ad), formatearP(r.normalidadResiduos.valorP), etiquetaEstado(estadoResiduos.estado)]],
+          },
+          [estadoResiduos.texto.replace("los datos", "los residuos del modelo")]
+        );
+      }
+
+      const bp = pruebaBreuschPagan(r, predictores);
+      if (!bp.error) {
+        registrarResultado(
+          "Prueba de heterocedasticidad (Breusch-Pagan)",
+          {
+            encabezados: ["LM", "gl", "Valor p"],
+            filas: [[formatearNumero(bp.LM), String(bp.gl), formatearP(bp.valorP)]],
+          },
+          [
+            bp.valorP < 0.05
+              ? "Con α = 0.05, hay evidencia de que la varianza del error no es constante (heterocedasticidad): los errores estándar de los coeficientes pueden no ser confiables."
+              : "Con α = 0.05, no se detectó evidencia de que la varianza del error no sea constante.",
+          ]
+        );
+      }
+
+      agregarGrafico(
+        `Residuos vs. ajustados — ${colY.name}`,
+        opcionDispersion({ name: "Valor ajustado", values: r.ajustados }, { name: "Residuo", values: r.residuos })
+      );
     } else if (accion.id === "varianzas") {
       const noNumericas = columnasSeleccionadas.filter((c) => c.type !== "numeric");
       if (noNumericas.length > 0) {
@@ -400,14 +815,18 @@ export default function AnalysisAssistant() {
           setAviso(r.error);
           return;
         }
-        registrarResultado(`Prueba de varianzas (F): ${a.name} vs. ${b.name}`, {
-          encabezados: ["Columna", "N", "Varianza", "Desv. Est.", "F", "gl (num.)", "gl (den.)", "Valor p"],
-          filas: [
-            [a.name, String(r.nA), formatearNumero(r.varianzaA), formatearNumero(r.desvEstA), "", "", "", ""],
-            [b.name, String(r.nB), formatearNumero(r.varianzaB), formatearNumero(r.desvEstB), "", "", "", ""],
-            [`F = Var(${a.name}) / Var(${b.name})`, "", "", "", formatearNumero(r.F), String(r.glA), String(r.glB), formatearP(r.valorP)],
-          ],
-        });
+        registrarResultado(
+          `Prueba de varianzas (F): ${a.name} vs. ${b.name}`,
+          {
+            encabezados: ["Columna", "N", "Varianza", "Desv. Est.", "F", "gl (num.)", "gl (den.)", "Valor p"],
+            filas: [
+              [a.name, String(r.nA), formatearNumero(r.varianzaA), formatearNumero(r.desvEstA), "", "", "", ""],
+              [b.name, String(r.nB), formatearNumero(r.varianzaB), formatearNumero(r.desvEstB), "", "", "", ""],
+              [`F = Var(${a.name}) / Var(${b.name})`, "", "", "", formatearNumero(r.F), String(r.glA), String(r.glB), formatearP(r.valorP)],
+            ],
+          },
+          [estadoComparacion(r.valorP).texto.replace("diferencia entre los grupos", "diferencia entre las dos varianzas")]
+        );
       } else {
         const r = pruebaVarianzasMultiple(columnasSeleccionadas);
         if (r.error) {
@@ -420,7 +839,10 @@ export default function AnalysisAssistant() {
             encabezados: ["Grupo", "N", "Varianza", "Desv. Est."],
             filas: r.resumenGrupos.map((g) => [g.nombre, String(g.n), formatearNumero(g.varianza), formatearNumero(g.desvEst)]),
           },
-          [`Levene: F(${r.glEntre}, ${r.glDentro}) = ${formatearNumero(r.F)}, valor p = ${formatearP(r.valorP)}.`]
+          [
+            `Levene: F(${r.glEntre}, ${r.glDentro}) = ${formatearNumero(r.F)}, valor p = ${formatearP(r.valorP)}.`,
+            estadoComparacion(r.valorP).texto.replace("diferencia entre los grupos", "diferencia entre las varianzas de los grupos"),
+          ]
         );
       }
     } else if (accion.id === "intervalos") {
@@ -484,6 +906,24 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
+      const estabilidadIMR = estadoEstabilidad(contarFueraDeControl(r));
+      registrarResultado(
+        `Carta I-MR: ${c.name}`,
+        {
+          encabezados: ["N", "Media", "Sigma estimada (rango móvil)", "LC inferior", "LC superior", "Puntos fuera", "Estado"],
+          filas: [[
+            String(r.n),
+            formatearNumero(r.media),
+            formatearNumero(r.sigmaEstimada),
+            formatearNumero(r.individuos.lcl),
+            formatearNumero(r.individuos.ucl),
+            String(contarFueraDeControl(r)),
+            etiquetaEstado(estabilidadIMR.estado),
+          ]],
+        },
+        [estabilidadIMR.texto]
+      );
+      registrarHallazgo("estabilidad", estabilidadIMR.estado, `I-MR (${c.name}): ${estabilidadIMR.texto}`);
       agregarGrafico(`I-MR — ${c.name}`, opcionIMR(r, c.name));
     } else if (accion.id === "xbarr") {
       const [c] = columnasSeleccionadas;
@@ -497,6 +937,24 @@ export default function AnalysisAssistant() {
         setAviso(r.error);
         return;
       }
+      const estabilidadXbar = estadoEstabilidad(contarFueraDeControl(r));
+      registrarResultado(
+        `Carta Xbar-R: ${c.name} (n=${subgrupo})`,
+        {
+          encabezados: ["Subgrupos", "Media global", "Rango medio", "LC inferior (X̄)", "LC superior (X̄)", "Puntos fuera", "Estado"],
+          filas: [[
+            String(r.numSubgrupos),
+            formatearNumero(r.xBarraBarra),
+            formatearNumero(r.rBarra),
+            formatearNumero(r.medias.lcl),
+            formatearNumero(r.medias.ucl),
+            String(contarFueraDeControl(r)),
+            etiquetaEstado(estabilidadXbar.estado),
+          ]],
+        },
+        [estabilidadXbar.texto]
+      );
+      registrarHallazgo("estabilidad", estabilidadXbar.estado, `Xbar-R (${c.name}, n=${subgrupo}): ${estabilidadXbar.texto}`);
       agregarGrafico(`Xbar-R — ${c.name} (n=${subgrupo})`, opcionXbarR(r, c.name));
     } else if (accion.id === "capacidad") {
       const [c] = columnasSeleccionadas;
@@ -507,15 +965,28 @@ export default function AnalysisAssistant() {
         setAviso(`"${c.name}" no es una columna numérica.`);
         return;
       }
+      const umbral = Number(extras.umbral ?? 1.33) || 1.33;
       const r = capacidadProceso(c.values, { lsl, usl, tamanoSubgrupo: subgrupo });
       if (r.error) {
         setAviso(r.error);
         return;
       }
+      // La estabilidad manda sobre la lectura de la capacidad: un Cpk alto
+      // en un proceso con puntos fuera de control no es evidencia de nada
+      // (regla pedida explícitamente, y correcta) — se calcula igual, como
+      // referencia técnica, pero el estado final lo dice estadoCapacidadFinal.
+      const estabilidad = estadoEstabilidad(r.estabilidad.puntosFuera);
+      const indicePrincipal = r.cpk ?? r.ppk;
+      const estadoFinal = estadoCapacidadFinal(indicePrincipal, umbral, estabilidad);
+      const advertencias = [];
+      if (r.cp == null) advertencias.push('Sin tamaño de subgrupo no se puede estimar la variación "dentro" del proceso: sólo se calculan Pp/Ppk.');
+      if (estabilidad.texto) advertencias.push(estabilidad.texto);
+      if (estadoFinal.texto) advertencias.push(estadoFinal.texto);
+      advertencias.push(`Umbral usado para clasificar el índice: ${umbral}.`);
       registrarResultado(
         `Capacidad de proceso: ${c.name}`,
         {
-          encabezados: ["N", "Media", "Desv. Est. global", "LEI", "LES", "Pp", "Ppk", "Cp", "Cpk"],
+          encabezados: ["N", "Media", "Desv. Est. global", "LEI", "LES", "Pp", "Ppk", "Cp", "Cpk", "Estabilidad", "Estado"],
           filas: [
             [
               String(r.n),
@@ -527,11 +998,15 @@ export default function AnalysisAssistant() {
               formatearNumero(r.ppk),
               r.cp != null ? formatearNumero(r.cp) : "—",
               r.cpk != null ? formatearNumero(r.cpk) : "—",
+              r.estabilidad.puntosFuera == null ? "—" : `${r.estabilidad.puntosFuera} fuera de control`,
+              etiquetaEstado(estadoFinal.estado),
             ],
           ],
         },
-        r.cp == null ? ['Sin tamaño de subgrupo no se puede estimar la variación "dentro" del proceso: sólo se calculan Pp/Ppk.'] : []
+        advertencias
       );
+      registrarHallazgo("estabilidad", estabilidad.estado, `${c.name}: ${estabilidad.texto ?? "sin evaluar"}`);
+      registrarHallazgo("capacidad", estadoFinal.estado, `${c.name}: ${estadoFinal.texto ?? `índice=${formatearNumero(indicePrincipal)}, umbral=${umbral}`}`);
       agregarGrafico(`Capacidad — ${c.name}`, opcionCapacidad(c.values, c.name, { lsl, usl }));
     } else if (accion.id === "gagerr") {
       const colParte = columnaExtra("colParte");
@@ -550,26 +1025,29 @@ export default function AnalysisAssistant() {
         encabezados: ["Fuente", "gl", "SC", "CM", "F", "Valor p"],
         filas: r.tabla.map((t) => [t.fuente, String(t.gl), formatearNumero(t.sc), formatearNumero(t.cm), t.F != null ? formatearNumero(t.F) : "—", t.valorP != null ? formatearP(t.valorP) : "—"]),
       });
+      const estadoMSA = estadoGageRR(r.componentes[2].porcentajeStudyVar);
       registrarResultado(
         `Componentes de varianza: ${colMedicion.name}`,
         {
           encabezados: ["Componente", "Varianza", "Desv. Est.", `Var. de estudio (${r.kStudyVar}σ)`, "% Contribución", "% Var. de estudio"],
-          filas: r.componentes.map((c) => [
-            c.nombre,
-            formatearNumero(c.varianza),
-            formatearNumero(c.desvEst),
-            formatearNumero(c.studyVar),
-            `${formatearNumero(c.porcentajeContribucion)}%`,
-            `${formatearNumero(c.porcentajeStudyVar)}%`,
-          ]),
+          filas: [
+            ...r.componentes.map((c) => [
+              c.nombre,
+              formatearNumero(c.varianza),
+              formatearNumero(c.desvEst),
+              formatearNumero(c.studyVar),
+              `${formatearNumero(c.porcentajeContribucion)}%`,
+              `${formatearNumero(c.porcentajeStudyVar)}%`,
+            ]),
+            ["Estado del sistema de medición", "", "", "", "", etiquetaEstado(estadoMSA.estado)],
+          ],
         },
         [
-          `Número de categorías distintas (ndc): ${r.ndc}.`,
-          r.aceptable
-            ? "El sistema de medición se ve aceptable (Gage R&R por debajo del 30% de %Variación de estudio, el corte habitual de AIAG)."
-            : "El sistema de medición NO se ve aceptable (Gage R&R por encima del 30% de %Variación de estudio, el corte habitual de AIAG).",
+          `Número de categorías distintas (ndc): ${r.ndc}${r.ndc != null && r.ndc < 5 ? " (AIAG recomienda ndc ≥ 5)" : ""}.`,
+          estadoMSA.texto,
         ]
       );
+      registrarHallazgo("msa", estadoMSA.estado, `Gage R&R (${colMedicion.name}): ${estadoMSA.texto}`);
       agregarGrafico(`Gage R&R — ${colMedicion.name}`, opcionGageRR(r));
     } else if (accion.id === "crear_diseno") {
       const numFactores = valorExtra("numFactores", "number");
@@ -626,6 +1104,36 @@ export default function AnalysisAssistant() {
         r.hayReplicas ? [] : ["Sin corridas repetidas con la misma combinación de factores no hay forma de estimar el error experimental: se muestra la magnitud de los efectos, sin valor p."]
       );
       agregarGrafico(`Pareto de efectos — ${colRespuesta.name}`, opcionParetoEfectos(r));
+    } else if (accion.id === "variables_criticas") {
+      // No corre nada: sólo reúne lo que ya dejaron Correlación, Spearman y
+      // Regresión en "hallazgos" (ver dashboard.js). Integrar sin repetir
+      // el cálculo es justamente el punto — si hiciera su propia cuenta,
+      // podría no coincidir con lo que ya se le mostró a la persona.
+      const evidencia = hallazgos.filter((h) => h.etapa === "variables_criticas");
+      if (evidencia.length === 0) {
+        setAviso('Todavía no hay nada que reunir: corre Correlación, Spearman o Regresión primero. (Esto no ejecuta ningún análisis nuevo, sólo junta lo que ya se hizo.)');
+        return;
+      }
+      registrarResultado(
+        "Variables críticas: resumen de evidencia",
+        {
+          encabezados: ["Cuándo", "Estado", "Hallazgo"],
+          filas: evidencia.map((h) => [new Date(h.timestamp).toLocaleTimeString("es-PE"), etiquetaEstado(h.estado), h.resumen]),
+        },
+        [
+          "Variable asociada estadísticamente con la respuesta — nunca \"variable que causa el resultado\": ninguno de estos análisis prueba causalidad por sí solo.",
+        ]
+      );
+    } else if (accion.id === "conclusion") {
+      const c = motorConclusion(hallazgos);
+      registrarResultado(
+        "Estado del proyecto por etapa",
+        {
+          encabezados: ["Etapa", "Estado", "Último hallazgo"],
+          filas: c.filas.map((f) => [f.etapa, f.estado, f.resumen]),
+        },
+        [c.texto]
+      );
     }
     setSeleccion([]);
   }
@@ -678,6 +1186,18 @@ export default function AnalysisAssistant() {
               {columnasConDatos.map((c) => (
                 <option key={c.id} value={c.name}>
                   {c.name}
+                </option>
+              ))}
+            </select>
+          ) : e.tipo === "opciones" ? (
+            // Una lista cerrada de valores (el método de detección, el umbral
+            // de Cpk aceptable): con un número libre, cualquier corte se
+            // podría escribir por error; con esto sólo se puede elegir uno
+            // de los que de verdad están documentados.
+            <select value={extras[e.key] ?? e.valorInicial} onChange={(ev) => setExtras((prev) => ({ ...prev, [e.key]: ev.target.value }))}>
+              {e.opciones.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </select>

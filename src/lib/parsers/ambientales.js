@@ -11,7 +11,13 @@
 // detector toma por encabezado, así que hereda ese título aunque no tenga
 // nada que ver. Aquí se recolocan las dos bajo la etapa a la que pertenecen.
 
-const AMBIENTAL_RE = /^(TEMPERATURA|HUMEDAD\s+RELATIVA)\b/i;
+// La lectura de sala se llama "TEMPERATURA" a secas, o con el paso entre
+// paréntesis ("TEMPERATURA (4.4.47)"). Lo que lleva complemento —"TEMPERATURA
+// DE MOLDEO", "DE SELLADO", "DE TOLVA", "DEL TANQUE"— es la temperatura de
+// una máquina, no la del aire. Con el límite de palabra a secas, en envase la
+// temperatura de moldeo (135 °C) pasaba por condición ambiental de inicio y
+// la de la sala (21.6 °C) se quedaba sin marcar.
+const AMBIENTAL_RE = /^(TEMPERATURA|HUMEDAD\s+RELATIVA)\s*(\(|$)/i;
 
 /**
  * En qué sección quedan las dos lecturas: en la de la primera, que es la que

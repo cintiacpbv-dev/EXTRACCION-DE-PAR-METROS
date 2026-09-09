@@ -346,6 +346,12 @@ export const useWorkbookStore = create((set) => ({
   columns: HOJA_INICIAL.columns,
   resultados: [],
   graficos: [],
+  // El rastro de estados del dashboard (ver dashboard.js): cada vez que un
+  // análisis se clasifica con estado.js, queda aquí un registro de en qué
+  // etapa del flujo entra y en qué quedó. No es lo mismo que "resultados"
+  // —un resultado es la tabla que se ve; un hallazgo es "la etapa X quedó
+  // en tal estado"—, y el motor de conclusión lee esto, no la tabla.
+  hallazgos: [],
   paneles: panelesGuardados(),
   // Qué resultado o gráfico se muestra en el visor principal — como el
   // Navegador de Minitab, que abre en grande lo último que se generó, y de
@@ -667,6 +673,16 @@ export const useWorkbookStore = create((set) => ({
   },
 
   limpiarSalida() {
-    set({ resultados: [], graficos: [], seleccionActual: null });
+    set({ resultados: [], graficos: [], hallazgos: [], seleccionActual: null });
+  },
+
+  /**
+   * Registra en qué quedó una etapa del flujo tras un análisis (ver
+   * dashboard.js) — se llama junto con registrarResultado(), nunca en su
+   * lugar: el hallazgo es lo que alimenta el dashboard y la conclusión, la
+   * tabla es lo que la persona lee.
+   */
+  registrarHallazgo(etapa, estado, resumen) {
+    set((s) => ({ hallazgos: [...s.hallazgos, { etapa, estado, resumen, timestamp: Date.now() }] }));
   },
 }));

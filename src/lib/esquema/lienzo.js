@@ -1,4 +1,4 @@
-// Dibuja el diagrama de flujo del Formato 01 como un lienzo de Word.
+// Dibuja el diagrama de flujo del Formato 10 como un lienzo de Word.
 //
 // El formato original está hecho con cuadros de texto y flechas colocados a
 // mano dentro de un "lienzo" (wpc:wpc), no con tablas. Aquí se genera ese

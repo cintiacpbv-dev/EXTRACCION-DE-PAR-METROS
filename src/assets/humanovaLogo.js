@@ -1,4 +1,4 @@
-// Logo de Humanova, para el encabezado del Formato A09 (PNG en base64,
+// Logo de Humanova, para el encabezado del Formato 01 (PNG en base64,
 // tal como lo proporcionó la usuaria). Partido en varias líneas cortas
 // para que el archivo fuente siga siendo legible.
 export const HUMANOVA_LOGO_BASE64 =

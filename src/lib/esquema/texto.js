@@ -1,4 +1,4 @@
-// Cómo se escribe el texto dentro de las cajas del Formato 01.
+// Cómo se escribe el texto dentro de las cajas del Formato 10.
 //
 // El registro está escrito todo en mayúsculas —"OLLA DE ACERO INOXIDABLE DE 30
 // L", "AGUA PURIFICADA"— porque es un formulario para rellenar a mano. El
@@ -18,7 +18,7 @@ const CONECTORES = new Set([
 ]);
 
 // Marcas y modelos: se escriben como los escribe el fabricante, no como los
-// escribe el formulario. Salen de los Formato 01 de DOLORAL, FLUIBRONCOL,
+// escribe el formulario. Salen de los Formato 10 de DOLORAL, FLUIBRONCOL,
 // PYRIDIUM, SOLUNA y BUMEJORAL.
 const MARCAS = new Map(
   [

@@ -43,13 +43,21 @@ export function fechasDeProceso(doc) {
       !SECCION_SIN_TIEMPO_RE.test(p.section || "")
   );
 
-  const buscar = (re) => {
-    const p = conFecha.find((x) => re.test(x.label));
-    return p ? soloFecha(p.value) : "";
+  // De todos los pasos con nombre propio se toma el primero que empieza y el
+  // último que termina, no el primero de cada clase. Una etapa con una sola
+  // operación da lo mismo de las dos maneras; una con varias, no: la
+  // fabricación de cápsulas blandas nombra el inicio y el final de cada una
+  // de sus operaciones (bulk, gelatina, encapsulado, secado, inspección), y
+  // quedarse con el primer "FECHA / HORA FINAL DE…" cerraba la etapa el día
+  // en que terminó el bulk —el 16 de agosto en el lote 2081266— cuando la
+  // inspección acabó el 20.
+  const buscar = (re, cual) => {
+    const valores = conFecha.filter((x) => re.test(x.label)).map((x) => x.value).sort();
+    return valores.length === 0 ? "" : soloFecha(cual === "ultimo" ? valores[valores.length - 1] : valores[0]);
   };
 
-  let inicio = buscar(/FECHA\s*\/\s*HORA\s+INICIO\s+DE(L)?\s+\w/i);
-  let fin = buscar(/FECHA\s*\/\s*HORA\s+FINAL\s+DE(L)?\s+\w/i);
+  let inicio = buscar(/FECHA\s*\/\s*HORA\s+INICIO\s+DE(L)?\s+\w/i, "primero");
+  let fin = buscar(/FECHA\s*\/\s*HORA\s+FINAL\s+DE(L)?\s+\w/i, "ultimo");
 
   if (!inicio || !fin) {
     const todas = conFecha.map((p) => soloFecha(p.value)).filter(Boolean).sort();
@@ -375,6 +383,45 @@ const BLOQUES_OPERARIOS_FABRICACION = [
   },
 ];
 
+// Y lo mismo para una fabricación de cápsulas blandas, que no granula ni
+// comprime nada: prepara el contenido (el "bulk"), prepara la gelatina de la
+// cubierta, encapsula las dos cosas juntas, seca las cápsulas y las
+// inspecciona una a una antes de darlas por buenas. Son cinco o seis trabajos
+// seguidos, cada uno con su propia gente, y el registro los separa en
+// secciones con esos mismos nombres.
+//
+// Ninguno lleva `respaldo`. En acondicionado y en tableteado el respaldo tiene
+// sentido porque hay una operación que con seguridad ocurrió y el registro
+// puede no separarla; aquí no: si una operación no aparece en el registro, lo
+// que corresponde es dejar su fila en blanco, no repartirle el personal del
+// set up. En el lote 2081266 el respaldo del cuadro de tabletas metía a los
+// cinco operarios del set up y la inspección dentro de "Tableteado", una fila
+// que además nombra un trabajo que en cápsulas blandas no existe.
+const BLOQUES_OPERARIOS_CAPSULAS_BLANDAS = [
+  { etiqueta: "Preparación del bulk", re: /^PREPARACI[OÓ]N\s+DEL\s+BULK\b/i },
+  { etiqueta: "Preparación de la gelatina", re: /^PREPARACI[OÓ]N\s+DE\s+(LA\s+)?(GELATINA|MASA\s+GELATINOSA)\b/i },
+  { etiqueta: "Encapsulado", re: /^ENCAPSULADO\b/i },
+  // El pre-secado va antes del secado y con su propio patrón para que ninguno
+  // se lleve las secciones del otro. En el registro del lote 2081266 no tiene
+  // sección propia —el túnel de pre-secado va acoplado a la encapsuladora y
+  // sus tiempos son parte del encapsulado—, así que su fila sale vacía: eso es
+  // lo que dice el documento.
+  { etiqueta: "Pre-secado", re: /^PRE\s*-?\s*SECADO\b/i },
+  { etiqueta: "Secado", re: /^SECADO\b/i },
+  { etiqueta: "Inspección", re: /^INSPECCI[OÓ]N\b/i },
+];
+
+// Una fabricación es de cápsulas blandas si el propio registro trae una
+// sección de encapsulado. Se mira el documento, no el nombre del producto:
+// "CAP BLANDA" en el rótulo es una convención de la empresa y no tiene por
+// qué cumplirse siempre, mientras que una sección de encapsulado sólo la
+// tiene un registro que encapsuló.
+const SECCION_ENCAPSULADO_RE = /^ENCAPSULADO\b/i;
+
+function esCapsulaBlanda(doc) {
+  return (doc?.params || []).some((p) => SECCION_ENCAPSULADO_RE.test(p.section || ""));
+}
+
 /** Los nombres de un bloque de secciones, sin repetir y en orden. */
 function nombresDe(personnel, bloque, rol) {
   if (!bloque?.re) return (personnel?.[rol] || []).map((p) => p.name);
@@ -433,7 +480,9 @@ export function personalPorLote(documents, familia) {
       stage === "ACONDICIONADO"
         ? BLOQUES_OPERARIOS
         : stage === "FABRICACION"
-          ? BLOQUES_OPERARIOS_FABRICACION
+          ? docs.some(esCapsulaBlanda)
+            ? BLOQUES_OPERARIOS_CAPSULAS_BLANDAS
+            : BLOQUES_OPERARIOS_FABRICACION
           : [{ etiqueta: stage, re: null }];
 
     const porLote = {};
@@ -515,7 +564,15 @@ export function buildRvpModel(documents, familia, { onlyCritical = true, stage =
       // seca/lubricación/mezcla final, y compresión) — Acondicionado y las
       // demás etapas quedan exactamente como estaban.
       if (etapa === "FABRICACION") {
-        const tiempos = tiemposDeFabricacion(alcance, familia);
+        // El cuadro de tiempos es el de la forma farmacéutica que el registro
+        // describe: granulación/mezcla/compresión si se hicieron tabletas, y
+        // las operaciones de cápsula blanda si se encapsuló.
+        const deCapsulas = alcance.some(
+          (d) => d.familia === familia && d.stage === "FABRICACION" && d.kind !== "orden" && esCapsulaBlanda(d)
+        );
+        const tiempos = deCapsulas
+          ? tiemposDeCapsulasBlandas(alcance, familia)
+          : tiemposDeFabricacion(alcance, familia);
         if (tiempos) {
           tabla.sections = [...tabla.sections, tiempos];
           tabla.rowCount += tiempos.rows.length;
@@ -671,3 +728,87 @@ export function tiemposDeFabricacion(documents, familia) {
   return rows.length > 0 ? { title: SECCION_TIEMPOS_FABRICACION, rows } : null;
 }
 
+// --- Tiempos de una fabricación de cápsulas blandas -------------------------
+//
+// Aquí no hace falta deducir nada por secciones como en tabletas: el registro
+// nombra el principio y el final de cada operación en la propia etiqueta del
+// paso ("FECHA / HORA INICIO DE PREPARACION DEL BULK", "FECHA / HORA FINAL
+// DEL ENCAPSULADO"), así que el cuadro se arma leyendo esos rótulos.
+//
+// Dos detalles del documento real que la lectura tiene que aguantar: el
+// acento del registro no es consistente ("INICIO DE PREPARACION DEL BULK"
+// pero "FINAL DE PREPARACIÓN DEL BULK"), y la preposición cambia entre "DE" y
+// "DEL" según la operación.
+const OPERACIONES_CAPSULAS_BLANDAS = [
+  { etiqueta: "Preparación del bulk", nombre: "PREPARACI[OÓ]N\\s+DEL\\s+BULK" },
+  { etiqueta: "Preparación de la gelatina", nombre: "PREPARACI[OÓ]N\\s+DE\\s+(?:LA\\s+)?(?:GELATINA|MASA\\s+GELATINOSA)" },
+  { etiqueta: "Encapsulado", nombre: "ENCAPSULADO" },
+  // El pre-secado se busca antes que el secado y con su propio nombre; como
+  // el patrón exige la preposición justo delante, "…INICIO DE SECADO" no
+  // puede colarse en el pre-secado ni al revés.
+  { etiqueta: "Pre-secado", nombre: "PRE\\s*-?\\s*SECADO" },
+  { etiqueta: "Secado", nombre: "SECADO" },
+  { etiqueta: "Inspección", nombre: "INSPECCI[OÓ]N" },
+];
+
+const rotuloOperacion = (clase, nombre) =>
+  new RegExp(`^FECHA\\s*/\\s*HORA\\s+${clase}\\s+DE(?:L)?\\s+(?:LA\\s+)?(?:${nombre})\\b`, "i");
+
+/** Fecha y hora en que empezó y terminó una operación, por su rótulo. */
+function fechasDeOperacionNombrada(doc, nombre) {
+  const valores = (clase) =>
+    doc.params.filter((p) => rotuloOperacion(clase, nombre).test(p.label || p.baseLabel || "") && p.value).map((p) => p.value);
+
+  const inicios = valores("INICIO");
+  const finales = valores("FINAL");
+  if (inicios.length === 0 && finales.length === 0) return null;
+  // Si una operación se retomó, vale desde que empezó la primera vez hasta que
+  // terminó la última.
+  return { inicio: [...inicios].sort()[0] || "", fin: [...finales].sort().pop() || "" };
+}
+
+/**
+ * El cuadro de tiempos de una fabricación de cápsulas blandas: una fila de
+ * inicio y otra de final por operación.
+ *
+ * La operación que el registro no cronometre no sale en el cuadro en vez de
+ * salir vacía —es lo mismo que hace el cuadro de tabletas—. En el lote 2081266
+ * eso deja fuera el pre-secado, que ahí no es una operación con hora propia
+ * sino un paso dentro del encapsulado: el túnel va acoplado a la
+ * encapsuladora.
+ */
+export function tiemposDeCapsulasBlandas(documents, familia) {
+  const docs = documents.filter((d) => d.familia === familia && d.stage === "FABRICACION" && d.kind !== "orden");
+  if (docs.length === 0) return null;
+
+  const rows = [];
+  for (const op of OPERACIONES_CAPSULAS_BLANDAS) {
+    const inicios = {};
+    const finales = {};
+    for (const doc of docs) {
+      const fechas = fechasDeOperacionNombrada(doc, op.nombre);
+      if (!fechas) continue;
+      const lote = claveLote(doc);
+      if (fechas.inicio) inicios[lote] = fechas.inicio;
+      if (fechas.fin) finales[lote] = fechas.fin;
+    }
+
+    const fila = (sufijo, prefijo, values) => ({
+      id: `tiempo-cb::${sufijo}`,
+      section: SECCION_TIEMPOS_FABRICACION,
+      label: `${prefijo} ${op.etiqueta}`,
+      setpoint: "",
+      sinRango: true,
+      unit: "",
+      valueType: "text",
+      category: "critico",
+      values,
+    });
+
+    const clave = op.etiqueta.toLowerCase().replace(/[^a-z]+/g, "-");
+    if (Object.keys(inicios).length > 0) rows.push(fila(`${clave}-inicio`, "Inicio", inicios));
+    if (Object.keys(finales).length > 0) rows.push(fila(`${clave}-final`, "Final", finales));
+  }
+
+  return rows.length > 0 ? { title: SECCION_TIEMPOS_FABRICACION, rows } : null;
+}

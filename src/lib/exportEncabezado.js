@@ -1,4 +1,4 @@
-// Encabezado y pie de página del Formato A09, con la misma tabla de tres
+// Encabezado y pie de página del Formato 01, con la misma tabla de tres
 // columnas y el mismo pie que el protocolo de referencia de la empresa
 // (logo | producto y proceso | código; abajo empresa, planta y "Pág. N de M").
 //

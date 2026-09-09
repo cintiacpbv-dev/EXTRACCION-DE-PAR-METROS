@@ -26,8 +26,19 @@ const FECHA_HORA_RE = /^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{1,2}):(\d{2}))?/;
 // tiempo de changeover no debe sumarse al total) y como "(DESPEJE Y LIMPIEZA
 // DE EQUIPOS Y SALA)"— así que cualquier sección que empiece con "SET UP"
 // queda fuera del tiempo, sea cual sea lo que diga entre paréntesis.
+//
+// "Preparación" sí necesita mirar de qué: alistar el material o la máquina es
+// una chamba de minutos, pero "PREPARACION DEL BULK" y "PREPARACION DE LA
+// GELATINA" son las dos operaciones principales de una fabricación de
+// cápsulas blandas —duran más de un día cada una— y "PREPARACION DE LA
+// SOLUCION GRANULANTE" es parte de la granulación (de hecho
+// SECCION_GRANULACION_MEZCLA_RE, en rvpData.js, ya la cuenta como
+// fabricación). Con el prefijo suelto de antes, las tres quedaban fuera del
+// tiempo: en el lote 2081266 la etapa salía de 96 h cuando en realidad fue
+// del 15 al 20 de agosto, porque más de la mitad del trabajo estaba
+// clasificado como papeleo.
 export const SECCION_SIN_TIEMPO_RE =
-  /^(DOCUMENTACION|DOCUMENTACIÓN|PREPARACION|PREPARACIÓN|SET\s*UP\b)/i;
+  /^(DOCUMENTACI[OÓ]N|PREPARACI[OÓ]N\s+DE(?:L|\s+LAS?|\s+LOS)?\s+(MATERIAL(?:ES)?|M[AÁ]QUINAS?|EQUIPOS?|SALA|[AÁ]REA)\b|SET\s*UP\b)/i;
 
 export const SECCION_TOTAL = "TIEMPO TOTAL DE LA ETAPA";
 
@@ -72,6 +83,34 @@ function fila({ section, label, value, orden }) {
 }
 
 /**
+ * Minutos en los que hubo al menos un bloque abierto: la unión de los tramos,
+ * no su suma. Dos operaciones simultáneas ocupan las mismas horas una sola
+ * vez.
+ */
+function minutosDeTrabajo(tramos) {
+  const ordenados = [...tramos].sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let desde = null;
+  let hasta = null;
+
+  for (const [inicio, fin] of ordenados) {
+    if (desde === null) {
+      desde = inicio;
+      hasta = fin;
+    } else if (inicio <= hasta) {
+      // Se solapa con el tramo que venimos armando: lo estira, no lo suma.
+      if (fin > hasta) hasta = fin;
+    } else {
+      total += hasta - desde;
+      desde = inicio;
+      hasta = fin;
+    }
+  }
+
+  return desde === null ? 0 : total + hasta - desde;
+}
+
+/**
  * Añade a los parámetros detectados, por cada trabajo con inicio y final, la
  * hora de una y otra y lo que tardó; y al final, el total de la etapa.
  *
@@ -85,11 +124,19 @@ export function conTiempos(params) {
   let bloques = 0;
   let primero = null;
   let ultimo = null;
-  // Suma de lo que duró cada bloque por su cuenta, sin las esperas entre
-  // uno y el siguiente — las horas de trabajo activo, que es lo que
-  // reportan a mano en los informes de validación ("t: 15 h 50 min",
-  // sumando cada sesión donde el proceso se corta y retoma otro día).
-  let minutosActivos = 0;
+  // Los tramos en que hubo trabajo, para calcular después las horas de
+  // trabajo activo: el tiempo con al menos un bloque abierto, sin las
+  // esperas de por medio — es a lo que se refiere un informe de validación
+  // cuando dice "t: 15 h 50 min" para un proceso que se cortó y se retomó
+  // otro día.
+  //
+  // Se guardan los tramos en vez de ir sumando duraciones porque no todas
+  // las operaciones van una detrás de otra: en cápsulas blandas el bulk y la
+  // gelatina se preparan a la vez, y sumar las dos contaba dos veces las
+  // mismas horas. En el lote 2081266 eso daba 147 h 57 min de trabajo activo
+  // dentro de una etapa de 120 h, que no puede ser. Solapados o no, la unión
+  // de los tramos nunca puede pasar del tiempo transcurrido.
+  const tramos = [];
 
   for (const p of params) {
     salida.push(p);
@@ -112,7 +159,7 @@ export function conTiempos(params) {
     }
 
     bloques += 1;
-    minutosActivos += t - abierto.t;
+    tramos.push([abierto.t, t]);
     if (primero === null || abierto.t < primero.t) primero = { t: abierto.t, valor: abierto.valor };
     if (ultimo === null || t > ultimo.t) ultimo = { t, valor: p.value };
 
@@ -138,7 +185,7 @@ export function conTiempos(params) {
   // espera y el otro no, y los dos hacen falta para leer el lote completo.
   if (bloques > 1 && primero && ultimo) {
     const total = formatoDuracion(ultimo.t - primero.t);
-    const activo = formatoDuracion(minutosActivos);
+    const activo = formatoDuracion(minutosDeTrabajo(tramos));
     if (total !== null) {
       salida.push(fila({ section: SECCION_TOTAL, label: "HORA INICIO", value: primero.valor, orden: 0 }));
       salida.push(fila({ section: SECCION_TOTAL, label: "HORA FINAL", value: ultimo.valor, orden: 0 }));

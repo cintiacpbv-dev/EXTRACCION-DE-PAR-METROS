@@ -3,8 +3,9 @@ import Navegador from "./Navegador.jsx";
 import WorkbookGrid from "./WorkbookGrid.jsx";
 import AnalysisAssistant from "./AnalysisAssistant.jsx";
 import OutputViewer from "./OutputViewer.jsx";
+import DashboardEstado from "./DashboardEstado.jsx";
 import { useWorkbookStore } from "../lib/estadistica/store.js";
-import { exportarInformeWord } from "../lib/estadistica/exportar.js";
+import { exportarInformeWord, exportarInformeEstructurado } from "../lib/estadistica/exportar.js";
 import { IconLayers, IconGrid, IconFlask, IconDownload } from "./Icons.jsx";
 
 // Cuánto espera un panel lateral sin que lo toquen antes de plegarse. Corto
@@ -140,8 +141,12 @@ export default function EstadisticaView() {
   const resultados = useWorkbookStore((s) => s.resultados);
   const graficos = useWorkbookStore((s) => s.graficos);
   const seleccionActual = useWorkbookStore((s) => s.seleccionActual);
+  const hallazgos = useWorkbookStore((s) => s.hallazgos);
+  const columns = useWorkbookStore((s) => s.columns);
+  const hojas = useWorkbookStore((s) => s.hojas);
 
   const [exportando, setExportando] = useState(false);
+  const [exportandoInforme, setExportandoInforme] = useState(false);
   const [barraAbierta, setBarraAbierta] = useState(true);
   // Qué parte de la altura se lleva el gráfico. Lo mueve la persona con el
   // divisor, y se recuerda: quien mira sobre todo gráficos lo deja arriba, y
@@ -167,6 +172,15 @@ export default function EstadisticaView() {
       await exportarInformeWord({ resultados, graficos });
     } finally {
       setExportando(false);
+    }
+  }
+
+  async function exportarInforme() {
+    setExportandoInforme(true);
+    try {
+      await exportarInformeEstructurado({ resultados, graficos, hallazgos, columns, hojas });
+    } finally {
+      setExportandoInforme(false);
     }
   }
 
@@ -279,16 +293,31 @@ export default function EstadisticaView() {
           </button>
           <button
             type="button"
-            className="btn btn--primary btn--mini"
+            className="btn btn--ghost btn--mini"
             onClick={exportarTodo}
             disabled={total === 0 || exportando}
-            title="Descarga un Word con todas las tablas y todos los gráficos de esta sesión"
+            title="Descarga un Word con todas las tablas y todos los gráficos de esta sesión, en el orden en que se generaron"
           >
             <IconDownload size={14} />
             {exportando ? "Generando…" : `Exportar todo (${total})`}
           </button>
+          <button
+            type="button"
+            className="btn btn--primary btn--mini"
+            onClick={exportarInforme}
+            disabled={exportandoInforme}
+            title="Descarga el informe con la estructura de un protocolo de validación: 18 secciones, cada análisis en la suya, y las que no se corrieron marcadas NO EVALUADO"
+          >
+            <IconDownload size={14} />
+            {exportandoInforme ? "Generando…" : "Informe (18 secciones)"}
+          </button>
         </div>
       </div>
+
+      {/* Se pliega junto con la barra de arriba, no aparte: quien la
+          escondió para darle más alto al gráfico no quiere que esta tira
+          se la vuelva a quitar. */}
+      {barraAbierta && <DashboardEstado />}
 
       {/* Las columnas van por variable y no como "grid-template-columns" en
           línea: un estilo en línea gana siempre, y en el móvil dejaba las

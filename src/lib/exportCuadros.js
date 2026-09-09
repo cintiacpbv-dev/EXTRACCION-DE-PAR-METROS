@@ -28,6 +28,7 @@ import {
   WidthType,
 } from "docx";
 import { buildRvpModel } from "./rvpData.js";
+import { evaluarValor } from "./rango.js";
 import { formatPersonName } from "./personName.js";
 import { encabezadoYPie } from "./exportEncabezado.js";
 import { logoPorDefecto } from "./logoEmpresa.js";
@@ -37,6 +38,14 @@ import { logoPorDefecto } from "./logoEmpresa.js";
 const FUENTE = "Arial";
 const TAM = 16; // media-puntos → 8 pt
 const AZUL_CABECERA = "C6D9F1";
+
+// El amarillo de "fuera de especificación". Se marca la casilla del valor, no
+// la fila entera: en un cuadro de tres lotes lo que hay que ver de un vistazo
+// es cuál de los tres se salió, no que el parámetro tuvo un problema en
+// alguno. Sólo se pinta cuando el criterio es numérico y el valor también
+// —ver evaluarValor—; ante la duda no se pinta nada, porque una casilla
+// amarilla sobre un valor que sí cumple hace desconfiar de todo el cuadro.
+const AMARILLO_FUERA = "FFFF00";
 
 const BORDE = { style: BorderStyle.SINGLE, size: 4, space: 0, color: "auto" };
 const BORDES_TABLA = {
@@ -570,7 +579,15 @@ function cuadroParametros(datos, lotes, etapa) {
         // Las filas de la estructura estándar salen vacías para llenar a mano;
         // los guiones significan "no aplica", que es otra cosa.
         const valor = row.enBlanco ? "" : valorParaCuadro(row.values[lote]);
-        celdas.push(celdaParam(valor, { align: AlignmentType.CENTER, width: A.lotes[j] }));
+        const fuera = !row.enBlanco && evaluarValor(row.values[lote], row.setpoint) === "fuera";
+        celdas.push(
+          celdaParam(valor, {
+            align: AlignmentType.CENTER,
+            width: A.lotes[j],
+            fill: fuera ? AMARILLO_FUERA : undefined,
+            bold: fuera,
+          })
+        );
       });
 
       filas.push(fila(celdas, { alto: ALTO_PAR_DATO }));
@@ -930,7 +947,7 @@ export async function exportCuadrosToWord(documents, familia, options) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${familia.replace(/[^\w.-]+/g, "_").slice(0, 60)}${sufijoEtapa}_FORMATO_A09.docx`;
+  a.download = `${familia.replace(/[^\w.-]+/g, "_").slice(0, 60)}${sufijoEtapa}_FORMATO_01.docx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

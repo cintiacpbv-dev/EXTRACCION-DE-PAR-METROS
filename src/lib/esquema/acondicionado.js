@@ -16,7 +16,7 @@
 // distribuyen en la de embalaje, cuántas caben en la parihuela. Lo que no esté
 // en él queda en blanco.
 //
-// Tomado del Formato 01 de DOLORAL CB 400 mg y de la Adenda N° 4 al reporte.
+// Tomado del Formato 10 de DOLORAL CB 400 mg y de la Adenda N° 4 al reporte.
 
 import { criteriosAcondicionado } from "../parsers/acondicionado.js";
 import { detectOpciones } from "../parsers/opciones.js";
