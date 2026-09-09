@@ -9,6 +9,7 @@ import SapPanel from "./components/SapPanel.jsx";
 import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
 import Formato3Panel from "./components/Formato3Panel.jsx";
 import Formato02Panel from "./components/Formato02Panel.jsx";
+import Formato8Panel from "./components/Formato8Panel.jsx";
 import Formato10Panel from "./components/Formato10Panel.jsx";
 import RiesgoView from "./components/RiesgoView.jsx";
 import EstadisticaView from "./components/EstadisticaViewLazy.jsx";
@@ -1143,6 +1144,11 @@ export default function App() {
             {!blank && productDocs.length > 0 && (
               <Formato3Panel documents={docs} familia={productoActivo} />
             )}
+
+            {/* El Formato 8 sale del consolidado de calificaciones, que es
+                uno para toda la planta: se puede armar sin análisis, y con
+                análisis propone la sección del producto. */}
+            <Formato8Panel documents={blank ? [] : docs} familia={blank ? null : productoActivo} />
 
             {/* El Formato 02 no depende de que haya un análisis montado: se
                 puede armar con el protocolo solo —el cuadro en blanco que se
