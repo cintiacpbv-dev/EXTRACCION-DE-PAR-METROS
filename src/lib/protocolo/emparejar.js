@@ -234,6 +234,55 @@ export function cabeceraDeEtapa(documentos, etapaProtocolo) {
   };
 }
 
+/**
+ * El cuadro armado sólo con los registros, cuando no hay protocolo a mano.
+ *
+ * Sale más pobre y lo dice: la secuencia es la del registro —sus secciones y
+ * el orden en que las escribe—, no la de operaciones con nombre del
+ * protocolo, y la columna "Modo de verificación" va vacía porque el registro
+ * no dice con qué instrumento se mide cada cosa. A cambio, cada fila lleva su
+ * resultado sin emparejar nada: el parámetro y su valor vienen juntos del
+ * mismo sitio, así que aquí no hay nada que pueda caer en la fila equivocada.
+ *
+ * Devuelve la misma forma que `emparejarEtapa`, para que el documento se arme
+ * igual venga de donde venga.
+ */
+export function etapasDesdeRegistros(documentos) {
+  const porEtapa = new Map();
+
+  for (const doc of documentos || []) {
+    const etapa = doc.stage || "SIN ETAPA";
+    if (!porEtapa.has(etapa)) porEtapa.set(etapa, []);
+    const emparejado = porEtapa.get(etapa);
+    let seccion = null;
+
+    for (const p of doc.params || []) {
+      // Las bandas del cuadro son las secciones del propio registro.
+      if (p.section && p.section !== seccion) {
+        seccion = p.section;
+        emparejado.push({ fila: { tipo: "banda", titulo: seccion }, param: null });
+      }
+      // Lo que el registro marca como banda ya es un rótulo, no un parámetro.
+      if (p.banda) {
+        emparejado.push({ fila: { tipo: "banda", titulo: p.label }, param: null });
+        continue;
+      }
+      emparejado.push({
+        fila: {
+          tipo: "parametro",
+          grupo: p.label || "",
+          detalle: p.unit && !String(p.label).includes(p.unit) ? p.unit : "",
+          modo: "",
+          rango: p.setpoint || "",
+        },
+        param: p,
+      });
+    }
+  }
+
+  return [...porEtapa.entries()].map(([etapa, emparejado]) => ({ etapa, emparejado }));
+}
+
 /** Cuántas filas quedaron con resultado, para poder decirlo en pantalla. */
 export function resumenDeCobertura(emparejado) {
   const parametros = emparejado.filter((e) => e.fila.tipo === "parametro");

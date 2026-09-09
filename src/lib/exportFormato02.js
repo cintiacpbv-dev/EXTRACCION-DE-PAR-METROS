@@ -28,6 +28,7 @@ import {
   Document,
   HeadingLevel,
   Packer,
+  PageOrientation,
   Paragraph,
   ShadingType,
   Table,
@@ -40,7 +41,7 @@ import {
 import { encabezadoYPie } from "./exportEncabezado.js";
 import { logoPorDefecto } from "./logoEmpresa.js";
 import { evaluarValor } from "./rango.js";
-import { ambitoDe, emparejarEtapa, resumenDeCobertura } from "./protocolo/emparejar.js";
+import { resumenDeCobertura } from "./protocolo/emparejar.js";
 
 const FUENTE = "Arial";
 const TAM = 16;
@@ -52,17 +53,23 @@ const AMARILLO_FUERA = "FFFF00";
 const A4_ANCHO = 11907;
 const A4_ALTO = 16840;
 const MARGEN = 850;
-const ANCHO_UTIL = A4_ALTO - MARGEN * 2; // apaisado: el cuadro es ancho
+// Apaisado: el ancho de la hoja es el lado largo del A4.
+const ANCHO_UTIL = A4_ALTO - MARGEN * 2;
 
-// Las siete columnas, en veinteavos de punto. Los dos primeros tramos son el
-// parámetro (grupo y detalle); los tres últimos, las casillas de ejecución
-// que se llenan en planta y por eso van estrechas pero legibles.
-const COLS = [2600, 2600, 3900, 2600, 1900, 1300, 1240];
+// Las siete columnas, en veinteavos de punto, sumando exactamente el ancho
+// útil. Los dos primeros tramos son el parámetro (grupo y detalle); los tres
+// últimos, las casillas que se llenan en planta y por eso van estrechas pero
+// legibles. Si la suma pasara del ancho útil, Word saca la tabla por fuera
+// del margen derecho y el cuadro deja de imprimirse entero.
+const COLS = [2400, 2400, 3600, 2400, 1800, 1300, 1240];
 
 function pagina() {
   return {
     page: {
-      size: { width: A4_ALTO, height: A4_ANCHO, orientation: "landscape" },
+      // Las medidas van en vertical y la orientación las gira: la librería
+      // hace el intercambio ella sola. Pasándolas ya giradas las giraba otra
+      // vez, y salía una hoja vertical rotulada como apaisada.
+      size: { width: A4_ANCHO, height: A4_ALTO, orientation: PageOrientation.LANDSCAPE },
       margin: { top: MARGEN, right: MARGEN, bottom: MARGEN, left: MARGEN },
     },
   };
@@ -200,13 +207,15 @@ function cuadroEtapa(emparejado) {
 }
 
 /**
- * Arma el Formato 02 completo con las etapas del protocolo y, si se cargaron
- * registros, sus resultados.
+ * Arma el Formato 02 con las etapas ya resueltas.
  *
- * `documentos` puede venir vacío: entonces sale el formato en blanco, que es
- * lo que se lleva a planta antes de ejecutar el lote.
+ * Cada etapa llega con sus filas y el resultado que le corresponde a cada una
+ * (`emparejado`), venga de emparejar el protocolo con los registros o de leer
+ * sólo los registros. Este archivo no decide de dónde sale nada: sólo lo
+ * maqueta, y así el mismo documento sirve para los tres casos —protocolo
+ * solo, registros solos, o los dos—.
  */
-export function construirFormato02({ etapas, documentos = [], producto = "", lote = "", corrida = "", opciones = {} }) {
+export function construirFormato02({ etapas, producto = "", lote = "", corrida = "", opciones = {} }) {
   const hijos = [
     new Paragraph({
       heading: HeadingLevel.HEADING_1,
@@ -220,8 +229,7 @@ export function construirFormato02({ etapas, documentos = [], producto = "", lot
   const cobertura = { total: 0, conResultado: 0 };
 
   etapas.forEach((etapa, i) => {
-    const ambito = ambitoDe(documentos, etapa.etapa);
-    const emparejado = emparejarEtapa(etapa.filas, ambito);
+    const emparejado = etapa.emparejado || [];
     const r = resumenDeCobertura(emparejado);
     cobertura.total += r.total;
     cobertura.conResultado += r.conResultado;
@@ -259,11 +267,13 @@ export async function exportarFormato02(datos) {
   const { doc, cobertura } = construirFormato02(datos);
   const blob = await Packer.toBlob(doc);
 
-  const nombre = (datos.producto || "FORMATO_02").replace(/[^\w.-]+/g, "_").slice(0, 60);
+  // Sin producto que nombrar, el archivo se llama sólo "FORMATO_02": pegarle
+  // el nombre por defecto delante daba "FORMATO_02_FORMATO_02.docx".
+  const nombre = String(datos.producto || "").replace(/[^\w.-]+/g, "_").slice(0, 60);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${nombre}_FORMATO_02.docx`;
+  a.download = nombre ? `${nombre}_FORMATO_02.docx` : "FORMATO_02.docx";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
