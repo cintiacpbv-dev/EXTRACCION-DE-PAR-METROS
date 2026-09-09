@@ -2,7 +2,7 @@
 // ordenada de operaciones, con lo que hay que controlar en cada una, el equipo
 // que se usa y los insumos que entran.
 //
-// El registro ya trae todo lo que el Formato 01 dibuja —los rangos de
+// El registro ya trae todo lo que el Formato 10 dibuja —los rangos de
 // operación viven en el propio texto de cada paso, los equipos en su sección y
 // las cantidades por fracción en los pasos de pesada— pero repartido y con
 // otro nombre. Aquí se recoge y se ordena; dibujarlo es cosa de lienzo.js.

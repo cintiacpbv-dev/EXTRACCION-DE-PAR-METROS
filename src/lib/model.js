@@ -177,7 +177,7 @@ export function listStages(documents, familia) {
  *
  * Con `stage` en null se combinan TODAS las etapas del producto en un solo
  * análisis —la misma convención que ya usan aggregateEquipos() y la
- * exportación del FORMATO A09—: es lo que se quiere cuando un análisis se
+ * exportación del Formato 01—: es lo que se quiere cuando un análisis se
  * carga en paquete (fabricación + envasado + acondicionado del mismo lote),
  * porque las tres etapas son el mismo lote recorriendo el proceso, no tres
  * análisis distintos. Cada lote sigue siendo UNA columna: lo que crece es el

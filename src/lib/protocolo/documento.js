@@ -2,7 +2,7 @@
 //
 // El protocolo es un documento largo y formal —portada, firmas, encabezados,
 // numeración— del que sólo hay que tocar unas celdas. Rehacerlo con la
-// librería que genera el FORMATO A09 significaría reconstruir todo lo demás y
+// librería que genera el Formato 01 significaría reconstruir todo lo demás y
 // perderlo por el camino, así que en vez de eso se abre el .docx como lo que
 // es —un zip con un XML dentro—, se cambian esas celdas en el propio XML y se
 // vuelve a cerrar. Todo lo que no se toca sale byte por byte como entró.

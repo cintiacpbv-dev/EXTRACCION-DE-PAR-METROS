@@ -6,7 +6,7 @@
 // el protocolo lleve encima su propio registro de cambios.
 //
 // Se escribe en el XML de Word a mano, como el resto de este módulo: montar
-// un documento aparte con la librería que genera el FORMATO A09 obligaría a
+// un documento aparte con la librería que genera el Formato 01 obligaría a
 // fusionar dos archivos, que es bastante más frágil que añadir párrafos al
 // final del cuerpo.
 

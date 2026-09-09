@@ -44,12 +44,25 @@ const PATRONES = {
     // Un rango explícito: "15 °C - 30 °C"
     /(\d+(?:[.,]\d+)?\s*[°ºo]\s*C\s*[-–a]\s*\d+(?:[.,]\d+)?\s*[°ºo]\s*C)/i,
   ],
-  // "VELOCIDAD NIVEL 3", "A VELOCIDAD NIVEL 2", "(UNICA)"
+  // "200 rpm a 300 rpm", "VELOCIDAD NIVEL 3", "(UNICA)"
+  //
+  // Las rpm van delante del nivel a propósito. Cuando la instrucción da los
+  // dos —"AGITAR POR NO MENOS DE 2 MINUTOS A 34 rpm (NIVEL 10)"— el nivel es
+  // la marca del dial con la que se consiguen esas rpm, y lo que la casilla
+  // anota son las rpm ("VELOCIDAD DE AGITACION (rpm): 34"). Con el nivel
+  // delante, el criterio quedaba en "NIVEL 10" y la comparación era 34 contra
+  // 10: cinco casillas del lote 2081266 salían fuera de rango cumpliendo. El
+  // nivel sigue valiendo cuando es lo único que hay ("VELOCIDAD DE LOS
+  // TUNELES (Nivel 5 - 7)"), que es justo cuando la casilla anota un nivel.
   velocidad: [
+    // La unidad puede repetirse en los dos extremos ("200 rpm a 300 rpm") o
+    // ir sólo al final ("400 a 600 rpm"); las dos formas están en el mismo
+    // registro. Sin admitir la primera, el rango se leía como una sola cifra
+    // ("200 rpm") y dejaba de acotar nada.
+    /(\d+(?:[.,]\d+)?\s*(?:rpm|gpm)?\s*(?:-|–|a)\s*\d+(?:[.,]\d+)?\s*(?:rpm|gpm))/i,
+    /(\d+(?:[.,]\d+)?\s*(?:rpm|gpm))/i,
     /(NIVEL\s*\d+)/i,
     /\b([UÚ]NICA)\b/i,
-    /(\d+(?:[.,]\d+)?\s*(?:-|–|a)\s*\d+(?:[.,]\d+)?\s*(?:rpm|gpm))/i,
-    /(\d+(?:[.,]\d+)?\s*(?:rpm|gpm))/i,
   ],
   // "RANGO DE pH :5.5 - 6.5". El rango tiene que venir acompañado de la
   // palabra "pH": un patrón de dos cifras separadas por guión, suelto, se
@@ -171,12 +184,15 @@ export function conCriteriosDelPaso(params, pages) {
     for (let i = posicion - 1; i >= 0; i--) {
       const linea = lineas[i];
       if (esCasilla(linea.texto)) continue;
-      // Con el renglón siguiente pegado: el PDF parte las instrucciones donde
-      // se acaba el ancho de la caja, y un criterio puede quedar cortado por
-      // la mitad ("...A 70 º C ± 2" / "ºC."). Leído renglón a renglón se
-      // capturaba el criterio incompleto, sin su unidad.
-      const conSiguiente = [linea.texto, lineas[i + 1]?.texto].filter(Boolean).join(" ");
-      const criterio = criterioEn(conSiguiente, tipo);
+      // Con el renglón de antes y el de después pegados: el PDF parte las
+      // instrucciones donde se acaba el ancho de la caja, y un criterio puede
+      // quedar cortado por la mitad hacia cualquiera de los dos lados
+      // ("...A 70 º C ± 2" / "ºC." parte por delante; "...A 34" / "rpm (NIVEL
+      // 10)." parte por detrás). Con la ventana sólo hacia adelante, el
+      // segundo caso perdía las rpm y se quedaba con el nivel del dial, y la
+      // casilla salía fuera de rango cumpliendo.
+      const ventana = [lineas[i - 1]?.texto, linea.texto, lineas[i + 1]?.texto].filter(Boolean).join(" ");
+      const criterio = criterioEn(ventana, tipo);
       if (criterio) {
         p.setpoint = criterio;
         // Deja constancia de que el criterio se leyó de la instrucción y no

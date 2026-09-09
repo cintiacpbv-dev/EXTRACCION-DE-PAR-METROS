@@ -6,7 +6,7 @@
 // traducción, no un dato: por eso está aquí a la vista y no escondida en el
 // código que dibuja.
 //
-// Tomado de los Formato 01 de PYRIDIUM, DOLORAL, FLUIBRONCOL, SOLUNA y
+// Tomado de los Formato 10 de PYRIDIUM, DOLORAL, FLUIBRONCOL, SOLUNA y
 // BUMEJORAL. Lo que no esté en la tabla sale con el nombre del registro, que
 // es lo honesto: vale para cualquier producto sin inventarle un verbo.
 

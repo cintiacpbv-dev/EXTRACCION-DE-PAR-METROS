@@ -8,7 +8,7 @@ import ProductImagePicker from "./components/ProductImagePicker.jsx";
 import SapPanel from "./components/SapPanel.jsx";
 import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
 import Formato3Panel from "./components/Formato3Panel.jsx";
-import Formato01Panel from "./components/Formato01Panel.jsx";
+import Formato10Panel from "./components/Formato10Panel.jsx";
 import RiesgoView from "./components/RiesgoView.jsx";
 import EstadisticaView from "./components/EstadisticaViewLazy.jsx";
 import BarraProgreso from "./components/BarraProgreso.jsx";
@@ -32,7 +32,6 @@ import {
 } from "./components/Icons.jsx";
 import ArchivosOmitidos from "./components/ArchivosOmitidos.jsx";
 import ConsultaPdf from "./components/ConsultaPdf.jsx";
-import { construirPreguntaValidacion } from "./lib/consultaPdf.js";
 import { processPdfFile } from "./lib/parsers/index.js";
 import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
 import { analisisPrevio, huellaDeArchivo, olvidarAnalisis, recordarAnalisis } from "./lib/analizados.js";
@@ -285,7 +284,7 @@ export default function App() {
 
   // Con la omisión activa las muestras médicas se apartan de TODO lo que se
   // ve y se exporta, no sólo de las cargas nuevas: las que ya estaban
-  // guardadas seguían apareciendo en las tablas y en el FORMATO A09.
+  // guardadas seguían apareciendo en las tablas y en el Formato 01.
   const docs = useMemo(
     () => (omitirMM ? todosDocs.filter((d) => !documentoEsMuestraMedica(d)) : todosDocs),
     [todosDocs, omitirMM]
@@ -828,30 +827,21 @@ export default function App() {
     if (!ok) pushMessage("No hay datos para exportar en este producto.", "error");
   }
 
-  // Con "etapa" el FORMATO A09 sale enfocado sólo a la etapa activa: si de
+  // Con "etapa" el Formato 01 sale enfocado sólo a la etapa activa: si de
   // este producto sólo se cargó Acondicionado, no debe mostrar columnas
   // vacías de Fabricación o Envase.
   // Viendo las etapas juntas no hay "sólo esta etapa" que enfocar: el
   // informe sale de todas, que es justo lo que se está mirando.
   const stageParaInforme = reportScope === "etapa" && stageActiva ? stageActiva : null;
 
-  async function handleExportFormatoA09() {
+  async function handleExportFormato01() {
     if (!productoActivo) return;
     try {
       await exportCuadrosToWord(docs, productoActivo, { onlyCritical, stage: stageParaInforme });
-      pushMessage("FORMATO A09 generado con el formato del reporte de referencia.", "success");
+      pushMessage("Formato 01 generado con el formato del reporte de referencia.", "success");
     } catch (err) {
-      pushMessage(`No se pudo generar el FORMATO A09: ${err.message}`, "error");
+      pushMessage(`No se pudo generar el Formato 01: ${err.message}`, "error");
     }
-  }
-
-  function handleValidarBibliografia() {
-    const pregunta = construirPreguntaValidacion(table, productoActivo, stageActiva);
-    if (!pregunta) {
-      pushMessage("No hay parámetros con rango para validar contra la bibliografía.", "error");
-      return;
-    }
-    openConsulta(pregunta);
   }
 
   async function handleCopy() {
@@ -1155,7 +1145,7 @@ export default function App() {
 
             {/* El esquema lee sus propios registros: describe el proceso, no
                 un lote, así que no depende de lo que haya cargado el análisis. */}
-            <Formato01Panel />
+            <Formato10Panel />
 
             {!blank && <h2 className="seccion-titulo">Resultados del análisis</h2>}
 
@@ -1226,36 +1216,27 @@ export default function App() {
                       así que el conmutador sólo aparece dentro de una etapa
                       concreta. */}
                   {stages.length > 1 && stageActiva && (
-                    <div className="switch" role="group" aria-label="Alcance del FORMATO A09">
+                    <div className="switch" role="group" aria-label="Alcance del Formato 01">
                       <button
                         className={`switch__opt ${reportScope === "etapa" ? "is-active" : ""}`}
                         onClick={() => setReportScope("etapa")}
-                        title="El FORMATO A09 sale enfocado sólo a esta etapa"
+                        title="El Formato 01 sale enfocado sólo a esta etapa"
                       >
-                        FORMATO A09: solo {stageActiva}
+                        Formato 01: solo {stageActiva}
                       </button>
                       <button
                         className={`switch__opt ${reportScope === "todas" ? "is-active" : ""}`}
                         onClick={() => setReportScope("todas")}
-                        title="El FORMATO A09 combina todas las etapas cargadas"
+                        title="El Formato 01 combina todas las etapas cargadas"
                       >
                         Todas las etapas
                       </button>
                     </div>
                   )}
 
-                  <button
-                    className="btn btn--ghost"
-                    onClick={handleValidarBibliografia}
-                    disabled={!table}
-                    title="Abre Consulta PDF con una pregunta armada a partir de estos parámetros críticos"
-                  >
-                    <IconMessageSquare size={16} />
-                    Validar contra bibliografía
-                  </button>
-                  <button className="btn btn--ghost" onClick={handleExportFormatoA09} disabled={!productoActivo}>
+                  <button className="btn btn--ghost" onClick={handleExportFormato01} disabled={!productoActivo}>
                     <IconFileText size={16} />
-                    FORMATO A09
+                    Formato 01
                   </button>
                   <button className="btn btn--primary" onClick={handleExport} disabled={!productoActivo}>
                     <IconDownload size={16} />
