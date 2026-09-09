@@ -8,6 +8,7 @@ import ProductImagePicker from "./components/ProductImagePicker.jsx";
 import SapPanel from "./components/SapPanel.jsx";
 import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
 import Formato3Panel from "./components/Formato3Panel.jsx";
+import Formato02Panel from "./components/Formato02Panel.jsx";
 import Formato10Panel from "./components/Formato10Panel.jsx";
 import RiesgoView from "./components/RiesgoView.jsx";
 import EstadisticaView from "./components/EstadisticaViewLazy.jsx";
@@ -1141,6 +1142,12 @@ export default function App() {
 
             {!blank && productDocs.length > 0 && (
               <Formato3Panel documents={docs} familia={productoActivo} />
+            )}
+
+            {/* El Formato 02 se arma con el protocolo y los registros de este
+                producto; con el protocolo solo, sale en blanco para planta. */}
+            {!blank && productDocs.length > 0 && (
+              <Formato02Panel documents={docs} familia={productoActivo} />
             )}
 
             {/* El esquema lee sus propios registros: describe el proceso, no
