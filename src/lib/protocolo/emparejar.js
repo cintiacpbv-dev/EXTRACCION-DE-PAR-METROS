@@ -14,6 +14,7 @@
 // firma. Por eso, cuando la evidencia no alcanza, no se rellena nada.
 
 import { limitesDe } from "../rango.js";
+import { SECCION_SIN_TIEMPO_RE } from "../parsers/tiempos.js";
 
 // Qué magnitud mide un parámetro, por cómo se llama. Es el primer filtro:
 // una temperatura no puede emparejarse con una velocidad aunque los dos
@@ -218,8 +219,19 @@ export function cabeceraDeEtapa(documentos, etapaProtocolo) {
   // Del primer inicio al último final, no del primero de cada clase: una
   // etapa con varias operaciones nombradas cerraba en cuanto acababa la
   // primera.
-  const finales = valores(/^FECHA\s*\/\s*HORA\s+FINAL\s+DE/).sort();
-  const inicios = valores(/^FECHA\s*\/\s*HORA\s+INICIO\s+DE/).sort();
+  //
+  // El papeleo y el set up quedan fuera, igual que quedan fuera del tiempo de
+  // proceso en el resto de la aplicación: el último "set up" del lote 2081266
+  // termina a las 16:00 del día 20 —limpiando la sala— y hacía que la etapa
+  // de fabricación pareciera durar cuatro días más de lo que duró.
+  const deProceso = (re) =>
+    params
+      .filter((x) => re.test(normalizar(x.baseLabel || x.label)) && x.value != null && !SECCION_SIN_TIEMPO_RE.test(x.section || ""))
+      .map((x) => String(x.value).trim())
+      .sort();
+
+  const finales = deProceso(/^FECHA\s*\/\s*HORA\s+FINAL\s+DE/);
+  const inicios = deProceso(/^FECHA\s*\/\s*HORA\s+INICIO\s+DE/);
 
   const operarios = nombres("operarios");
   const supervisores = nombres("supervisores");
