@@ -1144,11 +1144,14 @@ export default function App() {
               <Formato3Panel documents={docs} familia={productoActivo} />
             )}
 
-            {/* El Formato 02 se arma con el protocolo y los registros de este
-                producto; con el protocolo solo, sale en blanco para planta. */}
-            {!blank && productDocs.length > 0 && (
-              <Formato02Panel documents={docs} familia={productoActivo} />
-            )}
+            {/* El Formato 02 no depende de que haya un análisis montado: se
+                puede armar con el protocolo solo —el cuadro en blanco que se
+                lleva a planta— o con registros subidos en su propio panel.
+                Cuando sí hay análisis, aprovecha sus registros. */}
+            <Formato02Panel
+              documents={blank ? [] : docs}
+              familia={blank ? null : productoActivo}
+            />
 
             {/* El esquema lee sus propios registros: describe el proceso, no
                 un lote, así que no depende de lo que haya cargado el análisis. */}
