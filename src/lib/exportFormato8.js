@@ -38,8 +38,15 @@ const A4_ALTO = 16840;
 const MARGEN = { top: 1417, right: 1701, bottom: 993, left: 1701 };
 const ANCHO_UTIL = A4_ANCHO - MARGEN.left - MARGEN.right;
 
-// Las seis columnas, con las proporciones del formato y sumando el ancho útil.
-const COLS = [2342, 2043, 1027, 892, 880, 1321];
+// Las seis columnas del formato de la empresa, con sus proporciones y sumando
+// el ancho útil.
+const COLS_BASE = [2342, 2043, 1027, 892, 880, 1321];
+
+// Y las siete de cuando hay registros cargados: la misma tabla con una
+// columna más al final, "Intervino en el lote". Es una columna añadida y va
+// rotulada como tal; sin registros que cruzar, el cuadro sale con las seis de
+// siempre.
+const COLS_CON_LOTE = [1950, 1700, 950, 700, 700, 1200, 1305];
 
 function pagina() {
   return { page: { size: { width: A4_ANCHO, height: A4_ALTO }, margin: MARGEN } };
@@ -87,7 +94,21 @@ function porPersona(personal) {
   return grupos;
 }
 
+/**
+ * Qué se escribe en "Intervino en el lote".
+ *
+ * Tres respuestas, porque son tres cosas distintas: hizo este trabajo, estuvo
+ * en el lote pero en otra operación, o no aparece firmando nada.
+ */
+function marcaDeLote(p) {
+  if (p.intervinoEnElRol) return "Sí, en esta etapa";
+  if (p.intervino) return "Sí, en otra etapa";
+  return "—";
+}
+
 function cuadroPersonal(personal, opciones) {
+  const conLote = personal.some((p) => p.usuario !== undefined);
+  const COLS = conLote ? COLS_CON_LOTE : COLS_BASE;
   const cabecera = [
     new TableRow({
       tableHeader: true,
@@ -97,6 +118,9 @@ function cuadroPersonal(personal, opciones) {
         celda("Fecha", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: COLS[2], merge: VerticalMergeType.RESTART }),
         celda("Verificar", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, colSpan: 2, width: COLS[3] + COLS[4] }),
         celda("Verificado por / Fecha", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: COLS[5], merge: VerticalMergeType.RESTART }),
+        ...(conLote
+          ? [celda("Intervino en el lote", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: COLS[6], merge: VerticalMergeType.RESTART })]
+          : []),
       ],
     }),
     new TableRow({
@@ -108,6 +132,7 @@ function cuadroPersonal(personal, opciones) {
         celda("SI", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: COLS[3] }),
         celda("NO", { bold: true, align: AlignmentType.CENTER, fill: AZUL_CABECERA, width: COLS[4] }),
         celda("", { width: COLS[5], merge: VerticalMergeType.CONTINUE }),
+        ...(conLote ? [celda("", { width: COLS[6], merge: VerticalMergeType.CONTINUE })] : []),
       ],
     }),
   ];
@@ -139,6 +164,15 @@ function cuadroPersonal(personal, opciones) {
             celda("", { width: COLS[3] }),
             celda("", { width: COLS[4] }),
             celda("", { width: COLS[5] }),
+            ...(conLote
+              ? [
+                  celda(marcaDeLote(p), {
+                    align: AlignmentType.CENTER,
+                    width: COLS[6],
+                    bold: p.intervinoEnElRol,
+                  }),
+                ]
+              : []),
           ],
         })
       );
@@ -146,6 +180,56 @@ function cuadroPersonal(personal, opciones) {
   }
 
   return tabla(COLS, filas);
+}
+
+/**
+ * Lo que el cruce con el registro deja dicho, debajo del cuadro.
+ *
+ * Se escribe sólo cuando hay registros cargados y sólo con lo que se puede
+ * sostener: quién hizo un trabajo cuya calificación para ese rol no estaba
+ * vigente, y quién firmó el registro sin figurar en esta sección del
+ * consolidado. Lo segundo NO dice que esa gente no esté calificada —los
+ * supervisores suelen ser de otra sección— sino que aquí no consta, que es
+ * distinto y es lo que hay que ir a comprobar.
+ */
+function hallazgos({ personal, sinConsolidado, anios, hoy }) {
+  const conLote = personal.some((p) => p.usuario !== undefined);
+  if (!conLote) return [];
+
+  const enSuRol = personal.filter((p) => p.intervinoEnElRol);
+  const sinRespaldo = enSuRol.filter((p) => vigenciaDe(p, { anios, hoy }).estado !== "vigente");
+
+  const lineas = [];
+  lineas.push(
+    parrafo(
+      `Del personal listado, ${new Set(enSuRol.map((p) => p.nombre)).size} persona(s) intervino en el lote ` +
+        `en la etapa de su rol, en ${enSuRol.length} rol(es).`
+    )
+  );
+
+  if (sinRespaldo.length > 0) {
+    lineas.push(
+      parrafo(
+        `De esos, ${sinRespaldo.length} rol(es) se ejecutaron sin calificación vigente: ` +
+          sinRespaldo.map((p) => `${p.nombre} (${p.rol}, ${p.fecha || "sin fecha de calificación"})`).join("; ") +
+          ".",
+        { bold: true }
+      )
+    );
+  }
+
+  if ((sinConsolidado || []).length > 0) {
+    lineas.push(
+      parrafo(
+        `Firmaron el registro y no figuran en esta sección del consolidado: ${sinConsolidado.join(", ")}. ` +
+          "Puede tratarse de personal de otra sección —los supervisores a menudo lo son—: lo que aquí consta " +
+          "es que no están en esta hoja, no que no estén calificados."
+      )
+    );
+  }
+
+  lineas.push(new Paragraph({ spacing: { after: 160 }, children: [] }));
+  return lineas;
 }
 
 /** El bloque de firma del final. */
@@ -168,7 +252,7 @@ function bloqueFirma() {
  * Arma el Formato 8 con el personal ya elegido (sección y roles) y la regla
  * de vigencia que se esté usando.
  */
-export function construirFormato8({ personal = [], seccion = "", producto = "", lote = "", anios, hoy, opciones = {} }) {
+export function construirFormato8({ personal = [], sinConsolidado = [], seccion = "", producto = "", lote = "", anios, hoy, opciones = {} }) {
   const hijos = [
     new Paragraph({
       spacing: { after: 160 },
@@ -182,6 +266,7 @@ export function construirFormato8({ personal = [], seccion = "", producto = "", 
     new Paragraph({ spacing: { after: 120 }, children: [] }),
     cuadroPersonal(personal, { anios, hoy }),
     new Paragraph({ spacing: { before: 200, after: 200 }, children: [] }),
+    ...hallazgos({ personal, sinConsolidado, anios, hoy }),
     parrafo("Cumple criterios de aceptación: (SI/NO): ______, en caso de NO refiera N° de desviación: ______"),
     new Paragraph({ spacing: { after: 200 }, children: [] }),
     bloqueFirma(),

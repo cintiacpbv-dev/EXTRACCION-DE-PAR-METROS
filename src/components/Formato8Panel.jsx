@@ -4,6 +4,7 @@ import { IconUser, IconChevronDown, IconDownload, IconAlert } from "./Icons.jsx"
 import {
   ANIOS_VIGENCIA,
   borrarPersonalRemoto,
+  cruzarConRegistro,
   cargarPersonalLocal,
   cargarPersonalRemoto,
   guardarPersonalLocal,
@@ -92,12 +93,26 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
   const activa = useMemo(() => secciones.find((s) => s.seccion === seccion) || null, [secciones, seccion]);
   const roles = useMemo(() => (activa ? rolesDe(activa) : []), [activa]);
 
-  const filas = useMemo(() => {
-    if (!activa) return [];
-    return activa.personal
-      .filter((p) => !rolesFuera.has(p.rol))
-      .map((p) => ({ ...p, vigencia: vigenciaDe(p, { anios }) }));
-  }, [activa, rolesFuera, anios]);
+  // Quién de la sección firmó los registros del lote, y en qué operación.
+  const cruce = useMemo(
+    () => (activa ? cruzarConRegistro(activa.personal, registros) : { filas: [], sinConsolidado: [] }),
+    [activa, registros]
+  );
+
+  const filas = useMemo(
+    () =>
+      cruce.filas
+        .filter((p) => !rolesFuera.has(p.rol))
+        .map((p) => ({ ...p, vigencia: vigenciaDe(p, { anios }) })),
+    [cruce, rolesFuera, anios]
+  );
+
+  // El hallazgo que de verdad busca un expediente: quién hizo un trabajo cuya
+  // calificación para ese rol no estaba vigente.
+  const sinRespaldo = useMemo(
+    () => filas.filter((f) => f.intervinoEnElRol && f.vigencia.estado !== "vigente"),
+    [filas]
+  );
 
   const cuenta = useMemo(() => {
     const c = { vigente: 0, vencida: 0, "sin-fecha": 0 };
@@ -166,6 +181,7 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
     try {
       await exportarFormato8({
         personal: filas,
+        sinConsolidado: cruce.sinConsolidado,
         seccion,
         producto: familia || registros[0]?.producto || "",
         lote: lote || registros[0]?.lote || "",
@@ -301,7 +317,28 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
               <span className="sap-pastilla sap-pastilla--ok">{cuenta.vigente} vigentes</span>
               <span className="sap-pastilla">{cuenta.vencida} vencidas</span>
               <span className="sap-pastilla">{cuenta["sin-fecha"]} sin fecha</span>
+              {registros.length > 0 && (
+                <span className="sap-pastilla">
+                  {filas.filter((f) => f.intervinoEnElRol).length} intervinieron en el lote
+                </span>
+              )}
             </div>
+
+            {sinRespaldo.length > 0 && (
+              <p className="protocolo-error">
+                <IconAlert size={14} /> {sinRespaldo.length} rol(es) se ejecutaron en este lote sin calificación
+                vigente: {sinRespaldo.map((f) => `${f.nombre} (${f.rol})`).join("; ")}.
+              </p>
+            )}
+
+            {registros.length > 0 && cruce.sinConsolidado.length > 0 && (
+              <p className="muted protocolo-nota">
+                Firmaron el registro y no figuran en esta sección del consolidado:{" "}
+                <strong>{cruce.sinConsolidado.join(", ")}</strong>. Puede ser personal de otra sección —los
+                supervisores a menudo lo son—: lo que consta es que no están en esta hoja, no que no estén
+                calificados.
+              </p>
+            )}
 
             <table className="protocolo-tabla">
               <thead>
@@ -311,6 +348,7 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
                   <th>Fecha</th>
                   <th>Vence</th>
                   <th>Estado</th>
+                  {registros.length > 0 && <th>Intervino en el lote</th>}
                 </tr>
               </thead>
               <tbody>
@@ -323,6 +361,15 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
                       <td>{f.fecha || "—"}</td>
                       <td>{f.vigencia.vence || "—"}</td>
                       <td className={e.clase}>{e.texto}</td>
+                      {registros.length > 0 && (
+                        <td className={f.intervinoEnElRol ? "f8-intervino" : "f8-estado--sin"}>
+                          {f.intervinoEnElRol
+                            ? "Sí, en esta etapa"
+                            : f.intervino
+                              ? "Sí, en otra etapa"
+                              : "—"}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
