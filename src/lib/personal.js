@@ -14,6 +14,7 @@
 // resolver a mano las cadenas compartidas, que es lo que hace `cadenas()`.
 
 import JSZip from "jszip";
+import { supabase, supabaseEnabled } from "./supabaseClient.js";
 
 // Las hojas de sección se llaman "<SECCIÓN> STATUS". El resto del libro
 // —resúmenes por fecha, listas de pendientes— no tiene esta forma y se
@@ -329,4 +330,47 @@ export function olvidarPersonalLocal() {
   } catch {
     // Nada que hacer: se queda hasta la próxima carga.
   }
+}
+
+// --- el consolidado guardado de verdad --------------------------------------
+//
+// Guardarlo sólo en este navegador no basta: se pierde al limpiar los datos
+// del sitio, no está en la computadora de al lado, y obliga a volver a subir
+// un libro que no ha cambiado. Subirlo es y sigue siendo manual —se hace
+// cuando el consolidado se actualiza—, pero una vez subido se queda.
+//
+// Hay uno solo: el consolidado de calificación no es de un producto ni de un
+// lote, así que la tabla guarda una única fila y cada carga nueva reemplaza a
+// la anterior. La tabla la crea supabase_migration_v15.sql.
+
+const CLAVE_UNICA = "personal";
+
+/** Trae de Supabase el consolidado guardado, o null si no hay ninguno. */
+export async function cargarPersonalRemoto() {
+  if (!supabaseEnabled) return null;
+  const { data, error } = await supabase
+    .from("personal_calificacion")
+    .select("personal")
+    .eq("clave", CLAVE_UNICA)
+    .maybeSingle();
+
+  if (error || !data?.personal) return null;
+  const guardado = data.personal;
+  return Array.isArray(guardado?.secciones) ? guardado : null;
+}
+
+/** Guarda (o reemplaza) el consolidado para todas las sesiones. */
+export async function guardarPersonalRemoto(libro) {
+  if (!supabaseEnabled) return { ok: true, skipped: true };
+  const { error } = await supabase
+    .from("personal_calificacion")
+    .upsert({ clave: CLAVE_UNICA, personal: libro }, { onConflict: "clave" });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+/** Lo borra de la nube: quitarlo aquí debe quitarlo en todas partes. */
+export async function borrarPersonalRemoto() {
+  if (!supabaseEnabled) return { ok: true, skipped: true };
+  const { error } = await supabase.from("personal_calificacion").delete().eq("clave", CLAVE_UNICA);
+  return error ? { ok: false, error: error.message } : { ok: true };
 }

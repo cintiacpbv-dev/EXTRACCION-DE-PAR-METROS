@@ -1,16 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import UploadZone from "./UploadZone.jsx";
 import { IconUser, IconChevronDown, IconDownload, IconAlert } from "./Icons.jsx";
 import {
   ANIOS_VIGENCIA,
+  borrarPersonalRemoto,
   cargarPersonalLocal,
+  cargarPersonalRemoto,
   guardarPersonalLocal,
+  guardarPersonalRemoto,
   leerPersonal,
   olvidarPersonalLocal,
   rolesDe,
   seccionDe,
   vigenciaDe,
 } from "../lib/personal.js";
+import { supabaseEnabled } from "../lib/supabaseClient.js";
 import { exportarFormato8 } from "../lib/exportFormato8.js";
 
 const ETIQUETA = {
@@ -43,6 +47,30 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
   const [anios, setAnios] = useState(ANIOS_VIGENCIA);
   const [trabajando, setTrabajando] = useState("");
   const [error, setError] = useState(null);
+  const [aviso, setAviso] = useState(null);
+  // Si el consolidado que se está usando es el guardado para todos, o sólo el
+  // de este navegador (porque Supabase no está conectado, o porque la subida
+  // a la nube falló).
+  const [enLaNube, setEnLaNube] = useState(false);
+
+  // El consolidado guardado se trae al abrir y manda sobre el de este
+  // navegador: es el que subió quien lo actualizó por última vez, desde donde
+  // fuera. Va aparte y sin bloquear nada; sin conexión se sigue con el local,
+  // que es lo que había antes.
+  useEffect(() => {
+    if (!supabaseEnabled) return;
+    let vigente = true;
+    (async () => {
+      const remoto = await cargarPersonalRemoto();
+      if (!vigente || !remoto) return;
+      setLibro(remoto);
+      setEnLaNube(true);
+      guardarPersonalLocal(remoto);
+    })();
+    return () => {
+      vigente = false;
+    };
+  }, []);
 
   const registros = useMemo(
     () => documents.filter((d) => (!familia || d.familia === familia) && d.kind !== "orden"),
@@ -79,20 +107,47 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
 
   async function cargarExcel(files) {
     setError(null);
+    setAviso(null);
     setTrabajando("Leyendo el consolidado…");
     try {
       const leido = await leerPersonal(await files[0].arrayBuffer(), { fileName: files[0].name });
       setLibro(leido);
       setSeccionElegida(null);
       setRolesFuera(new Set());
-      if (!guardarPersonalLocal(leido)) {
-        setError("Se leyó bien, pero no cupo en el almacenamiento del navegador: habrá que subirlo otra vez la próxima sesión.");
+      const cupoEnLocal = guardarPersonalLocal(leido);
+
+      // La copia que de verdad importa es la de la nube: es la que sigue ahí
+      // al limpiar el navegador y la que ve el resto del equipo. La local pasa
+      // a ser sólo un atajo para no esperar a la red al abrir.
+      setTrabajando("Guardando el consolidado…");
+      const guardado = await guardarPersonalRemoto(leido);
+      setEnLaNube(guardado.ok && !guardado.skipped);
+
+      if (!guardado.ok) {
+        setAviso(
+          `El consolidado se cargó y ya se está usando, pero no se pudo guardar para todos: ${guardado.error}. ¿Falta ejecutar supabase_migration_v15.sql?`
+        );
+      } else if (guardado.skipped && !cupoEnLocal) {
+        setAviso("El consolidado no cupo en la memoria del navegador: habrá que volver a subirlo la próxima vez.");
       }
     } catch (err) {
       setError(`No se pudo leer el consolidado: ${err.message}`);
     } finally {
       setTrabajando("");
     }
+  }
+
+  async function quitarExcel() {
+    olvidarPersonalLocal();
+    setLibro(null);
+    setSeccionElegida(null);
+    setAviso(null);
+    setEnLaNube(false);
+    // Quitarlo aquí lo quita en todas partes: si sólo se borrara el de este
+    // navegador, al recargar volvería el de la nube y parecería que el botón
+    // no hizo nada.
+    const res = await borrarPersonalRemoto();
+    if (!res.ok) setAviso(`Se quitó de este navegador, pero no de la nube: ${res.error}`);
   }
 
   function alternarRol(rol) {
@@ -177,6 +232,18 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
         {error && (
           <p className="protocolo-error">
             <IconAlert size={14} /> {error}
+          </p>
+        )}
+        {aviso && (
+          <p className="protocolo-error">
+            <IconAlert size={14} /> {aviso}
+          </p>
+        )}
+        {libro && (
+          <p className="muted protocolo-nota">
+            {enLaNube
+              ? "Este consolidado está guardado para todos: quien abra la aplicación desde otra computadora lo encuentra puesto."
+              : "Este consolidado sólo está en este navegador. Para que lo vea el resto del equipo hace falta la tabla de Supabase (supabase_migration_v15.sql)."}
           </p>
         )}
 
@@ -266,14 +333,7 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
               <button className="btn btn--primary" onClick={descargar} disabled={!!trabajando || filas.length === 0}>
                 <IconDownload size={15} /> Descargar Formato 8 (.docx)
               </button>
-              <button
-                className="btn btn--ghost"
-                onClick={() => {
-                  olvidarPersonalLocal();
-                  setLibro(null);
-                  setSeccionElegida(null);
-                }}
-              >
+              <button className="btn btn--ghost" onClick={quitarExcel}>
                 Olvidar el consolidado
               </button>
             </div>
