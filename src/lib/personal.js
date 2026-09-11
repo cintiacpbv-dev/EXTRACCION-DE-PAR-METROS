@@ -250,6 +250,142 @@ export function vigenciaDe(fila, { anios = ANIOS_VIGENCIA, hoy = new Date() } = 
   };
 }
 
+// --- quién de la sección trabajó el lote --------------------------------------
+//
+// El registro firma con el usuario de red —"JRAMOSY"— y el consolidado con el
+// nombre completo —"RAMOS YOVERA JOSE ORLANDO"—. No hay una clave común, pero
+// el usuario se forma con una regla fija de la empresa: la inicial del primer
+// nombre, el primer apellido entero, y la inicial del segundo apellido.
+//
+//   RAMOS YOVERA JOSE ORLANDO          -> J + RAMOS + Y      = JRAMOSY
+//   ORDINOLA QUISPE MARCO ANTONIO      -> M + ORDINOLA + Q   = MORDINOLAQ
+//   AVENDAÑO DE LA CRUZ DELFINA JUANA  -> D + AVENDAÑO + D   = DAVENDAÑOD
+//
+// La comprobación se hace al revés, desde el usuario, y por eso no hace falta
+// saber dónde acaban los apellidos y empiezan los nombres —que en "DE LA CRUZ"
+// no es evidente—: se mira que el usuario empiece por una inicial, siga con el
+// primer apellido tal cual y acabe con una sola letra, la del segundo. Si algo
+// de eso no encaja, no hay emparejamiento: en un expediente es mejor decir "no
+// figura" que atribuirle a alguien la calificación de otro.
+
+function sinAcentos(texto) {
+  return String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Si un usuario del registro corresponde a un nombre del consolidado.
+ *
+ * Devuelve null cuando el nombre no tiene la forma "APELLIDO1 APELLIDO2
+ * NOMBRES" con la que se construye el usuario.
+ */
+export function usuarioCoincide(usuario, nombreCompleto) {
+  const u = sinAcentos(usuario).replace(/\s/g, "");
+  const palabras = sinAcentos(nombreCompleto).split(" ").filter(Boolean);
+  if (u.length < 3 || palabras.length < 3) return false;
+
+  const apellido = palabras[0];
+  const cuerpo = u.slice(1);
+  if (!cuerpo.startsWith(apellido)) return false;
+
+  // Lo que sobra tras el primer apellido es la inicial del segundo, una sola
+  // letra. Más de una letra significa que el usuario no está formado así.
+  const cola = cuerpo.slice(apellido.length);
+  if (cola.length !== 1 || cola !== palabras[1][0]) return false;
+
+  // Y la primera letra tiene que ser la inicial de alguno de los nombres, que
+  // van detrás de los apellidos.
+  return palabras.slice(1).some((w) => w[0] === u[0]);
+}
+
+// Qué rol del consolidado corresponde a cada sección del registro. El registro
+// nombra la operación ("PREPARACION DEL BULK (CONTENIDO)") y el consolidado el
+// rol ("FABRICACIÓN"), que es más grueso. El set up no es una operación y
+// queda fuera, igual que queda fuera del tiempo de proceso en el resto de la
+// aplicación.
+const ROL_DE_SECCION = [
+  { rol: /^FABRICACI[OÓ]N$/i, seccion: /^(FABRICACION|PREPARACION DEL BULK|PREPARACION DE LA GELATINA|GRANULACION|AMASADO|TAMIZADO|MEZCLA)/i },
+  { rol: /^ENCAPSULADO$/i, seccion: /^ENCAPSULADO/i },
+  { rol: /^INSPECCI[OÓ]N$/i, seccion: /^INSPECCION/i },
+  { rol: /^ENVASE/i, seccion: /^ENVASE|BLISTER/i },
+  { rol: /^SECADO/i, seccion: /^SECADO/i },
+  { rol: /^ACONDICIONADO/i, seccion: /^ACONDICIONADO|IMPRESION DE CAJAS/i },
+];
+
+const SECCION_SIN_OPERACION = /^(SET\s*UP|DOCUMENTACI[OÓ]N)/i;
+
+/** Las secciones del registro en las que firmó un usuario. */
+function seccionesDe(documentos, usuario) {
+  const vistas = new Set();
+  for (const doc of documentos || []) {
+    for (const [seccion, suyos] of Object.entries(doc.personnel?.porSeccion || {})) {
+      if (SECCION_SIN_OPERACION.test(seccion)) continue;
+      const gente = [...(suyos.operarios || []), ...(suyos.supervisores || [])];
+      if (gente.some((p) => sinAcentos(p.name).replace(/\s/g, "") === sinAcentos(usuario).replace(/\s/g, ""))) {
+        vistas.add(seccion);
+      }
+    }
+  }
+  return [...vistas];
+}
+
+/** Todos los usuarios que firmaron algo en los registros cargados. */
+export function usuariosDelRegistro(documentos) {
+  const vistos = new Set();
+  for (const doc of documentos || []) {
+    for (const p of doc.personnel?.operarios || []) vistos.add(p.name);
+    for (const p of doc.personnel?.supervisores || []) vistos.add(p.name);
+  }
+  return [...vistos].sort();
+}
+
+/**
+ * Cruza el personal de una sección con quien firmó los registros del lote.
+ *
+ * A cada fila (persona y rol) le añade:
+ *   - `intervino`: la persona firmó algo en el lote;
+ *   - `intervinoEnElRol`: firmó precisamente en una operación de ESE rol, que
+ *     es la pregunta que de verdad importa —¿estaba calificado para lo que
+ *     hizo?—;
+ *   - `usuario` y `secciones`: de dónde sale la marca, para poder revisarla.
+ *
+ * Y devuelve aparte `sinConsolidado`: los usuarios que firmaron el registro y
+ * no figuran en esta sección del consolidado. No se afirma que no estén
+ * calificados —pueden ser de otra sección, y los supervisores a menudo lo
+ * son—: se dice que aquí no constan, que es lo que se puede sostener.
+ */
+export function cruzarConRegistro(personal, documentos) {
+  const usuarios = usuariosDelRegistro(documentos);
+
+  // Un usuario que encajara con dos nombres no se atribuye a ninguno: antes
+  // sin marca que con la marca en la persona equivocada.
+  const dueño = new Map();
+  for (const usuario of usuarios) {
+    const candidatos = [...new Set(personal.map((p) => p.nombre))].filter((n) => usuarioCoincide(usuario, n));
+    if (candidatos.length === 1) dueño.set(usuario, candidatos[0]);
+  }
+
+  const porNombre = new Map();
+  for (const [usuario, nombre] of dueño) porNombre.set(nombre, usuario);
+
+  const filas = personal.map((p) => {
+    const usuario = porNombre.get(p.nombre) || null;
+    const secciones = usuario ? seccionesDe(documentos, usuario) : [];
+    const intervinoEnElRol = secciones.some((s) =>
+      ROL_DE_SECCION.some((r) => r.rol.test(p.rol) && r.seccion.test(s))
+    );
+    return { ...p, usuario, intervino: Boolean(usuario), secciones, intervinoEnElRol };
+  });
+
+  const sinConsolidado = usuarios.filter((u) => !dueño.has(u));
+  return { filas, sinConsolidado };
+}
+
 /** Los roles distintos de una sección, en orden alfabético. */
 export function rolesDe(seccion) {
   return [...new Set((seccion?.personal || []).map((p) => p.rol))].sort();
