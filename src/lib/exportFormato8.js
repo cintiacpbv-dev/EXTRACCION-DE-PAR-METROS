@@ -88,8 +88,10 @@ function porPersona(personal) {
   const grupos = [];
   for (const p of personal) {
     const ultimo = grupos[grupos.length - 1];
-    if (ultimo && ultimo.nombre === p.nombre) ultimo.roles.push(p);
-    else grupos.push({ nombre: p.nombre, roles: [p] });
+    // El nombre se combina sobre sus roles, pero no a través de dos
+    // secciones: ahí son dos bloques distintos, con su franja de por medio.
+    if (ultimo && ultimo.nombre === p.nombre && ultimo.seccion === p.seccion) ultimo.roles.push(p);
+    else grupos.push({ nombre: p.nombre, seccion: p.seccion, roles: [p] });
   }
   return grupos;
 }
@@ -109,6 +111,11 @@ function marcaDeLote(p) {
 function cuadroPersonal(personal, opciones) {
   const conLote = personal.some((p) => p.usuario !== undefined);
   const COLS = conLote ? COLS_CON_LOTE : COLS_BASE;
+  // Con varias secciones en el mismo cuadro hace falta decir de cuál es cada
+  // bloque: dos personas del mismo nombre y rol en secciones distintas son dos
+  // calificaciones distintas. Se separan con una franja y no con una columna
+  // más, que estrecharía las seis del formato de la empresa.
+  const varias = new Set(personal.map((p) => p.seccion).filter(Boolean)).size > 1;
   const cabecera = [
     new TableRow({
       tableHeader: true,
@@ -138,8 +145,26 @@ function cuadroPersonal(personal, opciones) {
   ];
 
   const filas = [...cabecera];
+  const anchoTotal = COLS.reduce((a, b) => a + b, 0);
+  let seccionEscrita = null;
 
   for (const grupo of porPersona(personal)) {
+    if (varias && grupo.roles[0]?.seccion !== seccionEscrita) {
+      seccionEscrita = grupo.roles[0]?.seccion;
+      filas.push(
+        new TableRow({
+          children: [
+            celda(`Sección: ${seccionEscrita}`, {
+              bold: true,
+              fill: AZUL_CABECERA,
+              colSpan: COLS.length,
+              width: anchoTotal,
+            }),
+          ],
+        })
+      );
+    }
+
     grupo.roles.forEach((p, i) => {
       const v = vigenciaDe(p, opciones);
       const vencida = v.estado === "vencida";
@@ -252,7 +277,8 @@ function bloqueFirma() {
  * Arma el Formato 8 con el personal ya elegido (sección y roles) y la regla
  * de vigencia que se esté usando.
  */
-export function construirFormato8({ personal = [], sinConsolidado = [], seccion = "", producto = "", lote = "", anios, hoy, opciones = {} }) {
+export function construirFormato8({ personal = [], sinConsolidado = [], secciones = [], producto = "", lote = "", anios, hoy, opciones = {} }) {
+  const seccion = secciones.join(", ");
   const hijos = [
     new Paragraph({
       spacing: { after: 160 },
@@ -260,7 +286,7 @@ export function construirFormato8({ personal = [], sinConsolidado = [], seccion 
         new TextRun({ text: "FORMATO 8: VERIFICACIÓN DE LA CALIFICACIÓN DEL PERSONAL.", font: FUENTE, size: 22, bold: true }),
       ],
     }),
-    parrafo(`Sección: ${seccion || "_____________________"}`),
+    parrafo(`${secciones.length > 1 ? "Secciones" : "Sección"}: ${seccion || "_____________________"}`),
     parrafo(`Producto: ${producto || "_____________________"}`),
     parrafo(`Lote: ${lote || "_____________________"}`),
     new Paragraph({ spacing: { after: 120 }, children: [] }),
