@@ -4,8 +4,12 @@
 // VITE_. Esa distinción es la razón de que esto sea una función de servidor y
 // no cuatro líneas en el navegador: Vite mete en el paquete todo lo que
 // empiece por VITE_, así que una contraseña comprobada en el navegador se
-// puede leer abriendo el código de la página. Aquí no sale nunca del
-// servidor; lo que viaja es un vale firmado.
+// puede leer abriendo el código de la página. Aquí no sale nunca del servidor;
+// lo único que se devuelve es un sí o un no.
+//
+// No se guarda ninguna sesión: la contraseña se pide en cada entrada y en cada
+// recarga, a propósito. Un equipo compartido en planta no debe quedar abierto
+// porque alguien entró por la mañana.
 //
 // Qué protege y qué no, dicho claro:
 //
@@ -22,12 +26,7 @@
 // aplicación funciona como siempre: así, publicar este cambio no deja a nadie
 // fuera antes de tiempo.
 
-import { createHmac, timingSafeEqual } from "crypto";
-
-// Cuánto vale un vale antes de volver a pedir la contraseña. Una jornada
-// larga: lo bastante para no estorbar, lo bastante poco para que un equipo
-// prestado no quede abierto para siempre.
-const HORAS_DE_VALE = 12;
+import { timingSafeEqual } from "crypto";
 
 function clave() {
   return process.env.APP_PASSWORD || "";
@@ -41,23 +40,6 @@ function iguales(a, b) {
   return timingSafeEqual(x, y);
 }
 
-function firmar(expira) {
-  return createHmac("sha256", clave()).update(String(expira)).digest("hex");
-}
-
-/** El vale: cuándo caduca y una firma que sólo se puede hacer con la clave. */
-function emitirVale() {
-  const expira = Date.now() + HORAS_DE_VALE * 3600 * 1000;
-  return { token: `${expira}.${firmar(expira)}`, expira };
-}
-
-function valeValido(token) {
-  const [expira, firma] = String(token || "").split(".");
-  if (!expira || !firma) return false;
-  if (!/^\d+$/.test(expira) || Number(expira) < Date.now()) return false;
-  return iguales(firma, firmar(expira));
-}
-
 export default async function handler(req, res) {
   // Sin contraseña configurada no hay puerta. Se dice explícitamente para que
   // la aplicación no tenga que adivinarlo.
@@ -69,7 +51,7 @@ export default async function handler(req, res) {
   // GET: ¿hace falta contraseña? Es lo único que la aplicación necesita saber
   // antes de dibujar nada.
   if (req.method === "GET") {
-    res.status(200).json({ requerida: true, horas: HORAS_DE_VALE });
+    res.status(200).json({ requerida: true });
     return;
   }
 
@@ -88,14 +70,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // Renovar: la aplicación pregunta al abrir si el vale que guardó sigue
-  // sirviendo, sin volver a pedir la contraseña.
-  if (cuerpo?.token) {
-    if (valeValido(cuerpo.token)) res.status(200).json({ ok: true });
-    else res.status(401).json({ ok: false, error: "El acceso caducó." });
-    return;
-  }
-
   if (typeof cuerpo?.clave !== "string" || cuerpo.clave === "") {
     res.status(400).json({ error: "Falta la contraseña." });
     return;
@@ -109,5 +83,5 @@ export default async function handler(req, res) {
     return;
   }
 
-  res.status(200).json({ ok: true, ...emitirVale() });
+  res.status(200).json({ ok: true });
 }
