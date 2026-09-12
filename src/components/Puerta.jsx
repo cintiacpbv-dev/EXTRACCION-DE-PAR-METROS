@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { IconFlask, IconAlert } from "./Icons.jsx";
-import { entrar, estadoDeAcceso } from "../lib/acceso.js";
+import { entrar, haceFaltaContrasena } from "../lib/acceso.js";
 
 /**
  * La pantalla de contraseña, delante de la aplicación.
@@ -11,6 +11,9 @@ import { entrar, estadoDeAcceso } from "../lib/acceso.js";
  *
  * Sin contraseña configurada en el servidor, este componente no pinta nada y
  * la aplicación sale directamente, como siempre.
+ *
+ * Haber entrado vive aquí, en memoria, y en ningún otro sitio: al recargar o
+ * al abrir otra pestaña se vuelve a pedir.
  */
 export default function Puerta({ children }) {
   const [estado, setEstado] = useState("comprobando");
@@ -20,8 +23,8 @@ export default function Puerta({ children }) {
 
   useEffect(() => {
     let vigente = true;
-    estadoDeAcceso().then((r) => {
-      if (vigente) setEstado(r);
+    haceFaltaContrasena().then((hace) => {
+      if (vigente) setEstado(hace ? "pedir" : "abierto");
     });
     return () => {
       vigente = false;
