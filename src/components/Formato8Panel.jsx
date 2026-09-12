@@ -11,6 +11,7 @@ import {
   guardarPersonalRemoto,
   leerPersonal,
   olvidarPersonalLocal,
+  ordenarPorEtapa,
   rolesDe,
   seccionDe,
   vigenciaDe,
@@ -127,11 +128,14 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
     [personalElegido, registros]
   );
 
+  // En el mismo orden que el documento —fabricación primero, acondicionado al
+  // final— para que lo que se ve en pantalla y lo que se imprime coincidan.
   const filas = useMemo(
     () =>
-      cruce.filas
-        .filter((p) => !rolesFuera.has(p.rol))
-        .map((p) => ({ ...p, vigencia: vigenciaDe(p, { anios }) })),
+      ordenarPorEtapa(cruce.filas.filter((p) => !rolesFuera.has(p.rol))).map((p) => ({
+        ...p,
+        vigencia: vigenciaDe(p, { anios }),
+      })),
     [cruce, rolesFuera, anios]
   );
 
