@@ -43,7 +43,10 @@ const ETIQUETA = {
 export default function Formato8Panel({ documents = [], familia, lote, opcionesEncabezado }) {
   const [abierto, setAbierto] = useState(false);
   const [libro, setLibro] = useState(() => cargarPersonalLocal());
-  const [seccionElegida, setSeccionElegida] = useState(null);
+  // null mientras no se haya tocado nada: entonces manda la sección propuesta
+  // a partir de los equipos del registro. En cuanto se elige a mano, manda la
+  // elección, aunque sea vaciarla.
+  const [seccionesElegidas, setSeccionesElegidas] = useState(null);
   const [rolesFuera, setRolesFuera] = useState(() => new Set());
   const [anios, setAnios] = useState(ANIOS_VIGENCIA);
   const [trabajando, setTrabajando] = useState("");
@@ -88,15 +91,40 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
     () => (libro ? seccionDe(registros, libro.secciones) || secciones[0]?.seccion || "" : ""),
     [libro, registros, secciones]
   );
-  const seccion = seccionElegida ?? seccionPropuesta;
+  // Un producto puede pasar por más de una sección —se fabrica en cápsulas
+  // blandas y se acondiciona en otra—, así que se eligen las que hagan falta.
+  const elegidas = useMemo(
+    () => seccionesElegidas ?? (seccionPropuesta ? [seccionPropuesta] : []),
+    [seccionesElegidas, seccionPropuesta]
+  );
 
-  const activa = useMemo(() => secciones.find((s) => s.seccion === seccion) || null, [secciones, seccion]);
-  const roles = useMemo(() => (activa ? rolesDe(activa) : []), [activa]);
+  const activas = useMemo(
+    () => secciones.filter((s) => elegidas.includes(s.seccion)),
+    [secciones, elegidas]
+  );
 
-  // Quién de la sección firmó los registros del lote, y en qué operación.
+  // En el orden del libro, no en el orden en que se fueron pinchando: así el
+  // rótulo de arriba y las franjas del cuadro dicen lo mismo.
+  const nombresActivos = useMemo(() => activas.map((s) => s.seccion), [activas]);
+
+  // La misma persona puede estar en dos secciones con roles distintos, así que
+  // cada fila se queda con la suya: sin eso, dos filas iguales en el cuadro no
+  // se sabría de dónde salen.
+  const personalElegido = useMemo(
+    () => activas.flatMap((s) => s.personal.map((p) => ({ ...p, seccion: s.seccion }))),
+    [activas]
+  );
+
+  const roles = useMemo(
+    () => [...new Set(activas.flatMap((s) => rolesDe(s)))].sort(),
+    [activas]
+  );
+
+  // Quién de las secciones elegidas firmó los registros del lote, y en qué
+  // operación.
   const cruce = useMemo(
-    () => (activa ? cruzarConRegistro(activa.personal, registros) : { filas: [], sinConsolidado: [] }),
-    [activa, registros]
+    () => cruzarConRegistro(personalElegido, registros),
+    [personalElegido, registros]
   );
 
   const filas = useMemo(
@@ -127,7 +155,7 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
     try {
       const leido = await leerPersonal(await files[0].arrayBuffer(), { fileName: files[0].name });
       setLibro(leido);
-      setSeccionElegida(null);
+      setSeccionesElegidas(null);
       setRolesFuera(new Set());
       const cupoEnLocal = guardarPersonalLocal(leido);
 
@@ -155,7 +183,7 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
   async function quitarExcel() {
     olvidarPersonalLocal();
     setLibro(null);
-    setSeccionElegida(null);
+    setSeccionesElegidas(null);
     setAviso(null);
     setEnLaNube(false);
     // Quitarlo aquí lo quita en todas partes: si sólo se borrara el de este
@@ -163,6 +191,16 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
     // no hizo nada.
     const res = await borrarPersonalRemoto();
     if (!res.ok) setAviso(`Se quitó de este navegador, pero no de la nube: ${res.error}`);
+  }
+
+  function alternarSeccion(nombre) {
+    setSeccionesElegidas((previas) => {
+      const base = previas ?? (seccionPropuesta ? [seccionPropuesta] : []);
+      return base.includes(nombre) ? base.filter((s) => s !== nombre) : [...base, nombre];
+    });
+    // Los roles de la sección que entra no tienen por qué estar apagados
+    // porque alguien apagara uno del mismo nombre en otra.
+    setRolesFuera(new Set());
   }
 
   function alternarRol(rol) {
@@ -182,7 +220,7 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
       await exportarFormato8({
         personal: filas,
         sinConsolidado: cruce.sinConsolidado,
-        seccion,
+        secciones: nombresActivos,
         producto: familia || registros[0]?.producto || "",
         lote: lote || registros[0]?.lote || "",
         anios,
@@ -197,7 +235,9 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
 
   const resumen = libro
     ? `${libro.fileName || "consolidado"} · ${secciones.length} secciones` +
-      (activa ? ` · ${seccion}: ${filas.length} filas, ${cuenta.vencida} vencida(s)` : "")
+      (activas.length > 0
+        ? ` · ${nombresActivos.join(", ")}: ${filas.length} filas, ${cuenta.vencida} vencida(s)`
+        : " · ninguna sección elegida")
     : "Sube el consolidado de calificación del personal (.xlsx) para armar el cuadro.";
 
   if (!abierto) {
@@ -267,17 +307,6 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
           <>
             <div className="f8-controles">
               <label className="f8-campo">
-                <span>Sección</span>
-                <select value={seccion} onChange={(e) => setSeccionElegida(e.target.value)}>
-                  {secciones.map((s) => (
-                    <option key={s.seccion} value={s.seccion}>
-                      {s.seccion} ({new Set(s.personal.map((p) => p.nombre)).size} personas)
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="f8-campo">
                 <span>Vigencia de la calificación</span>
                 <select value={anios} onChange={(e) => setAnios(Number(e.target.value))}>
                   {[1, 2, 3, 4, 5].map((n) => (
@@ -287,6 +316,21 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
                   ))}
                 </select>
               </label>
+            </div>
+
+            <div className="f8-roles">
+              <span className="muted">Secciones:</span>
+              {secciones.map((s) => (
+                <button
+                  key={s.seccion}
+                  className={`sap-pastilla ${elegidas.includes(s.seccion) ? "sap-pastilla--ok" : ""}`}
+                  onClick={() => alternarSeccion(s.seccion)}
+                  aria-pressed={elegidas.includes(s.seccion)}
+                  title={`${new Set(s.personal.map((p) => p.nombre)).size} personas`}
+                >
+                  {s.seccion}
+                </button>
+              ))}
             </div>
 
             {roles.length > 0 && (
@@ -304,6 +348,12 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
                   </button>
                 ))}
               </div>
+            )}
+
+            {activas.length === 0 && (
+              <p className="protocolo-error">
+                <IconAlert size={14} /> Elige al menos una sección para armar el cuadro.
+              </p>
             )}
 
             <p className="muted protocolo-nota">
@@ -343,6 +393,7 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
             <table className="protocolo-tabla">
               <thead>
                 <tr>
+                  {elegidas.length > 1 && <th>Sección</th>}
                   <th>Nombre del personal</th>
                   <th>Etapa donde interviene</th>
                   <th>Fecha</th>
@@ -355,7 +406,8 @@ export default function Formato8Panel({ documents = [], familia, lote, opcionesE
                 {filas.map((f, i) => {
                   const e = ETIQUETA[f.vigencia.estado];
                   return (
-                    <tr key={`${f.nombre}|${f.rol}|${i}`} className={f.vigencia.estado === "vencida" ? "is-vencida" : ""}>
+                    <tr key={`${f.seccion}|${f.nombre}|${f.rol}|${i}`} className={f.vigencia.estado === "vencida" ? "is-vencida" : ""}>
+                      {elegidas.length > 1 && <td>{f.seccion}</td>}
                       <td>{f.nombre}</td>
                       <td>{f.rol}</td>
                       <td>{f.fecha || "—"}</td>
