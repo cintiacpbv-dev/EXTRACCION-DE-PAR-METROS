@@ -25,7 +25,7 @@ import {
 } from "docx";
 import { encabezadoYPie } from "./exportEncabezado.js";
 import { logoPorDefecto } from "./logoEmpresa.js";
-import { vigenciaDe } from "./personal.js";
+import { ordenarPorEtapa, vigenciaDe } from "./personal.js";
 
 const FUENTE = "Arial";
 const TAM = 16;
@@ -277,8 +277,17 @@ function bloqueFirma() {
  * Arma el Formato 8 con el personal ya elegido (sección y roles) y la regla
  * de vigencia que se esté usando.
  */
-export function construirFormato8({ personal = [], sinConsolidado = [], secciones = [], producto = "", lote = "", anios, hoy, opciones = {} }) {
-  const seccion = secciones.join(", ");
+export function construirFormato8({ personal: sinOrdenar = [], sinConsolidado = [], secciones = [], producto = "", lote = "", anios, hoy, opciones = {} }) {
+  // El cuadro se lee de principio a fin del proceso, empiece por donde
+  // empiece la hoja del consolidado: fabricación arriba, acondicionado abajo.
+  const personal = ordenarPorEtapa(sinOrdenar);
+
+  // El rótulo nombra las secciones en el mismo orden en que salen en el
+  // cuadro: si arriba dice una cosa y las franjas de abajo otra, quien lo lee
+  // duda de las dos.
+  const enOrden = [...new Set(personal.map((p) => p.seccion).filter(Boolean))];
+  const listadas = enOrden.length > 0 ? enOrden : secciones;
+  const seccion = listadas.join(", ");
   const hijos = [
     new Paragraph({
       spacing: { after: 160 },
@@ -286,7 +295,7 @@ export function construirFormato8({ personal = [], sinConsolidado = [], seccione
         new TextRun({ text: "FORMATO 8: VERIFICACIÓN DE LA CALIFICACIÓN DEL PERSONAL.", font: FUENTE, size: 22, bold: true }),
       ],
     }),
-    parrafo(`${secciones.length > 1 ? "Secciones" : "Sección"}: ${seccion || "_____________________"}`),
+    parrafo(`${listadas.length > 1 ? "Secciones" : "Sección"}: ${seccion || "_____________________"}`),
     parrafo(`Producto: ${producto || "_____________________"}`),
     parrafo(`Lote: ${lote || "_____________________"}`),
     new Paragraph({ spacing: { after: 120 }, children: [] }),

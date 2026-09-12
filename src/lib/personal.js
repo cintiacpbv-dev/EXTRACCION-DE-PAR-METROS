@@ -386,9 +386,116 @@ export function cruzarConRegistro(personal, documentos) {
   return { filas, sinConsolidado };
 }
 
+// --- el orden del proceso ------------------------------------------------
+//
+// El Formato 8 se lee de principio a fin del proceso: empieza en fabricación
+// y acaba en acondicionado, con lo que haya en medio. El consolidado no trae
+// ese orden por ningún lado —sus hojas están por sección y sus filas por
+// apellido— así que va escrito aquí.
+//
+// Se compara por el principio del rol, que es lo que permite que "FABRICACIÓN
+// 01" a "FABRICACIÓN 04" y "ENVASE 01" a "ENVASE 06" caigan con los suyos sin
+// enumerarlos, y que "ACONDICIONDAO" —una errata del propio libro— caiga con
+// acondicionado.
+const ORDEN_DEL_PROCESO = [
+  /^(DISPENSACI[OÓ]N|PREPARACI[OÓ]N DE MATERIALES)/,
+  /^(LAVADO|DESCONTAMINACI[OÓ]N)/,
+  /^FABRICACI[OÓ]N/,
+  /^(MEZCLA|LUBRICACI[OÓ]N)/,
+  /^GRANULACI[OÓ]N/,
+  /^(TABLETEADO|COMPRESI[OÓ]N)/,
+  /^RECUBRIMIENTO/,
+  /^ENCAPSULADO/,
+  /^PRE\s*-?\s*SECADO/,
+  /^SECADO/,
+  /^FILTRACI[OÓ]N/,
+  /^INSPECCI[OÓ]N/,
+  /^ENSOBRADO/,
+  /^ENVASE/,
+  /^FOLIADO/,
+  /^CODIFICADO/,
+];
+
+// Acondicionado va el último, siempre. Lo que no sea una etapa reconocible
+// —monitoreo, soporte de línea, ropería, volante interno— se queda justo
+// antes: dejarlo detrás rompería la regla de que el cuadro acaba en
+// acondicionado, y no hay forma de ordenar un rol de apoyo dentro del proceso
+// sin inventarse dónde va.
+const ACONDICIONADO = /^ACONDICION/;
+
+/** En qué lugar del proceso va un rol. Cuanto menor, antes. */
+export function ordenDeRol(rol) {
+  const nombre = sinAcentos(rol);
+  if (ACONDICIONADO.test(nombre)) return ORDEN_DEL_PROCESO.length + 1;
+  const i = ORDEN_DEL_PROCESO.findIndex((re) => re.test(nombre));
+  return i === -1 ? ORDEN_DEL_PROCESO.length : i;
+}
+
+/**
+ * Ordena las filas como se recorre el proceso.
+ *
+ * Primero por sección —que es como se agrupa el cuadro—, y dentro de cada una
+ * por la etapa del rol. Una persona con varios roles queda junta: se la sitúa
+ * por el más temprano de los suyos, que es como está hecho el Formato 8 que
+ * ya emitieron a mano (Avendaño aparece bajo Fabricación, y debajo su
+ * Inspección).
+ *
+ * Las secciones se ordenan por el rol que tiene la mayoría de su gente: una
+ * sección es lo que hace casi toda su gente, y así acondicionado queda al
+ * final aunque alguno de los suyos aparezca además envasando.
+ */
+export function ordenarPorEtapa(personal) {
+  const filas = [...personal];
+
+  const primerRol = new Map();
+  for (const p of filas) {
+    const clave = `${p.seccion ?? ""}|${p.nombre}`;
+    const orden = ordenDeRol(p.rol);
+    if (!primerRol.has(clave) || orden < primerRol.get(clave)) primerRol.set(clave, orden);
+  }
+
+  const votos = new Map();
+  for (const p of filas) {
+    const seccion = p.seccion ?? "";
+    if (!votos.has(seccion)) votos.set(seccion, new Map());
+    const cuenta = votos.get(seccion);
+    const orden = ordenDeRol(p.rol);
+    cuenta.set(orden, (cuenta.get(orden) || 0) + 1);
+  }
+  const ordenDeSeccion = new Map();
+  for (const [seccion, cuenta] of votos) {
+    const [mayoria] = [...cuenta.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
+    ordenDeSeccion.set(seccion, mayoria);
+  }
+
+  // El orden original desempata, para que dos filas iguales no se muevan de
+  // sitio entre una carga y otra.
+  const posicion = new Map(filas.map((p, i) => [p, i]));
+
+  return filas.sort((a, b) => {
+    const sa = a.seccion ?? "";
+    const sb = b.seccion ?? "";
+    if (sa !== sb) {
+      const d = ordenDeSeccion.get(sa) - ordenDeSeccion.get(sb);
+      if (d !== 0) return d;
+      return sa.localeCompare(sb);
+    }
+    const pa = primerRol.get(`${sa}|${a.nombre}`);
+    const pb = primerRol.get(`${sb}|${b.nombre}`);
+    if (pa !== pb) return pa - pb;
+    if (a.nombre !== b.nombre) return a.nombre.localeCompare(b.nombre);
+    const d = ordenDeRol(a.rol) - ordenDeRol(b.rol);
+    return d !== 0 ? d : posicion.get(a) - posicion.get(b);
+  });
+}
+
 /** Los roles distintos de una sección, en orden alfabético. */
 export function rolesDe(seccion) {
-  return [...new Set((seccion?.personal || []).map((p) => p.rol))].sort();
+  // En el orden del proceso, no alfabético: las pastillas se leen igual que
+  // el cuadro que producen.
+  return [...new Set((seccion?.personal || []).map((p) => p.rol))].sort(
+    (a, b) => ordenDeRol(a) - ordenDeRol(b) || a.localeCompare(b)
+  );
 }
 
 /**
