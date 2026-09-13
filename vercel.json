@@ -8,6 +8,9 @@
     },
     "api/verificar-bibliografia.js": {
       "maxDuration": 60
+    },
+    "api/aprender-parametros.js": {
+      "maxDuration": 60
     }
   }
 }

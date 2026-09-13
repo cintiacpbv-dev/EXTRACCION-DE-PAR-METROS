@@ -15,6 +15,8 @@
 // distingue los datos del texto narrativo mucho mejor que cualquier lista de
 // palabras clave, y funciona igual para cualquier producto.
 
+import { esParametroAprendido } from "../vocabulario.js";
+
 /** Anchura mínima del relleno de espacios que marca un salto de columna. */
 const COLUMN_FILL = 25;
 
@@ -51,6 +53,17 @@ const NOISE_VALUE_RE = /^(Realizado|VB|V°B°|Por)\b/i;
 // documento nuevo, no se adivina de una sola vez—.
 const PROCESS_KEYWORDS =
   /(TEMPERATURA|HUMEDAD|VELOCIDAD|PRESION|PRESIÓN|AMPERAJE|AMPERIO|CAUDAL|FLUJO|PESO|TIEMPO|NIVEL|ALTURA|DOSIFICACION|DOSIFICACIÓN|RENDIMIENTO|MERMA|CANTIDAD|MUESTRA|CONTRAMUESTRA|pH|VOLUMEN|DENSIDAD|DUREZA|FRIABILIDAD|DESINTEGRACION|ESPESOR|DIAMETRO|DIÁMETRO|LONGITUD|TORQUE|VACIO|VACÍO|SELLADO|HERMETICIDAD|CONCENTRACION|CONCENTRACIÓN|TAMIZ|MALLA|REVOLUCION|RPM|SALA|LINEA|LÍNEA|SECCION|SECCIÓN|POSICION|POSICIÓN|CODIGO|LECTURA|CONTROL|GRADO|VISCOSIDAD|CONDUCTIVIDAD|TURBIDEZ|ASPECTO|DESCRIPCION|DESCRIPCIÓN|FRACCION|FRACCIÓN|LUZ|AJUSTE|MORDAZA|ENVASADORA|TOLVA|DISCO|SOBRE|CAJA|APILAMIENTO|EMBALAJE|ESTERIL|ESTÉRIL|ESTERILIZACION|ESTERILIZACIÓN|ESTERILIDAD|PARTICULA|PARTÍCULA|BIOCARGA|MEMBRANA|INTEGRIDAD|AUTOCLAVE|LETALIDAD|DESPIROGENADO|APIROGENICIDAD|ENDOTOXINA|AMPOLLA|VIAL|ATOMIZACION|ATOMIZACIÓN|BOMBO|TROQUEL|MOLDEO|FORMATO|VIBRACION|VIBRACIÓN|DISTANCIA)/i;
+
+/**
+ * Las magnitudes que el detector ya reconoce, como lista.
+ *
+ * Se le pasan a la IA cuando revisa un producto nuevo, para que no proponga
+ * aprender lo que ya se sabe: sin esto, la primera revisión de cada familia
+ * devolvía "TEMPERATURA" y "PESO" y gastaba la llamada en nada.
+ */
+export function magnitudesConocidas() {
+  return PROCESS_KEYWORDS.source.replace(/^\(/, "").replace(/\)$/, "").split("|");
+}
 
 // Un paréntesis final es setpoint cuando expresa un criterio de aceptación.
 const SPEC_RE = /(\d|±|≥|≤|MENOR|MAYOR|NO M[AÁ]S|NO MENOS|ENTRE|APROX|REFERENCIAL|UNICA|ÚNICA|CONFORME|MANUAL)/i;
@@ -226,12 +239,23 @@ function splitByColumnFill(segments) {
   };
 }
 
+/**
+ * Si la etiqueta nombra una magnitud de proceso: las de siempre, más las que
+ * se hayan aprendido de productos nuevos (ver lib/vocabulario.js).
+ *
+ * Lo aprendido sólo suma. Una lectura que ya entraba al cuadro sigue
+ * entrando exactamente igual, con vocabulario aprendido o sin él.
+ */
+function esDeProceso(label) {
+  return PROCESS_KEYWORDS.test(label) || esParametroAprendido(label);
+}
+
 function classify(label, parsed, setpoint) {
   if (TRACE_LABEL_RE.test(label)) return "trazabilidad";
   if (parsed.type === "datetime") return "trazabilidad";
   if (parsed.type === "check") return "verificacion";
-  if (parsed.type === "number") return setpoint || PROCESS_KEYWORDS.test(label) ? "critico" : "otros";
-  if (setpoint || PROCESS_KEYWORDS.test(label)) return "critico";
+  if (parsed.type === "number") return setpoint || esDeProceso(label) ? "critico" : "otros";
+  if (setpoint || esDeProceso(label)) return "critico";
   return "otros";
 }
 
@@ -371,7 +395,7 @@ export function detectParameters(pages) {
 
       // Ruido de firmas: una palabra suelta seguida de otra, sin cifras.
       if (parsed.type === "text" && words(baseLabel).length === 1 && words(parsed.value).length <= 2) {
-        if (!/\d/.test(parsed.value) && !PROCESS_KEYWORDS.test(baseLabel)) continue;
+        if (!/\d/.test(parsed.value) && !esDeProceso(baseLabel)) continue;
       }
       if (parsed.type === "text" && parsed.value.length > 80) continue;
 

@@ -11,6 +11,7 @@ import Formato3Panel from "./components/Formato3Panel.jsx";
 import Formato02Panel from "./components/Formato02Panel.jsx";
 import Formato8Panel from "./components/Formato8Panel.jsx";
 import Formato10Panel from "./components/Formato10Panel.jsx";
+import VocabularioPanel from "./components/VocabularioPanel.jsx";
 import RiesgoView from "./components/RiesgoView.jsx";
 import EstadisticaView from "./components/EstadisticaViewLazy.jsx";
 import BarraProgreso from "./components/BarraProgreso.jsx";
@@ -35,6 +36,8 @@ import {
 import ArchivosOmitidos from "./components/ArchivosOmitidos.jsx";
 import ConsultaPdf from "./components/ConsultaPdf.jsx";
 import { processPdfFile } from "./lib/parsers/index.js";
+import { iniciarVocabulario, revisarTanda } from "./lib/aprenderParametros.js";
+import { promoverDocumentos } from "./lib/vocabulario.js";
 import { computeContentHash, findDuplicateDocument } from "./lib/dedupe.js";
 import { analisisPrevio, huellaDeArchivo, olvidarAnalisis, recordarAnalisis } from "./lib/analizados.js";
 import {
@@ -182,6 +185,18 @@ export default function App() {
   const timersRef = useRef([]);
   useEffect(() => () => timersRef.current.forEach(clearTimeout), []);
 
+  // El vocabulario aprendido se trae aparte de los documentos, por lo mismo
+  // que las imágenes: es opcional —sin él la detección es la de siempre— y no
+  // debe retrasar la carga del análisis. Cuando llega, `vocabulario` cambia y
+  // las lecturas que ahora se reconocen ascienden solas (ver promoverDocumentos).
+  const [vocabulario, setVocabulario] = useState(0);
+  useEffect(() => {
+    (async () => {
+      const enUso = await iniciarVocabulario();
+      if (enUso.length > 0) setVocabulario((v) => v + 1);
+    })();
+  }, []);
+
   // Las imágenes de Supabase se traen aparte de los documentos: son
   // opcionales y no deben retrasar ni bloquear la carga del análisis.
   useEffect(() => {
@@ -282,7 +297,13 @@ export default function App() {
 
   // Las etapas de un mismo lote nombran al producto de forma distinta, así que
   // todo el análisis trabaja sobre la familia de producto, no sobre el código.
-  const todosDocs = useMemo(() => withFamilies(documents), [documents]);
+  //
+  // Sobre esa lista se aplica además lo aprendido: una magnitud que el
+  // vocabulario reconoce ahora asciende la lectura que quedó en "otros" del
+  // documento que ya estaba guardado, sin volver a leer el PDF. Se recalcula
+  // en vez de guardarse, así que borrar un término lo deshace entero.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const todosDocs = useMemo(() => promoverDocumentos(withFamilies(documents)), [documents, vocabulario]);
 
   // Con la omisión activa las muestras médicas se apartan de TODO lo que se
   // ve y se exporta, no sólo de las cargas nuevas: las que ya estaban
@@ -738,6 +759,31 @@ export default function App() {
     }
 
     setProgreso(null);
+
+    // La revisión de vocabulario va la última y sin esperarla: puede tardar
+    // casi un minuto por receta y etapa nuevas, y no tiene por qué retener la
+    // pantalla — lo que ya se analizó se ve igual. Si aprende algo, las
+    // lecturas que ahora se reconocen ascienden solas.
+    const registros = nuevos.filter((d) => d.kind !== "orden");
+    if (registros.length > 0) {
+      revisarTanda(withFamilies(registros))
+        .then((resultados) => {
+          const aprendidos = resultados.flatMap((r) => r.aprendidos || []);
+          if (aprendidos.length === 0) return;
+          setVocabulario((v) => v + 1);
+          pushMessage(
+            aprendidos.length === 1
+              ? `Producto nuevo: se aprendió una magnitud que no estaba en el detector (${aprendidos[0].termino}). Revísala en "Parámetros aprendidos".`
+              : `Producto nuevo: se aprendieron ${aprendidos.length} magnitudes que no estaban en el detector (${aprendidos
+                  .map((a) => a.termino)
+                  .join(", ")}). Revísalas en "Parámetros aprendidos".`,
+            "success"
+          );
+        })
+        .catch(() => {
+          /* la revisión es opcional: si falla, la detección es la de siempre */
+        });
+    }
   }
 
   async function handleRemove(doc) {
@@ -1162,6 +1208,12 @@ export default function App() {
             {/* El esquema lee sus propios registros: describe el proceso, no
                 un lote, así que no depende de lo que haya cargado el análisis. */}
             <Formato10Panel />
+
+            <VocabularioPanel
+              documents={docs}
+              version={vocabulario}
+              onCambio={() => setVocabulario((v) => v + 1)}
+            />
 
             {!blank && <h2 className="seccion-titulo">Resultados del análisis</h2>}
 
