@@ -38,18 +38,70 @@ import {
   vocabularioEnUso,
 } from "./vocabulario.js";
 
+// Marca de que lo que había guardado sólo en este navegador ya se subió.
+const CLAVE_SUBIDO = "deteccion-parametros:vocabulario:subido:v1";
+
 /**
  * Pone en uso lo aprendido, al abrir la aplicación.
  *
- * Manda lo de Supabase, que es lo que ven todos los equipos; lo guardado en
- * este navegador es el respaldo para cuando no hay conexión o no están las
- * credenciales, y se refresca con lo remoto cada vez que se puede.
+ * Manda lo de Supabase: es lo que ven todos los equipos, y es lo que hace que
+ * borrar un término desde otra computadora se note aquí. Lo guardado en este
+ * navegador es el respaldo para cuando no hay conexión, no están las
+ * credenciales, o la tabla todavía no existe.
+ *
+ * Con una salvedad, y por eso esto no es una línea: lo aprendido antes de que
+ * la tabla existiera vive SÓLO en este navegador. Hasta que la tabla se creó,
+ * la consulta fallaba y se usaba el respaldo local; en cuanto se creó, la
+ * consulta empezó a devolver una lista vacía, y dar por buena esa lista vacía
+ * habría borrado lo aprendido —de la memoria y del respaldo— sin decir nada.
+ * Así que la primera vez se sube lo que hubiera aquí, y a partir de entonces
+ * manda lo remoto sin más.
  */
-export async function iniciarVocabulario() {
-  const remoto = await cargarVocabularioRemoto();
-  const lista = remoto ?? cargarVocabularioLocal();
+export async function iniciarVocabulario({
+  cargar = cargarVocabularioRemoto,
+  guardar = guardarVocabularioRemoto,
+} = {}) {
+  const remoto = await cargar();
+
+  // Sin Supabase, o con la tabla aún sin crear: este navegador es todo lo que hay.
+  if (!remoto) {
+    usarVocabulario(cargarVocabularioLocal());
+    return vocabularioEnUso();
+  }
+
+  let yaSubido = true;
+  try {
+    yaSubido = localStorage.getItem(CLAVE_SUBIDO) === "si";
+  } catch {
+    /* sin localStorage no hay nada local que rescatar */
+  }
+
+  let lista = remoto;
+
+  if (!yaSubido) {
+    const enLaNube = new Set(remoto.map((t) => normalizarTermino(t.termino)));
+    const soloAqui = cargarVocabularioLocal().filter(
+      (t) => !enLaNube.has(normalizarTermino(t.termino))
+    );
+
+    // Se usan igual, se haya podido subir o no: lo que no se puede es
+    // perderlos por no haber llegado a Supabase.
+    lista = [...remoto, ...soloAqui];
+
+    // La marca sólo se pone si la subida salió bien; si no, se reintenta al
+    // volver a abrir. Subir dos veces lo mismo no duplica filas.
+    const subida = soloAqui.length === 0 ? { ok: true } : await guardar(soloAqui);
+    if (subida.ok) {
+      try {
+        localStorage.setItem(CLAVE_SUBIDO, "si");
+      } catch {
+        /* sin localStorage se reintentará cada vez, que tampoco hace daño */
+      }
+    }
+  }
+
   usarVocabulario(lista);
-  if (remoto) guardarVocabularioLocal(remoto);
+  guardarVocabularioLocal(vocabularioEnUso());
   return vocabularioEnUso();
 }
 

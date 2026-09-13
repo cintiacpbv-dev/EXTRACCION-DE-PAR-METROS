@@ -118,6 +118,11 @@ function filaDeTermino(t) {
     producto: t.producto ?? null,
     receta: t.receta ?? null,
     etapa: t.etapa ?? null,
+    // Por qué la IA dijo que era un parámetro. Es la mitad del rastro: la
+    // etiqueta dice de dónde salió, y esto dice con qué argumento. Sin
+    // guardarlo, el panel lo enseñaba en la sesión que lo aprendió y se
+    // perdía al recargar.
+    motivo: t.motivo ?? null,
     origen: t.origen || "ia",
   };
 }
@@ -126,7 +131,7 @@ export async function cargarVocabularioRemoto() {
   if (!supabaseEnabled) return null;
   const { data, error } = await supabase
     .from("vocabulario_parametros")
-    .select("termino, etiqueta, producto, receta, etapa, origen, created_at")
+    .select("termino, etiqueta, producto, receta, etapa, motivo, origen, created_at")
     .order("created_at", { ascending: true });
   if (error) return null;
   return data || [];
