@@ -9,6 +9,7 @@ import SapPanel from "./components/SapPanel.jsx";
 import ProtocoloPanel from "./components/ProtocoloPanel.jsx";
 import Formato3Panel from "./components/Formato3Panel.jsx";
 import Formato02Panel from "./components/Formato02Panel.jsx";
+import Formato06Panel from "./components/Formato06Panel.jsx";
 import Formato8Panel from "./components/Formato8Panel.jsx";
 import Formato10Panel from "./components/Formato10Panel.jsx";
 import VocabularioPanel from "./components/VocabularioPanel.jsx";
@@ -1204,6 +1205,11 @@ export default function App() {
               documents={blank ? [] : docs}
               familia={blank ? null : productoActivo}
             />
+
+            {/* El Formato 6 sale de los materiales que declaran los
+                documentos: las órdenes que se suban en su panel, y si no se
+                sube ninguna, las órdenes y los registros ya cargados. */}
+            <Formato06Panel documents={blank ? [] : docs} familia={blank ? null : productoActivo} />
 
             {/* El esquema lee sus propios registros: describe el proceso, no
                 un lote, así que no depende de lo que haya cargado el análisis. */}
