@@ -11,6 +11,9 @@
     },
     "api/aprender-parametros.js": {
       "maxDuration": 60
+    },
+    "api/clasificar-parametros.js": {
+      "maxDuration": 60
     }
   }
 }

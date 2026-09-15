@@ -13,6 +13,7 @@ import Formato06Panel from "./components/Formato06Panel.jsx";
 import Formato8Panel from "./components/Formato8Panel.jsx";
 import Formato10Panel from "./components/Formato10Panel.jsx";
 import VocabularioPanel from "./components/VocabularioPanel.jsx";
+import ClasificacionView from "./components/ClasificacionView.jsx";
 import RiesgoView from "./components/RiesgoView.jsx";
 import EstadisticaView from "./components/EstadisticaViewLazy.jsx";
 import BarraProgreso from "./components/BarraProgreso.jsx";
@@ -98,6 +99,7 @@ function readRoute() {
   if (hash === "consulta") return { view: "consulta", producto: null, blank: false };
   if (hash === "riesgo") return { view: "riesgo", producto: null, blank: false };
   if (hash === "estadistica") return { view: "estadistica", producto: null, blank: false };
+  if (hash === "clasificacion") return { view: "clasificacion", producto: null, blank: false };
   if (hash.startsWith("producto/")) {
     return {
       view: "product",
@@ -112,6 +114,7 @@ function routeHash(view, producto, blank) {
   if (view === "consulta") return "#/consulta";
   if (view === "riesgo") return "#/riesgo";
   if (view === "estadistica") return "#/estadistica";
+  if (view === "clasificacion") return "#/clasificacion";
   if (view !== "product") return "#/";
   return blank || !producto ? "#/nuevo" : `#/producto/${encodeURIComponent(producto)}`;
 }
@@ -267,6 +270,8 @@ export default function App() {
         setView("riesgo");
       } else if (route.view === "estadistica") {
         setView("estadistica");
+      } else if (route.view === "clasificacion") {
+        setView("clasificacion");
       } else if (route.view === "product" && route.producto) {
         if (familias.includes(route.producto)) {
           setView("product");
@@ -454,6 +459,11 @@ export default function App() {
   function openEstadistica() {
     setView("estadistica");
     writeRoute("estadistica", null, false);
+  }
+
+  function openClasificacion() {
+    setView("clasificacion");
+    writeRoute("clasificacion", null, false);
   }
 
   /**
@@ -963,6 +973,15 @@ export default function App() {
             >
               <IconChartBar size={15} /> <span>Análisis Estadístico</span>
             </button>
+            {/* La clasificación sí aprovecha lo ya analizado —de ahí saca los
+                parámetros y los atributos— pero no lo exige: también se le
+                pueden subir registros aquí mismo. */}
+            <button
+              className={`topnav__link ${view === "clasificacion" ? "is-active" : ""}`}
+              onClick={openClasificacion}
+            >
+              <IconLayers size={15} /> <span>Clasificación de Parámetros</span>
+            </button>
           </nav>
         </div>
 
@@ -1024,6 +1043,8 @@ export default function App() {
           <Suspense fallback={<div className="empty-state">Cargando…</div>}>
             <EstadisticaView />
           </Suspense>
+        ) : view === "clasificacion" ? (
+          <ClasificacionView documentos={docs} productos={productos} />
         ) : view === "library" ? (
           <ProductLibrary
             productos={resumenProductos}

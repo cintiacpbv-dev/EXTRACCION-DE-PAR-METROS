@@ -4387,3 +4387,25 @@ body.esta-redimensionando {
     min-height: 36px;
   }
 }
+
+/* ---- Clasificación de parámetros ---- */
+/* Las cinco primeras columnas son cortas y la de atributos es un párrafo por
+   relación: sin dejarla crecer, el cuadro sale con cinco columnas anchas y la
+   única que importa estrujada. */
+.clasificacion {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.clasificacion .protocolo-tabla td {
+  vertical-align: top;
+}
+
+/* El amarillo es el mismo que el Formato 01 y el 8 usan para "mira aquí", y
+   el mismo que lleva el .docx que sale de esta sección. */
+.clasificacion tr.es-critico td:nth-child(6) {
+  background: #fff3b0;
+  color: #4a3b00;
+  font-weight: 600;
+}
