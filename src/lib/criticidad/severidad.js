@@ -1,0 +1,202 @@
+// La severidad de cada atributo de calidad: lo que decide todo el
+// procedimiento, y lo único que se guarda entre productos.
+//
+// Por qué se guarda. La severidad es una propiedad DEL ATRIBUTO, no del
+// producto ni del parámetro: "qué tan grave sería que la dureza saliera
+// fuera" se contesta una vez y vale para todas las tabletas de la planta. El
+// procedimiento lo dice en su Paso 1 — "fijar, una sola vez por atributo, de
+// forma independiente de cualquier parámetro de proceso". Volver a decidirla
+// en cada corrida es justamente lo que hace que dos evaluaciones del mismo
+// atributo salgan distintas.
+//
+// Cómo se llena. La IA propone severidad y justificación usando la matriz
+// Severidad × Incertidumbre; quien valida la corrige en pantalla; y lo
+// corregido es lo que queda. Una severidad tocada a mano NUNCA vuelve a ser
+// pisada por la IA: se marca con origen "revisada" y a partir de ahí manda.
+//
+// Los nombres tienen que ser únicos. En las corridas reales el Paso 1 parte
+// "Descripción" e "Identidad" en dos filas con severidades distintas
+// ("— empaque primario" 4, "— empaque secundario" 3) mientras el Paso 2 las
+// nombra sin el calificativo. Una persona lo resuelve por contexto; aquí no
+// se puede, así que el nombre completo ES la clave.
+
+import { supabase, supabaseEnabled } from "../supabaseClient.js";
+import { normalizarTermino } from "../vocabulario.js";
+
+export { MATRIZ_SEVERIDAD, PREGUNTAS_SEVERIDAD } from "./modelo.js";
+
+/** La clave de un atributo: su nombre normalizado, calificativo incluido. */
+export function claveDeAtributo(nombre) {
+  return normalizarTermino(nombre);
+}
+
+/** Una severidad válida es un entero de 1 a 5. Nada más. */
+export function severidadValida(valor) {
+  const n = Number(valor);
+  return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null;
+}
+
+const severidades = new Map();
+
+/** Pone en uso una tabla de severidades (lo que venga de Supabase o de local). */
+export function usarSeveridades(lista) {
+  severidades.clear();
+  for (const s of lista || []) {
+    const clave = claveDeAtributo(s?.atributo);
+    const valor = severidadValida(s?.severidad);
+    if (!clave || valor === null) continue;
+    severidades.set(clave, {
+      atributo: String(s.atributo).trim(),
+      severidad: valor,
+      justificacion: s.justificacion || "",
+      decision: s.decision || "",
+      origen: s.origen || "ia",
+    });
+  }
+}
+
+export function severidadesEnUso() {
+  return [...severidades.values()];
+}
+
+/** El mapa {nombre → severidad} que consume el modelo de decisión. */
+export function mapaDeSeveridades(extra = []) {
+  const mapa = {};
+  for (const s of severidades.values()) mapa[s.atributo] = s.severidad;
+  // Lo de esta corrida que todavía no se ha guardado manda sobre lo guardado:
+  // es lo que quien valida acaba de ajustar en pantalla.
+  for (const s of extra) {
+    const valor = severidadValida(s?.severidad);
+    if (s?.atributo && valor !== null) mapa[s.atributo] = valor;
+  }
+  return mapa;
+}
+
+/** Lo guardado para un atributo, si lo hay. */
+export function severidadDeAtributo(nombre) {
+  return severidades.get(claveDeAtributo(nombre)) || null;
+}
+
+/**
+ * Junta lo propuesto por la IA con lo ya guardado.
+ *
+ * Lo revisado a mano manda siempre. Lo que la IA proponga sobre un atributo
+ * ya revisado se descarta, pero se devuelve aparte para poder enseñarlo: que
+ * el modelo discrepe de una severidad revisada es información, no ruido.
+ */
+export function fusionar(propuestas = []) {
+  const filas = [];
+  const discrepancias = [];
+
+  for (const p of propuestas) {
+    const nombre = String(p?.atributo || "").trim();
+    const propuesta = severidadValida(p?.severidad);
+    if (!nombre || propuesta === null) continue;
+
+    const guardada = severidadDeAtributo(nombre);
+    if (guardada && guardada.origen === "revisada") {
+      if (guardada.severidad !== propuesta) {
+        discrepancias.push({ atributo: nombre, guardada: guardada.severidad, propuesta, motivo: p.justificacion || "" });
+      }
+      filas.push({ ...guardada });
+      continue;
+    }
+
+    filas.push({
+      atributo: nombre,
+      severidad: propuesta,
+      justificacion: p.justificacion || guardada?.justificacion || "",
+      decision: p.decision || guardada?.decision || "",
+      origen: guardada?.origen === "revisada" ? "revisada" : "ia",
+    });
+  }
+
+  // Los atributos guardados que la IA no mencionó siguen valiendo.
+  const nombrados = new Set(filas.map((f) => claveDeAtributo(f.atributo)));
+  for (const s of severidades.values()) {
+    if (!nombrados.has(claveDeAtributo(s.atributo))) filas.push({ ...s });
+  }
+
+  return { filas, discrepancias };
+}
+
+// --- guardado ---------------------------------------------------------------
+
+const CLAVE_LOCAL = "deteccion-parametros:severidades:v1";
+
+export function guardarSeveridadesLocal(lista) {
+  try {
+    localStorage.setItem(CLAVE_LOCAL, JSON.stringify(lista));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function cargarSeveridadesLocal() {
+  try {
+    const leido = JSON.parse(localStorage.getItem(CLAVE_LOCAL) || "[]");
+    return Array.isArray(leido) ? leido : [];
+  } catch {
+    return [];
+  }
+}
+
+function fila(s) {
+  return {
+    clave: claveDeAtributo(s.atributo),
+    atributo: String(s.atributo).trim(),
+    severidad: severidadValida(s.severidad),
+    justificacion: s.justificacion || null,
+    decision: s.decision || null,
+    origen: s.origen || "ia",
+  };
+}
+
+export async function cargarSeveridadesRemotas() {
+  if (!supabaseEnabled) return null;
+  const { data, error } = await supabase
+    .from("severidad_atributos")
+    .select("clave, atributo, severidad, justificacion, decision, origen")
+    .order("atributo", { ascending: true });
+  if (error) return null;
+  return data || [];
+}
+
+/**
+ * Guarda severidades.
+ *
+ * `upsert` sobre la clave: la severidad de un atributo es una sola, y la
+ * última revisión manda. A diferencia del vocabulario aprendido, aquí SÍ se
+ * pisa lo anterior — porque corregir una severidad es justamente lo que se
+ * espera que haga quien valida.
+ */
+export async function guardarSeveridadesRemotas(lista) {
+  if (!supabaseEnabled) return { ok: true, skipped: true };
+  const filas = (lista || []).map(fila).filter((f) => f.clave && f.severidad !== null);
+  if (filas.length === 0) return { ok: true, skipped: true };
+  const { error } = await supabase.from("severidad_atributos").upsert(filas, { onConflict: "clave" });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+export async function borrarSeveridadRemota(atributo) {
+  if (!supabaseEnabled) return { ok: true, skipped: true };
+  const { error } = await supabase.from("severidad_atributos").delete().eq("clave", claveDeAtributo(atributo));
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+/**
+ * Pone en uso lo guardado, al abrir la sección.
+ *
+ * Manda lo de Supabase, que es lo que ven todos los equipos; lo local es el
+ * respaldo para cuando no hay conexión o la tabla aún no existe. Igual que
+ * con el vocabulario aprendido, y por el mismo motivo: una severidad fijada
+ * en una computadora tiene que valer en la de al lado.
+ */
+export async function iniciarSeveridades({ cargar = cargarSeveridadesRemotas } = {}) {
+  const remoto = await cargar();
+  const lista = remoto ?? cargarSeveridadesLocal();
+  usarSeveridades(lista);
+  if (remoto) guardarSeveridadesLocal(remoto);
+  return severidadesEnUso();
+}
