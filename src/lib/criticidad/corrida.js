@@ -18,7 +18,7 @@
 import { separarLecturas, porRelevancia } from "../atributos/modelo.js";
 import { citasComoTexto, idDe, preguntaDe } from "../atributos/pregunta.js";
 import { evaluar, npr, requisitoEstadistico, muestraPorAtributo } from "./modelo.js";
-import { fusionar, mapaDeSeveridades, severidadValida } from "./severidad.js";
+import { aplicarSeveridadesDePlanta, fusionar, mapaDeSeveridades, severidadValida } from "./severidad.js";
 import { atributosDelProtocolo, resolverAfecta } from "./protocolo.js";
 
 const LOTE_BIBLIOGRAFIA = 6;
@@ -45,6 +45,9 @@ async function pedir(fetchImpl, url, cuerpo) {
  * sea estable entre corridas. Si todos están guardados, no se gasta llamada.
  */
 export async function pasoSeveridad(atributos, { producto, forma, fetchImpl = fetch } = {}) {
+  // Las decisiones de Validaciones primero: lo que ya está fijado para la
+  // planta no se le pregunta a la IA.
+  aplicarSeveridadesDePlanta(atributos.map((a) => a.nombre));
   const enUso = mapaDeSeveridades();
   const faltan = atributos.filter((a) => !(a.nombre in enUso));
 

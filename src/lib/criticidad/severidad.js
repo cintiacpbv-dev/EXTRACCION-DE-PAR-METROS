@@ -84,6 +84,52 @@ export function anotarSeveridades(lista) {
   return severidadesEnUso();
 }
 
+/**
+ * Severidades fijadas por Validaciones para toda la planta.
+ *
+ * Son decisiones de quien valida, no propuestas: entran como «revisada», así
+ * que la IA no las pisa, y valen desde la primera evaluación aunque el
+ * catálogo esté vacío (un navegador nuevo, o antes de que Supabase tenga
+ * nada). Si después alguien la cambia a mano en el Paso 1 y la guarda, manda
+ * lo guardado: esto sólo cubre el hueco, no impone por encima de una
+ * revisión posterior.
+ *
+ * El nombre es exacto. «Descripción» es la del producto terminado; las
+ * descripciones de intermedios («Descripción de la gelatina», «de la
+ * mezcla») son otros atributos y conservan su propia severidad.
+ */
+export const SEVERIDADES_DE_PLANTA = [
+  {
+    atributo: "Descripción",
+    severidad: 4,
+    decision: "CQA",
+    justificacion:
+      "Fijada por Validaciones: la descripción del producto terminado es un atributo crítico de calidad (severidad 4).",
+    origen: "revisada",
+  },
+];
+
+/**
+ * Pone las severidades de planta de los atributos de esta evaluación.
+ *
+ * Sólo donde no hay nada, o donde lo que hay es una propuesta de la IA: una
+ * propuesta anterior no puede ganarle a una decisión de Validaciones, pero
+ * una revisión hecha después en pantalla sí.
+ */
+export function aplicarSeveridadesDePlanta(nombres) {
+  const pedidos = new Set((nombres || []).map(claveDeAtributo));
+  const aplicadas = [];
+  for (const s of SEVERIDADES_DE_PLANTA) {
+    const clave = claveDeAtributo(s.atributo);
+    if (!pedidos.has(clave)) continue;
+    const actual = severidades.get(clave);
+    if (actual && actual.origen === "revisada") continue;
+    severidades.set(clave, { ...s });
+    aplicadas.push(s.atributo);
+  }
+  return aplicadas;
+}
+
 /** El mapa {nombre → severidad} que consume el modelo de decisión. */
 export function mapaDeSeveridades(extra = []) {
   const mapa = {};
