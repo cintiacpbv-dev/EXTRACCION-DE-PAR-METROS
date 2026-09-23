@@ -7,6 +7,7 @@ import { atributosDelProtocolo as atributosDelProtocoloAntiguo } from "../lib/at
 import { atributosDelProtocolo, leerProtocoloParaCriticidad } from "../lib/criticidad/protocolo.js";
 import { formaDelProducto, partidaSinConfirmar } from "../lib/criticidad/puntoDePartida.js";
 import { correr, pasoEstadistico } from "../lib/criticidad/corrida.js";
+import { aplicarAjustesDeVinculo } from "../lib/criticidad/corroborar.js";
 import { CRITICO, evaluar, nivelDeNpr, npr } from "../lib/criticidad/modelo.js";
 import {
   anotarSeveridades,
@@ -57,6 +58,15 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
   // Las respuestas a la pregunta de desempeño que se han corregido a mano.
   // Se guardan aparte del screening para poder recalcular sin perderlas.
   const [desempeno, setDesempeno] = useState({});
+  // Los vínculos parámetro → atributo que se corrigieron aceptando (o
+  // deshaciendo) una sugerencia de la corroboración. Igual que el desempeño:
+  // aparte, para reclasificar al vuelo sin perderlos.
+  const [vinculos, setVinculos] = useState({});
+  // Corroborar con Consulta PDF y con la segunda lectura de la IA. Tarda más
+  // —una pregunta a la bibliografía por atributo y por parámetro—, pero deja
+  // cada decisión con su cita; se puede apagar para una corrida rápida.
+  const [corroborar, setCorroborar] = useState(true);
+  const [soloRevisar, setSoloRevisar] = useState(false);
   const [trabajando, setTrabajando] = useState("");
   const [error, setError] = useState(null);
   const [guardado, setGuardado] = useState("");
@@ -88,7 +98,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
   const resultado = useMemo(() => {
     if (!corrida) return null;
     const mapa = mapaDeSeveridades(severidades);
-    const screening = corrida.screening.map((f) =>
+    const screening = aplicarAjustesDeVinculo(corrida.screening, vinculos).map((f) =>
       f.id in desempeno ? { ...f, desempeno: desempeno[f.id], desempenoRevisado: true } : f
     );
     const { filas, paraFmea, resumen } = evaluar(screening, mapa);
@@ -110,7 +120,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
 
     const conSeveridad = corrida.atributos.map((a) => ({ ...a, severidad: mapa[a.nombre] ?? null }));
     return { filas, fmea, resumen, atributos: conSeveridad, estadistico: pasoEstadistico(severidades, conSeveridad) };
-  }, [corrida, severidades, desempeno]);
+  }, [corrida, severidades, desempeno, vinculos]);
 
   async function cargar(files) {
     setError(null);
@@ -160,12 +170,18 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
         producto,
         forma,
         protocolo,
+        corroborar,
         atributosExtra: protocolo?.analisis?.length ? [] : protocolo?.atributosDeEtapas || [],
         onAvance: ({ paso, texto }) => setTrabajando(`Paso ${paso} · ${texto}`),
       });
       // El screening se guarda aparte: es lo caro (bibliografía + IA) y es lo
       // que permite reclasificar al vuelo cuando se ajusta una severidad.
-      setCorrida({ screening: r.filas, fmea: r.fmea, atributos: r.atributos, avisos: r.avisos, discrepancias: r.discrepancias });
+      setCorrida({
+        screening: r.filas, fmea: r.fmea, atributos: r.atributos, avisos: r.avisos, discrepancias: r.discrepancias,
+        corroboracionSeveridad: r.corroboracionSeveridad || {}, corroborada: r.corroborada,
+      });
+      // Las sugerencias aceptadas eran de la corrida anterior.
+      setVinculos({});
       // Se anotan en el catálogo, no se sustituye: lo de los demás productos
       // sigue ahí. Y lo que se guarda en el navegador es el catálogo entero.
       const catalogo = anotarSeveridades(r.severidades);
@@ -189,6 +205,33 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       const siguientes = { ...previos };
       if (valor === "") delete siguientes[id];
       else siguientes[id] = valor === "si";
+      return siguientes;
+    });
+  }
+
+  /**
+   * Acepta (o deshace) lo que la corroboración sugiere para un parámetro:
+   * añadir los atributos que faltan y quitar los que sobran.
+   *
+   * Se aplica a todo su grupo acoplado —los parámetros de la misma etapa con
+   * el mismo racional—, porque el Paso 3 les da a todos la unión de sus
+   * vínculos: quitar un atributo de uno solo no tendría efecto.
+   */
+  function aceptarSugerencia(fila, aceptar) {
+    const clave = (f) => `${f.etapa}|${String(f.racional || "").replace(/\s+/g, " ").trim().toLowerCase()}`;
+    const acoplable = String(fila.racional || "").replace(/\s+/g, " ").trim().length >= 25;
+    const grupo = acoplable ? corrida.screening.filter((f) => clave(f) === clave(fila)) : [fila];
+    setVinculos((previos) => {
+      const siguientes = { ...previos };
+      for (const f of grupo) {
+        if (!aceptar) {
+          delete siguientes[f.id];
+          continue;
+        }
+        const { faltan = [], sobran = [] } = fila.corroboracion || {};
+        const base = (f.afecta || []).filter((a) => !sobran.includes(a));
+        siguientes[f.id] = [...new Set([...base, ...faltan])];
+      }
       return siguientes;
     });
   }
@@ -235,6 +278,25 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
     [resultado, forma, producto]
   );
 
+  // Cuántas filas del análisis de riesgo coinciden con la bibliografía y la
+  // IA, y cuántas quedan para revisar. Sólo cuando se corroboró.
+  const resumenCorroboracion = useMemo(() => {
+    const conCorrob = (corrida?.screening || []).filter((f) => f.corroboracion);
+    if (conCorrob.length === 0) return null;
+    return {
+      coinciden: conCorrob.filter((f) => f.corroboracion.estado === "coincide").length,
+      revisar: conCorrob.filter((f) => f.corroboracion.estado === "revisar").length,
+      aceptadas: conCorrob.filter((f) => f.corroboracion.estado === "revisar" && f.id in vinculos).length,
+      sinRevisar: conCorrob.filter((f) => f.corroboracion.estado === "sin revisar").length,
+      conBibliografia: conCorrob.filter((f) => f.corroboracion.referencias).length,
+    };
+  }, [corrida, vinculos]);
+
+  const filasVisibles = useMemo(
+    () => (resultado ? (soloRevisar ? resultado.filas.filter((f) => f.corroboracion?.estado === "revisar") : resultado.filas) : []),
+    [resultado, soloRevisar]
+  );
+
   const datosDelDocumento = resultado && {
     producto, forma, lote,
     etapas: [...new Set(resultado.filas.map((f) => f.etapa))].map((etapa) => ({
@@ -244,6 +306,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
     })),
     atributos: resultado.atributos,
     severidades,
+    corroboracionSeveridad: corrida?.corroborada ? corrida.corroboracionSeveridad : null,
     filas: resultado.filas,
     fmea: resultado.fmea,
     estadistico: resultado.estadistico,
@@ -316,6 +379,8 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                   new Set(protocolo.analisis.map((f) => f.etapa)).size
                 } etapas. Los pasos 0 y 2 salen del protocolo; la IA sólo propone severidades, desempeño y el FMEA.`
               : ". No trae análisis de riesgo: los parámetros salen de los registros."}
+            {protocolo.analisis.length > 0 && corroborar &&
+              " Con la corroboración activada, cada fila de ese análisis se revisa además contra Consulta PDF y la IA: lo que falte o sobre queda como sugerencia, sin cambiar nada solo."}
           </p>
         )}
         {error && (
@@ -329,6 +394,17 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
           {protocolo?.analisis?.length ? `${protocolo.analisis.length} parámetros del protocolo` : `${previo.parametros.length} parámetros`} ·{" "}
           {nombresDeAtributos.length} atributos de calidad
         </p>
+
+        <label className="criticidad-corroborar">
+          <input type="checkbox" checked={corroborar} onChange={(e) => setCorroborar(e.target.checked)} disabled={!!trabajando} />
+          <span>
+            <strong>Corroborar con Consulta PDF y la IA</strong>
+            <span className="muted">
+              {" "}— cada atributo y cada parámetro se consulta en la bibliografía, y la IA decide con esa evidencia delante
+              (y cita la fuente). Tarda más; sin marcarlo, la IA evalúa sola.
+            </span>
+          </span>
+        </label>
 
         <button className="btn btn--primary" onClick={ejecutar} disabled={!!trabajando || (enUso.length === 0 && !protocolo?.analisis?.length)}>
           {trabajando || "Evaluar criticidad"}
@@ -371,6 +447,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                   <th>Decisión</th>
                   <th>Justificación</th>
                   <th>Origen</th>
+                  {corrida.corroborada && <th>Bibliografía y segunda opinión</th>}
                 </tr>
               </thead>
               <tbody>
@@ -387,6 +464,15 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                     <td className="muted">{s.decision || "—"}</td>
                     <td className="muted">{s.justificacion || "—"}</td>
                     <td className="muted">{s.origen === "revisada" ? "Revisada" : "Propuesta por IA"}</td>
+                    {corrida.corroborada && (
+                      <td>
+                        <CorroboracionDeSeveridad
+                          c={corrida.corroboracionSeveridad?.[s.atributo]}
+                          actual={s.severidad}
+                          onUsar={(n) => ajustarSeveridad(s.atributo, n)}
+                        />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -418,7 +504,25 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
               </button>
             </div>
 
-            <table className="protocolo-tabla">
+            {resumenCorroboracion && (
+              <div className="criticidad-resumen-corrob">
+                <span>
+                  <strong>Corroboración del análisis de riesgo:</strong> {resumenCorroboracion.coinciden} coinciden ·{" "}
+                  <strong>{resumenCorroboracion.revisar} para revisar</strong>
+                  {resumenCorroboracion.aceptadas > 0 && ` (${resumenCorroboracion.aceptadas} aceptadas)`} ·{" "}
+                  {resumenCorroboracion.conBibliografia} con respaldo en la bibliografía
+                  {resumenCorroboracion.sinRevisar > 0 && ` · ${resumenCorroboracion.sinRevisar} sin revisar (la IA no respondió)`}
+                </span>
+                {resumenCorroboracion.revisar > 0 && (
+                  <label>
+                    <input type="checkbox" checked={soloRevisar} onChange={(e) => setSoloRevisar(e.target.checked)} /> Ver sólo
+                    las filas para revisar
+                  </label>
+                )}
+              </div>
+            )}
+
+            <table className="protocolo-tabla tabla-parametros">
               <thead>
                 <tr>
                   <th>Etapa</th>
@@ -434,7 +538,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                 </tr>
               </thead>
               <tbody>
-                {resultado.filas.map((f) => (
+                {filasVisibles.map((f) => (
                   <tr key={f.id} className={f.clasificacion === CRITICO ? "es-critico" : undefined}>
                     <td className="muted">{f.etapa}</td>
                     <td><strong>{f.magnitud}</strong><div className="muted">{f.seccion}</div></td>
@@ -468,7 +572,15 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                     </td>
                     {conAnterior && <td className="muted">{f.clasificacionAnterior || "—"}</td>}
                     <td>{f.clasificacion || "Pendiente"}</td>
-                    <td className="muted">{fuenteDe(f)}</td>
+                    <td className="muted">
+                      {fuenteDe(f)}
+                      <CorroboracionDeParametro
+                        f={f}
+                        aceptada={f.id in vinculos}
+                        onAceptar={() => aceptarSugerencia(f, true)}
+                        onDeshacer={() => aceptarSugerencia(f, false)}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -561,6 +673,65 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** Lo que dijeron la bibliografía y la segunda lectura de la IA de una severidad. */
+function CorroboracionDeSeveridad({ c, actual, onUsar }) {
+  if (!c) return <span className="muted">Sin información en la bibliografía</span>;
+  return (
+    <div className="corrob">
+      {c.severidadSugerida && c.severidadSugerida !== actual ? (
+        <>
+          <span className="corrob__marca corrob__marca--revisar">Revisar: sugiere {c.severidadSugerida}</span>
+          <button type="button" className="btn btn--primary btn--mini" onClick={() => onUsar(c.severidadSugerida)}>
+            Usar {c.severidadSugerida}
+          </button>
+        </>
+      ) : (
+        <span className="corrob__marca corrob__marca--ok">{c.conEvidencia ? "Propuesta con evidencia" : "Coincide"}</span>
+      )}
+      {c.motivo && <div className="muted">{c.motivo}</div>}
+      {c.referencias && <div className="corrob__cita">{c.referencias}</div>}
+    </div>
+  );
+}
+
+/** Lo mismo para un parámetro del análisis de riesgo del protocolo. */
+function CorroboracionDeParametro({ f, aceptada, onAceptar, onDeshacer }) {
+  const c = f.corroboracion;
+  if (!c) return null;
+  return (
+    <div className="corrob">
+      {c.estado === "revisar" ? (
+        <>
+          <span className={`corrob__marca ${aceptada ? "corrob__marca--ok" : "corrob__marca--revisar"}`}>
+            {aceptada ? "Sugerencia aplicada" : "Revisar"}
+          </span>
+          {aceptada ? (
+            <button type="button" className="btn btn--ghost btn--mini" onClick={onDeshacer}>Deshacer</button>
+          ) : (
+            <button type="button" className="btn btn--primary btn--mini" onClick={onAceptar}>Aplicar</button>
+          )}
+        </>
+      ) : aceptada ? (
+        // Acoplado a una fila cuya sugerencia se aceptó: cambió con su grupo.
+        <span className="corrob__marca corrob__marca--revisar">Ajustado con su grupo acoplado</span>
+      ) : c.estado === "coincide" ? (
+        <span className="corrob__marca corrob__marca--ok">Corroborado</span>
+      ) : (
+        <span className="muted">Sin revisar</span>
+      )}
+      {c.estado === "revisar" && (
+        <div className="corrob__cambio">
+          {[c.faltan.length ? `Añadir: ${c.faltan.join(", ")}` : "", c.sobran.length ? `Quitar: ${c.sobran.join(", ")}` : ""]
+            .filter(Boolean)
+            .join(" · ")}
+        </div>
+      )}
+      {c.motivo && <div className="muted">{c.motivo}</div>}
+      {c.referencias && <div className="corrob__cita">{c.referencias}</div>}
     </div>
   );
 }

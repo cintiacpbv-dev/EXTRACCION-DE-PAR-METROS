@@ -254,6 +254,11 @@ export function analisisDeRiesgoDe(xml) {
         rango: leer("rango"),
       };
       for (const [clave, { texto }] of Object.entries(v)) previo[clave] = texto;
+      // «No afecta ningún atributo» es la respuesta NO del screening, no el
+      // nombre de un atributo. Leído como nombre, entraba en el Paso 0 como un
+      // atributo más, la IA le ponía severidad, y con 4 o 5 el parámetro
+      // salía Crítico por no afectar a nada.
+      if (diceQueNoAfecta(v.afecta.texto)) v.afecta = { ...v.afecta, texto: "" };
 
       // El mismo parámetro de la fila de arriba: otro atributo afectado.
       if ((v.parametro.heredado || !v.parametro.texto) && actual) {
@@ -291,6 +296,16 @@ export function analisisDeRiesgoDe(xml) {
     }
   }
   return filas;
+}
+
+/** Si lo escrito en «Afecta» es la negación («No afecta», «Ninguno», «N/A»). */
+export function diceQueNoAfecta(texto) {
+  const t = String(texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  return /^(no afecta\b|ningun[oa]?\b|sin (impacto|efecto|afectacion)\b|no aplica\b|n\/?a$|-+$|—$)/.test(t);
 }
 
 // --- 3. Casar los nombres de «Afecta» con los atributos ---------------------

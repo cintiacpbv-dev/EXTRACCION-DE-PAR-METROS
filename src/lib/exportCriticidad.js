@@ -196,6 +196,45 @@ export function fuenteDe(fila) {
   return "Sin resolver";
 }
 
+/**
+ * Lo que dijo la corroboración (Consulta PDF + segunda lectura de la IA) de
+ * un parámetro del análisis de riesgo. Cadena vacía si no se corroboró.
+ */
+export function corroboracionDe(fila) {
+  const c = fila.corroboracion;
+  if (!c) return "";
+  const cita = c.referencias ? ` Fuente: ${c.referencias}.` : "";
+  const motivo = c.motivo ? ` ${c.motivo.replace(/\.?$/, ".")}` : "";
+  if (c.estado === "revisar") {
+    const cambios = [
+      c.faltan.length ? `añadir ${c.faltan.join(", ")}` : "",
+      c.sobran.length ? `quitar ${c.sobran.join(", ")}` : "",
+    ].filter(Boolean).join("; ");
+    const cabeza = fila.vinculoRevisado ? `Sugerencia aplicada (${cambios}).` : `Para revisar: se sugiere ${cambios}.`;
+    return `${cabeza}${motivo}${cita}`;
+  }
+  // Un parámetro acoplado a otro al que se le aceptó una sugerencia: su
+  // vínculo cambió con el del grupo, y eso tiene que constar.
+  if (fila.vinculoRevisado) {
+    return `Vínculo ajustado junto con su grupo acoplado (mismo racional), al aceptar una sugerencia sobre ese mecanismo.${cita}`;
+  }
+  if (c.estado === "coincide") {
+    return c.referencias ? `Corroborado con la bibliografía.${cita}` : "Corroborado por la IA (sin cita en la bibliografía).";
+  }
+  return "Sin revisar.";
+}
+
+/** Y lo mismo de una severidad. */
+export function corroboracionDeSeveridad(c, actual) {
+  if (!c) return "Sin información en la bibliografía.";
+  const cita = c.referencias ? ` Fuente: ${c.referencias}.` : "";
+  const motivo = c.motivo ? ` ${c.motivo.replace(/\.?$/, ".")}` : "";
+  if (c.severidadSugerida && c.severidadSugerida !== actual) {
+    return `Para revisar: la segunda lectura sugiere severidad ${c.severidadSugerida}.${motivo}${cita}`;
+  }
+  return `${c.conEvidencia ? "Propuesta con evidencia de la bibliografía." : "Coincide."}${motivo}${cita}`;
+}
+
 /** Paso 6 — qué parámetros conviene revisar cuando haya data histórica. */
 export function paraRevisarConDataHistorica(filas) {
   const salida = [];
@@ -267,7 +306,7 @@ function bloquePaso0(atributos) {
   return salida;
 }
 
-function bloquePaso1(severidades) {
+function bloquePaso1(severidades, corroboracion = null) {
   return [
     titulo("Paso 1 — Severidad por Atributo"),
     parrafo(OBJETIVOS[1], { size: 13, italic: true }),
@@ -279,18 +318,32 @@ function bloquePaso1(severidades) {
       [6, 2, 2]
     ),
     parrafo("Severidad asignada", { bold: true, espacio: true }),
-    cuadro(
-      ["Atributo", "Severidad", "Decisión", "Justificación", "Origen"],
-      severidades.map((s) => [
-        s.atributo,
-        { texto: String(s.severidad), align: AlignmentType.CENTER, fill: s.severidad >= 4 ? AMARILLO_CRITICO : undefined },
-        s.decision || "—",
-        s.justificacion || "—",
-        s.origen === "revisada" ? "Revisada" : "Propuesta por IA",
-      ]),
-      [3, 1, 2, 5, 2],
-      { vacio: "Sin severidades asignadas." }
-    ),
+    corroboracion
+      ? cuadro(
+          ["Atributo", "Severidad", "Decisión", "Justificación", "Origen", "Bibliografía y segunda opinión"],
+          severidades.map((s) => [
+            s.atributo,
+            { texto: String(s.severidad), align: AlignmentType.CENTER, fill: s.severidad >= 4 ? AMARILLO_CRITICO : undefined },
+            s.decision || "—",
+            s.justificacion || "—",
+            s.origen === "revisada" ? "Revisada" : "Propuesta por IA",
+            corroboracionDeSeveridad(corroboracion[s.atributo], s.severidad),
+          ]),
+          [2.6, 1, 1.8, 4, 1.4, 3.6],
+          { vacio: "Sin severidades asignadas." }
+        )
+      : cuadro(
+          ["Atributo", "Severidad", "Decisión", "Justificación", "Origen"],
+          severidades.map((s) => [
+            s.atributo,
+            { texto: String(s.severidad), align: AlignmentType.CENTER, fill: s.severidad >= 4 ? AMARILLO_CRITICO : undefined },
+            s.decision || "—",
+            s.justificacion || "—",
+            s.origen === "revisada" ? "Revisada" : "Propuesta por IA",
+          ]),
+          [3, 1, 2, 5, 2],
+          { vacio: "Sin severidades asignadas." }
+        ),
     parrafo("Preguntas guía por nivel (para reproducibilidad entre evaluadores)", { bold: true, espacio: true }),
     cuadro(
       ["Nivel", "Pregunta guía"],
@@ -324,9 +377,27 @@ function bloquePaso2(filas) {
           f.racional || "—",
           f.afecta?.join(" / ") || "No afecta ningún atributo",
           estadoDe(f),
-          fuenteDe(f),
+          [fuenteDe(f), corroboracionDe(f)].filter(Boolean).join(". "),
         ]),
         [3, 2, 5, 2.5, 2, 2.5]
+      )
+    );
+  }
+
+  // Lo que la corroboración señaló y no se aplicó: tiene que quedar escrito
+  // por qué se mantuvo el análisis del protocolo.
+  const pendientes = filas.filter((f) => f.corroboracion?.estado === "revisar" && !f.vinculoRevisado);
+  if (pendientes.length > 0) {
+    salida.push(
+      parrafo("Discrepancias señaladas por la corroboración (Consulta PDF + IA) y no aplicadas", { bold: true, espacio: true }),
+      parrafo(
+        "Se mantuvo el vínculo del análisis de riesgo del protocolo. Cada discrepancia debe cerrarse con la justificación del equipo multidisciplinario.",
+        { size: 13 }
+      ),
+      cuadro(
+        ["Etapa", "Parámetro", "Vínculo del protocolo", "Sugerencia", "Justificación del equipo"],
+        pendientes.map((f) => [f.etapa, f.magnitud, f.afecta?.join(" / ") || "Ninguno", corroboracionDe(f), ""]),
+        [2, 3, 2.5, 5, 3.5]
       )
     );
   }
@@ -508,6 +579,7 @@ export function construirCriticidad({
   etapas = [],
   atributos = [],
   severidades = [],
+  corroboracionSeveridad = null,
   filas = [],
   fmea = [],
   estadistico = [],
@@ -567,7 +639,7 @@ export function construirCriticidad({
   }
 
   if (incluye(0)) hijos.push(...bloquePaso0(atributos));
-  if (incluye(1)) hijos.push(...bloquePaso1(severidades));
+  if (incluye(1)) hijos.push(...bloquePaso1(severidades, corroboracionSeveridad));
   if (incluye(2)) hijos.push(...bloquePaso2(filas));
   if (incluye(3)) hijos.push(...bloquePaso3(filas, { forma: formaDelProducto(forma, producto) }));
   if (incluye(4)) hijos.push(...bloquePaso4(fmea));
@@ -653,7 +725,9 @@ export async function exportarCriticidadWord(datos) {
  * severidad, la clasificación parámetro a parámetro, el FMEA de los Críticos
  * y el requisito de muestreo.
  */
-export function construirLibroCriticidad({ producto = "", lote = "", atributos = [], severidades = [], filas = [], fmea = [], estadistico = [] }) {
+export function construirLibroCriticidad({
+  producto = "", lote = "", atributos = [], severidades = [], corroboracionSeveridad = null, filas = [], fmea = [], estadistico = [],
+}) {
   const wb = new ExcelJS.Workbook();
   const AZUL = "FFC6D9F1";
 
@@ -680,18 +754,19 @@ export function construirLibroCriticidad({ producto = "", lote = "", atributos =
     celda.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF00" } };
   };
 
-  hoja("Paso 1 - Severidad", ["Atributo", "Severidad", "Decisión", "Justificación", "Origen"],
-    [34, 11, 26, 70, 18],
-    severidades.map((s) => [s.atributo, s.severidad, s.decision || "", s.justificacion || "", s.origen === "revisada" ? "Revisada" : "Propuesta por IA"]),
+  hoja("Paso 1 - Severidad", ["Atributo", "Severidad", "Decisión", "Justificación", "Origen", "Bibliografía y segunda opinión"],
+    [34, 11, 26, 70, 18, 70],
+    severidades.map((s) => [s.atributo, s.severidad, s.decision || "", s.justificacion || "", s.origen === "revisada" ? "Revisada" : "Propuesta por IA",
+      corroboracionSeveridad ? corroboracionDeSeveridad(corroboracionSeveridad[s.atributo], s.severidad) : ""]),
     (r, d) => { if (d[1] >= 4) amarillo(r.getCell(2)); });
 
   hoja("Pasos 2-3 - Clasificacion",
-    ["Etapa", "Operación", "Parámetro", "Set-point / criterio", "Atributo vinculado", "Severidad", "Origen de la sospecha", "Estado", "Vía de resolución", "¿Afecta al desempeño?", "Clasificación anterior", "Clasificación", "Fuente"],
-    [16, 26, 28, 24, 26, 11, 60, 22, 34, 40, 16, 16, 34],
+    ["Etapa", "Operación", "Parámetro", "Set-point / criterio", "Atributo vinculado", "Severidad", "Origen de la sospecha", "Estado", "Vía de resolución", "¿Afecta al desempeño?", "Clasificación anterior", "Clasificación", "Fuente", "Corroboración (Consulta PDF + IA)"],
+    [16, 26, 28, 24, 26, 11, 60, 22, 34, 40, 16, 16, 34, 60],
     filas.map((f) => [
       f.etapa, f.seccion, f.magnitud, f.criterios?.join(" ; ") || "", f.afecta?.join(" / ") || "",
       f.severidad ?? "", f.racional || "", estadoDe(f), f.via, respuestaDeDesempeno(f),
-      f.clasificacionAnterior || "", f.clasificacion || "Pendiente", fuenteDe(f),
+      f.clasificacionAnterior || "", f.clasificacion || "Pendiente", fuenteDe(f), corroboracionDe(f),
     ]),
     (r, d) => { if (d[11] === CRITICO) amarillo(r.getCell(12)); });
 

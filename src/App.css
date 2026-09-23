@@ -4458,7 +4458,10 @@ body.esta-redimensionando {
 
 /* El amarillo es el mismo que el Formato 01 y el 8 usan para "mira aquí", y
    el mismo que lleva el .docx que sale de esta sección. */
-.clasificacion tr.es-critico td:nth-child(6) {
+/* Sólo en el cuadro de parámetros, donde la 6.ª columna es la vía de
+   resolución. El de severidades tiene ahora también seis columnas, y sin
+   acotarlo se pintaba la de la bibliografía. */
+.clasificacion .tabla-parametros tr.es-critico td:nth-child(6) {
   background: #fff3b0;
   color: #4a3b00;
   font-weight: 600;
@@ -4523,3 +4526,80 @@ body.esta-redimensionando {
 .npr--verde { background: #c6efce; color: #1e5b2b; }
 .npr--amarillo { background: #ffeb9c; color: #6b4e00; }
 .npr--rojo { background: #ffc7ce; color: #7a1020; }
+
+/* ---------- Corroboración con Consulta PDF y la IA (Criticidad) ---------- */
+.criticidad-corroborar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.criticidad-corroborar input {
+  margin-top: 3px;
+}
+
+.criticidad-resumen-corrob {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-tint);
+}
+
+.criticidad-resumen-corrob label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.corrob {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 4px;
+}
+
+.corrob > div {
+  flex-basis: 100%;
+}
+
+.corrob__marca {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.corrob__marca--ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+  border: 1px solid var(--ok-border);
+}
+
+.corrob__marca--revisar {
+  background: var(--ambar-soft);
+  color: var(--ambar);
+  border: 1px solid var(--ambar-border);
+}
+
+.corrob__cambio {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.corrob__cita {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--sky-text);
+}

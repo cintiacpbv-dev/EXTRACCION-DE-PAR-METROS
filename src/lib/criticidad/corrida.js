@@ -4,8 +4,10 @@
 // paso y quién lo decide:
 //
 //   Paso 0  Atributos de calidad ........ el registro y el protocolo (leídos)
-//   Paso 1  Severidad por atributo ...... lo guardado, y la IA para lo que falte
-//   Paso 2  Causa-efecto por parámetro .. Consulta PDF, y la IA para lo que quede
+//   Paso 1  Severidad por atributo ...... lo guardado, y la IA para lo que falte,
+//                                         con la evidencia de Consulta PDF
+//   Paso 2  Causa-efecto por parámetro .. la IA, con la evidencia de Consulta PDF
+//                                         (o el protocolo, revisado por ambas)
 //   Paso 3  Clasificación ............... una regla, sin IA
 //   Paso 4  FMEA de los Críticos ........ la IA propone P y D
 //   Paso 5  Vínculo estadístico ......... una fórmula, sin IA
@@ -16,12 +18,12 @@
 // salgan mal. La IA se usa donde hace falta juicio y nada más.
 
 import { separarLecturas, porRelevancia } from "../atributos/modelo.js";
-import { citasComoTexto, idDe, preguntaDe } from "../atributos/pregunta.js";
+import { idDe, preguntaDe } from "../atributos/pregunta.js";
 import { evaluar, npr, requisitoEstadistico, muestraPorAtributo } from "./modelo.js";
 import { aplicarSeveridadesDePlanta, fusionar, mapaDeSeveridades, severidadValida } from "./severidad.js";
 import { atributosDelProtocolo, resolverAfecta } from "./protocolo.js";
+import { consultarBibliografia, evidenciasDeAtributos, revisarCausaEfecto, revisarSeveridades } from "./corroborar.js";
 
-const LOTE_BIBLIOGRAFIA = 6;
 const LOTE_IA = 20;
 
 async function pedir(fetchImpl, url, cuerpo) {
@@ -44,20 +46,38 @@ async function pedir(fetchImpl, url, cuerpo) {
  * revisados no se vuelven a proponer, que es lo que hace que la evaluación
  * sea estable entre corridas. Si todos están guardados, no se gasta llamada.
  */
-export async function pasoSeveridad(atributos, { producto, forma, fetchImpl = fetch } = {}) {
+export async function pasoSeveridad(atributos, { producto, forma, corroborar = false, onAvance, fetchImpl = fetch } = {}) {
   // Las decisiones de Validaciones primero: lo que ya está fijado para la
   // planta no se le pregunta a la IA.
   aplicarSeveridadesDePlanta(atributos.map((a) => a.nombre));
   const enUso = mapaDeSeveridades();
   const faltan = atributos.filter((a) => !(a.nombre in enUso));
 
+  // Lo que dice la bibliografía de cada atributo: la consecuencia de que
+  // falle. Se pide para todos, no sólo para los nuevos, porque también sirve
+  // para revisar las severidades que ya estaban guardadas.
+  const evidencias = corroborar
+    ? await evidenciasDeAtributos(atributos, {
+        producto,
+        forma,
+        fetchImpl,
+        onAvance: ({ hechas, total }) => onAvance?.(`Consulta PDF · ${hechas} de ${total} atributos…`),
+      })
+    : new Map();
+
   let propuestas = [];
   if (faltan.length > 0) {
+    onAvance?.(`IA · proponiendo la severidad de ${faltan.length} atributo(s)…`);
     const { filas = [] } = await pedir(fetchImpl, "/api/evaluar-criticidad", {
       tarea: "severidad",
       producto,
       forma,
-      atributos: faltan.map((a) => ({ nombre: a.nombre, criterio: a.criterios?.[0] || "", etapa: a.etapa })),
+      atributos: faltan.map((a) => ({
+        nombre: a.nombre,
+        criterio: a.criterios?.[0] || a.especificacion || "",
+        etapa: a.etapa,
+        evidencia: evidencias.get(a.nombre) || null,
+      })),
     });
     propuestas = filas;
   }
@@ -65,43 +85,58 @@ export async function pasoSeveridad(atributos, { producto, forma, fetchImpl = fe
   const { filas, discrepancias } = fusionar(propuestas);
   // Sólo los atributos de esta corrida, en el orden en que se midieron.
   const nombres = new Set(atributos.map((a) => a.nombre));
+  const deEstaCorrida = filas.filter((f) => nombres.has(f.atributo));
+
+  // Qué respaldo tiene cada severidad. Las propuestas ahora ya se hicieron
+  // con la evidencia delante; las que venían guardadas reciben una segunda
+  // opinión, que se enseña pero no se aplica sola.
+  const corroboracion = {};
+  const nuevas = new Set(faltan.map((a) => a.nombre));
+  for (const f of deEstaCorrida) {
+    const evidencia = evidencias.get(f.atributo);
+    if (nuevas.has(f.atributo) && evidencia) {
+      corroboracion[f.atributo] = { coincide: true, severidadSugerida: null, motivo: "", referencias: evidencia.referencias, conEvidencia: true };
+    }
+  }
+  let avisoRevision = "";
+  if (corroborar) {
+    const guardadas = deEstaCorrida.filter((f) => !nuevas.has(f.atributo));
+    if (guardadas.length > 0) {
+      onAvance?.(`IA · revisando ${guardadas.length} severidad(es) guardada(s)…`);
+      try {
+        Object.assign(corroboracion, await revisarSeveridades(guardadas, { producto, forma, evidencias, fetchImpl }));
+      } catch (err) {
+        avisoRevision = `no se pudo revisar las severidades guardadas (${err.message}).`;
+      }
+    }
+  }
+
   return {
-    filas: filas.filter((f) => nombres.has(f.atributo)),
+    filas: deEstaCorrida,
     discrepancias,
     consultados: faltan.length,
+    corroboracion,
+    avisoRevision,
   };
 }
 
 /**
  * Paso 2 — el screening causa-efecto.
  *
- * Primero la bibliografía: si Consulta PDF responde con citas, ésa es la
- * sospecha y queda con su referencia. Lo que no resuelva va a la IA. Que la
- * bibliografía esté caída no puede dejar el paso sin resultado.
+ * Primero la bibliografía: lo que Consulta PDF responda con citas se le da a
+ * la IA como evidencia de ese parámetro, y la IA decide con ella delante —
+ * la fila queda con su referencia. Que la bibliografía esté caída no puede
+ * dejar el paso sin resultado: la IA contesta igual, sin evidencia.
  */
-export async function pasoScreening(parametros, { producto, forma, etapa, atributos, fetchImpl = fetch } = {}) {
-  const respaldos = new Map();
-
-  for (let i = 0; i < parametros.length; i += LOTE_BIBLIOGRAFIA) {
-    const lote = parametros.slice(i, i + LOTE_BIBLIOGRAFIA);
-    try {
-      const respuesta = await fetchImpl("/api/verificar-bibliografia", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          preguntas: lote.map((p) => ({ id: idDe(p), pregunta: preguntaDe(p, { producto, atributos }) })),
-        }),
-      });
-      if (!respuesta.ok) continue;
-      const { resultados = [] } = await respuesta.json().catch(() => ({}));
-      for (const r of resultados) {
-        if (!r?.confirmado || !r?.respuesta) continue;
-        respaldos.set(r.id, { texto: r.respuesta, referencias: citasComoTexto(r.citas) });
-      }
-    } catch {
-      // La bibliografía es un apoyo, no un requisito: si falla, sigue la IA.
-    }
-  }
+export async function pasoScreening(parametros, { producto, forma, etapa, atributos, corroborar = true, onAvance, fetchImpl = fetch } = {}) {
+  // La bibliografía primero, y su respuesta se le PASA a la IA: así la IA
+  // decide con la evidencia delante en vez de contestar por su lado.
+  const respaldos = corroborar
+    ? await consultarBibliografia(
+        parametros.map((p) => ({ id: idDe(p), pregunta: preguntaDe(p, { producto, atributos }) })),
+        { fetchImpl, onAvance: ({ hechas, total }) => onAvance?.(`${etapa} · Consulta PDF · ${hechas} de ${total}…`) }
+      )
+    : new Map();
 
   const porId = new Map();
   for (let i = 0; i < parametros.length; i += LOTE_IA) {
@@ -117,6 +152,7 @@ export async function pasoScreening(parametros, { producto, forma, etapa, atribu
         magnitud: p.magnitud,
         seccion: p.seccion,
         criterios: p.criterios,
+        evidencia: respaldos.get(idDe(p)) || null,
       })),
     });
     for (const f of filas) porId.set(String(f?.id || ""), f);
@@ -158,7 +194,10 @@ export async function pasoScreening(parametros, { producto, forma, etapa, atribu
       desempeno: typeof cruda?.desempeno === "boolean" ? cruda.desempeno : null,
       desempenoMotivo: cruda?.desempenoMotivo || "",
       atributosFueraDeLista: fuera,
-      racional: respaldo?.texto || cruda?.origen || "",
+      // El mecanismo que escribió la IA ya viene razonado con la evidencia y
+      // con su cita; la respuesta entera de la bibliografía sólo queda cuando
+      // la IA no dijo nada.
+      racional: cruda?.origen || respaldo?.texto || "",
       referencias: respaldo?.referencias || "",
       fuenteSospecha: respaldo ? (cruda ? "IA+bibliografía" : "bibliografía") : cruda ? "IA" : "sin resolver",
     };
@@ -334,13 +373,16 @@ export function pasoEstadistico(severidades, atributos = []) {
  * Va etapa por etapa en el Paso 2 porque los atributos son de la etapa: la
  * hermeticidad es del blíster y se decide en envase, no en fabricación.
  */
-export async function correr(documentos, { producto, forma, protocolo = null, atributosExtra = [], onAvance, fetchImpl = fetch } = {}) {
+export async function correr(
+  documentos,
+  { producto, forma, protocolo = null, atributosExtra = [], corroborar = true, onAvance, fetchImpl = fetch } = {}
+) {
   const avisos = [];
   const aviso = (paso, err) => avisos.push(`Paso ${paso}: ${err.message}`);
 
   // Con el análisis de riesgo del protocolo, los pasos 0 y 2 salen de él.
   if (protocolo?.analisis?.length > 0) {
-    return correrDesdeProtocolo(protocolo, { producto, forma, onAvance, fetchImpl, avisos, aviso });
+    return correrDesdeProtocolo(protocolo, { producto, forma, corroborar, onAvance, fetchImpl, avisos, aviso });
   }
 
   // Paso 0
@@ -358,15 +400,9 @@ export async function correr(documentos, { producto, forma, protocolo = null, at
 
   // Paso 1
   onAvance?.({ paso: 1, texto: "Fijando la severidad de cada atributo…" });
-  let severidades = [];
-  let discrepancias = [];
-  try {
-    const r = await pasoSeveridad(todosLosAtributos, { producto, forma, fetchImpl });
-    severidades = r.filas;
-    discrepancias = r.discrepancias;
-  } catch (err) {
-    aviso(1, err);
-  }
+  const { severidades, discrepancias, corroboracionSeveridad } = await severidadesDeLaCorrida(todosLosAtributos, {
+    producto, forma, corroborar, onAvance, fetchImpl, aviso, avisos,
+  });
 
   const mapa = mapaDeSeveridades(severidades);
   const conSeveridad = todosLosAtributos.map((a) => ({ ...a, severidad: mapa[a.nombre] ?? null }));
@@ -379,7 +415,12 @@ export async function correr(documentos, { producto, forma, protocolo = null, at
     const suyos = conSeveridad.filter((a) => !a.etapa || a.etapa === etapa);
     onAvance?.({ paso: 2, texto: `${etapa} · analizando ${deLaEtapa.length} parámetros…` });
     try {
-      screening.push(...(await pasoScreening(deLaEtapa, { producto, forma, etapa, atributos: suyos, fetchImpl })));
+      screening.push(
+        ...(await pasoScreening(deLaEtapa, {
+          producto, forma, etapa, atributos: suyos, corroborar, fetchImpl,
+          onAvance: (texto) => onAvance?.({ paso: 2, texto }),
+        }))
+      );
     } catch (err) {
       aviso(2, err);
       // Sin screening, los parámetros de esa etapa siguen en el cuadro: se
@@ -408,7 +449,25 @@ export async function correr(documentos, { producto, forma, protocolo = null, at
   // Paso 5
   const estadistico = pasoEstadistico(severidades, conSeveridad);
 
-  return { atributos: conSeveridad, severidades, discrepancias, filas, fmea, estadistico, resumen, avisos, fuente: "registros" };
+  return {
+    atributos: conSeveridad, severidades, discrepancias, corroboracionSeveridad, filas, fmea, estadistico, resumen, avisos,
+    fuente: "registros", corroborada: corroborar,
+  };
+}
+
+/** El Paso 1 dentro de una corrida: si falla, la corrida sigue con aviso. */
+async function severidadesDeLaCorrida(atributos, { producto, forma, corroborar, onAvance, fetchImpl, aviso, avisos }) {
+  try {
+    const r = await pasoSeveridad(atributos, {
+      producto, forma, corroborar, fetchImpl,
+      onAvance: (texto) => onAvance?.({ paso: 1, texto }),
+    });
+    if (r.avisoRevision) avisos.push(`Paso 1: ${r.avisoRevision}`);
+    return { severidades: r.filas, discrepancias: r.discrepancias, corroboracionSeveridad: r.corroboracion };
+  } catch (err) {
+    aviso(1, err);
+    return { severidades: [], discrepancias: [], corroboracionSeveridad: {} };
+  }
 }
 
 /**
@@ -416,20 +475,14 @@ export async function correr(documentos, { producto, forma, protocolo = null, at
  * vienen escritos, y la IA se usa sólo para la severidad (Paso 1), la
  * pregunta de desempeño que el protocolo no contesta, y P y D de los Críticos.
  */
-async function correrDesdeProtocolo(protocolo, { producto, forma, onAvance, fetchImpl, avisos, aviso }) {
+async function correrDesdeProtocolo(protocolo, { producto, forma, corroborar, onAvance, fetchImpl, avisos, aviso }) {
   onAvance?.({ paso: 0, texto: "Leyendo atributos y análisis de riesgo del protocolo…" });
   const { atributos, filas: screening } = desdeProtocolo(protocolo);
 
   onAvance?.({ paso: 1, texto: "Fijando la severidad de cada atributo…" });
-  let severidades = [];
-  let discrepancias = [];
-  try {
-    const r = await pasoSeveridad(atributos, { producto, forma, fetchImpl });
-    severidades = r.filas;
-    discrepancias = r.discrepancias;
-  } catch (err) {
-    aviso(1, err);
-  }
+  const { severidades, discrepancias, corroboracionSeveridad } = await severidadesDeLaCorrida(atributos, {
+    producto, forma, corroborar, onAvance, fetchImpl, aviso, avisos,
+  });
   const mapa = mapaDeSeveridades(severidades);
   const conSeveridad = atributos.map((a) => ({ ...a, severidad: mapa[a.nombre] ?? null }));
 
@@ -439,6 +492,21 @@ async function correrDesdeProtocolo(protocolo, { producto, forma, onAvance, fetc
     conDesempeno = await contestarDesempeno(screening, { producto, forma, atributos: conSeveridad, fetchImpl });
   } catch (err) {
     aviso(2, err);
+  }
+
+  // El análisis de riesgo del protocolo, revisado contra la bibliografía y
+  // la IA. No cambia ningún vínculo: marca lo que falta o sobra para que
+  // quien valida lo acepte o no.
+  if (corroborar) {
+    onAvance?.({ paso: 2, texto: "Corroborando el análisis de riesgo con Consulta PDF y la IA…" });
+    try {
+      conDesempeno = await revisarCausaEfecto(conDesempeno, {
+        producto, forma, atributos: conSeveridad, fetchImpl,
+        onAvance: (texto) => onAvance?.({ paso: 2, texto }),
+      });
+    } catch (err) {
+      aviso(2, err);
+    }
   }
 
   onAvance?.({ paso: 3, texto: "Clasificando…" });
@@ -456,7 +524,8 @@ async function correrDesdeProtocolo(protocolo, { producto, forma, onAvance, fetc
   }
 
   return {
-    atributos: conSeveridad, severidades, discrepancias, filas, fmea,
+    atributos: conSeveridad, severidades, discrepancias, corroboracionSeveridad, filas, fmea,
     estadistico: pasoEstadistico(severidades, conSeveridad), resumen, avisos, fuente: "protocolo",
+    corroborada: corroborar,
   };
 }

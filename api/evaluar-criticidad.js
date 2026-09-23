@@ -7,6 +7,15 @@
 //                       con algún atributo, con cuál, y de dónde sale la sospecha.
 //   tarea "fmea"      → Paso 4: Probabilidad y Detectabilidad de los parámetros
 //                       YA declarados Críticos, para priorizar entre ellos.
+//   tarea "revisar-severidad"     → segunda opinión sobre severidades ya
+//                       guardadas, a la luz de lo que dice la bibliografía.
+//   tarea "revisar-causa-efecto"  → segunda opinión sobre el análisis de
+//                       riesgo del protocolo: qué vínculo falta o sobra.
+//
+// Cuando Consulta PDF encontró algo, su respuesta llega aquí como
+// "evidencia" de cada atributo o parámetro, y el modelo razona CON ella en
+// vez de hacerlo de memoria. Las dos revisiones no cambian nada solas:
+// señalan, y quien valida decide.
 //
 // Los pasos 3 y 5 NO pasan por aquí: la clasificación, el NPR y el vínculo
 // estadístico son reglas deterministas (ver lib/criticidad/modelo.js) y
@@ -123,6 +132,55 @@ const ESQUEMA_FMEA = {
   },
 };
 
+const ESQUEMA_REVISAR_SEVERIDAD = {
+  type: "array",
+  items: {
+    type: "object",
+    properties: {
+      atributo: { type: "string", description: "El nombre del atributo, copiado tal cual se recibió." },
+      coincide: { type: "boolean", description: "true si la severidad asignada es coherente con la evidencia y con la matriz." },
+      severidadSugerida: { type: "integer", minimum: 1, maximum: 5, description: "La severidad que corresponde. Igual a la asignada si coincide." },
+      motivo: { type: "string", description: "Una o dos frases: qué dice la evidencia y por qué coincide o no." },
+    },
+    required: ["atributo", "coincide", "severidadSugerida", "motivo"],
+  },
+};
+
+const ESQUEMA_REVISAR_CAUSA_EFECTO = {
+  type: "array",
+  items: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "El id del parámetro tal cual se recibió." },
+      coincide: { type: "boolean", description: "true si los atributos que el análisis vincula son los que corresponden." },
+      faltan: {
+        type: "array",
+        description: "Atributos de la lista que deberían estar vinculados y no lo están. Vacío si no falta ninguno.",
+        items: { type: "string" },
+      },
+      sobran: {
+        type: "array",
+        description: "Atributos vinculados que no tienen un mecanismo que los sostenga. Vacío si no sobra ninguno.",
+        items: { type: "string" },
+      },
+      motivo: { type: "string", description: "El mecanismo, o lo que dice la evidencia, en una o dos frases." },
+    },
+    required: ["id", "coincide", "faltan", "sobran", "motivo"],
+  },
+};
+
+// Lo que la bibliografía dijo de un atributo o de un parámetro, escrito para
+// el prompt. Recortado: el modelo necesita el argumento y la cita, no la
+// respuesta entera del RAG.
+function evidenciaComoTexto(evidencia) {
+  if (!evidencia) return "";
+  const texto = String(evidencia.texto || evidencia).replace(/\s+/g, " ").trim().slice(0, 700);
+  const fuentes = evidencia.referencias ? ` [Fuentes: ${evidencia.referencias}]` : "";
+  return texto ? `\n    Evidencia de la bibliografía (Consulta PDF): ${texto}${fuentes}` : "";
+}
+
+const USO_DE_LA_EVIDENCIA = `Algunos elementos traen "Evidencia de la bibliografía": es lo que encontró Consulta PDF en los documentos de la planta (farmacopeas, guías, monografías, informes), con sus fuentes. Cuando la haya, apóyate en ella antes que en tu conocimiento general, y cita la fuente entre paréntesis en tu texto. Si la evidencia contradice lo que pensabas, manda la evidencia. Si un elemento no trae evidencia, razona con tu conocimiento y no inventes citas.`;
+
 const MATRIZ = `Matriz de apoyo — Severidad × Incertidumbre (adaptada de PDA TR60, Fig. 6.1-2).
 Cruza el tipo de impacto si el atributo falla con lo bien conocida que esté esa relación:
 
@@ -142,7 +200,7 @@ Para ubicar cada atributo en la matriz:
 
 function promptSeveridad({ producto, forma, atributos }) {
   const lista = atributos
-    .map((a) => `- ${a.nombre}${a.criterio ? ` (criterio: ${a.criterio})` : ""}${a.etapa ? ` [se mide en ${a.etapa}]` : ""}`)
+    .map((a) => `- ${a.nombre}${a.criterio ? ` (criterio: ${a.criterio})` : ""}${a.etapa ? ` [se mide en ${a.etapa}]` : ""}${evidenciaComoTexto(a.evidencia)}`)
     .join("\n");
 
   return `Eres un especialista en validación de procesos farmacéuticos aplicando ICH Q9(R1) 2023 y PDA TR60.
@@ -160,6 +218,8 @@ Preguntas guía, para que dos evaluadores den lo mismo:
 4 — ¿Podría afectar significativamente un atributo de calidad, aunque existan controles aguas abajo?
 5 — ¿Podría comprometer directamente la seguridad del paciente o la eficacia del medicamento?
 
+${USO_DE_LA_EVIDENCIA}
+
 ATRIBUTOS A CALIFICAR:
 ${lista}
 
@@ -174,7 +234,7 @@ function promptScreening({ producto, forma, etapa, parametros, atributos }) {
       (p) =>
         `- id ${p.id} · [${p.seccion || "GENERAL"}] ${p.magnitud}${
           p.criterios?.length ? ` — criterio en el registro: ${p.criterios.join(" ; ")}` : " — sin criterio impreso"
-        }`
+        }${evidenciaComoTexto(p.evidencia)}`
     )
     .join("\n");
 
@@ -191,6 +251,8 @@ Importante: aquí NO se evalúa la gravedad, ni la probabilidad, ni la detectabi
 
 ATRIBUTOS DE CALIDAD de este producto:
 ${listaAtributos || "(no se reconoció ninguno)"}
+
+${USO_DE_LA_EVIDENCIA}
 
 PARÁMETROS DE PROCESO de esta etapa:
 ${listaParametros}
@@ -247,6 +309,65 @@ Criterio de calificación: la Probabilidad no se asume alta sólo porque la conf
 Si el criterio impreso en el registro es amplio ("no menos de 10 minutos", "informativo"), eso es señal de Probabilidad baja: hay margen. Si es estrecho ("70 °C ± 2 °C"), de Probabilidad media o alta.
 
 En el racional, nombra el control que existe. Responde en español.`;
+}
+
+function promptRevisarSeveridad({ producto, forma, atributos }) {
+  const lista = atributos
+    .map(
+      (a) =>
+        `- ${a.nombre}: severidad asignada ${a.severidad}${a.decision ? ` (${a.decision})` : ""}` +
+        `${a.justificacion ? ` — justificación: ${a.justificacion}` : ""}${evidenciaComoTexto(a.evidencia)}`
+    )
+    .join("\n");
+
+  return `Eres un especialista en validación de procesos farmacéuticos aplicando ICH Q9(R1) 2023 y PDA TR60.
+
+Producto: ${producto}
+${forma ? `Forma farmacéutica: ${forma}\n` : ""}
+Eres el SEGUNDO evaluador del Paso 1 (severidad por atributo). Las severidades de abajo ya están asignadas; tu trabajo es decir si son coherentes con la matriz y con la evidencia de la bibliografía, no volver a proponerlas desde cero. La severidad se contesta con una sola pregunta: ¿qué tan grave sería que ese atributo fallara?, sin mirar qué parámetro lo podría causar.
+
+${MATRIZ}
+
+${USO_DE_LA_EVIDENCIA}
+
+SEVERIDADES A REVISAR:
+${lista}
+
+Para cada atributo: "coincide" true si la severidad es defendible con la evidencia y la matriz; false sólo si hay una razón concreta para otra (un límite farmacopeico de tolerancia casi nula que la subestimada no refleja, o un atributo puramente estético calificado como crítico). La diferencia de un punto por simple matiz NO es un desacuerdo: en ese caso coincide. "severidadSugerida" es la que corresponde; "motivo" nombra la consecuencia y, si la hay, la fuente. Responde en español.`;
+}
+
+function promptRevisarCausaEfecto({ producto, forma, etapa, parametros, atributos }) {
+  const lista = parametros
+    .map(
+      (p) =>
+        `- id ${p.id} · [${p.seccion || "GENERAL"}] ${p.magnitud}` +
+        `${p.criterios?.length ? ` — set-point: ${p.criterios.join(" ; ")}` : ""}` +
+        `\n    El análisis de riesgo lo vincula a: ${p.afecta?.length ? p.afecta.join(", ") : "ningún atributo"}` +
+        `${p.analisis ? `\n    Racional escrito en el protocolo: ${String(p.analisis).replace(/\s+/g, " ").slice(0, 400)}` : ""}` +
+        evidenciaComoTexto(p.evidencia)
+    )
+    .join("\n");
+
+  const listaAtributos = atributos.map((a) => `- ${a.nombre}${a.severidad ? ` (severidad ${a.severidad})` : ""}`).join("\n");
+
+  return `Eres un especialista en validación de procesos farmacéuticos aplicando ICH Q9(R1) 2023 y PDA TR60.
+
+Producto: ${producto}
+${forma ? `Forma farmacéutica: ${forma}\n` : ""}Etapa del proceso: ${etapa}
+
+Eres el SEGUNDO evaluador del Paso 2 (análisis causa-efecto). El protocolo ya trae, por cada parámetro de proceso, a qué atributos de calidad lo vincula su análisis de riesgo. Tu trabajo es revisar ese vínculo: ¿falta algún atributo de la lista que el parámetro mueva por un mecanismo físico o químico plausible?, ¿sobra alguno que no tenga mecanismo que lo sostenga?
+
+No evalúes gravedad ni probabilidad: la clasificación se decide después con una regla a partir de la severidad del atributo. Aquí sólo importa si el vínculo existe.
+
+${USO_DE_LA_EVIDENCIA}
+
+ATRIBUTOS DE CALIDAD de este producto (usa estos nombres tal cual):
+${listaAtributos || "(no se reconoció ninguno)"}
+
+PARÁMETROS A REVISAR:
+${lista}
+
+Para cada parámetro, con su id exacto: "coincide" true si el vínculo del protocolo es el correcto. Sé conservador: el protocolo lo firmó un equipo multidisciplinario, así que sólo señala un desacuerdo cuando puedas nombrar el mecanismo o la fuente. Un parámetro operativo que el protocolo no vincula a nada ("se requiere para continuar con el proceso") casi siempre está bien así. "faltan" y "sobran" sólo con nombres de la lista. "motivo" en una o dos frases, con la fuente si la hay. Responde en español.`;
 }
 
 export default async function handler(req, res) {
@@ -308,8 +429,30 @@ export default async function handler(req, res) {
     }
     prompt = promptFmea({ producto, forma, parametros: parametros.slice(0, MAX_PARAMETROS) });
     esquema = ESQUEMA_FMEA;
+  } else if (tarea === "revisar-severidad") {
+    if (atributos.length === 0) {
+      res.status(400).json({ error: "Falta la lista de severidades a revisar." });
+      return;
+    }
+    prompt = promptRevisarSeveridad({ producto, forma, atributos: atributos.slice(0, MAX_ATRIBUTOS) });
+    esquema = ESQUEMA_REVISAR_SEVERIDAD;
+  } else if (tarea === "revisar-causa-efecto") {
+    if (parametros.length === 0) {
+      res.status(400).json({ error: "Falta la lista de parámetros a revisar." });
+      return;
+    }
+    prompt = promptRevisarCausaEfecto({
+      producto,
+      forma,
+      etapa: etapa || "no indicada",
+      parametros: parametros.slice(0, MAX_PARAMETROS),
+      atributos,
+    });
+    esquema = ESQUEMA_REVISAR_CAUSA_EFECTO;
   } else {
-    res.status(400).json({ error: 'La tarea debe ser "severidad", "screening" o "fmea".' });
+    res.status(400).json({
+      error: 'La tarea debe ser "severidad", "screening", "fmea", "revisar-severidad" o "revisar-causa-efecto".',
+    });
     return;
   }
 
