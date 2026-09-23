@@ -93,7 +93,7 @@ function esContinuacion(celdaXml) {
  * columnas y otras donde ocupa una, y contando celdas el modo de
  * verificación se leía en la casilla del rango.
  */
-function celdasDe(filaXml) {
+export function celdasDe(filaXml) {
   let columna = 0;
   return [...filaXml.matchAll(RE_CELDA)].map((m) => {
     const celda = {
@@ -108,7 +108,7 @@ function celdasDe(filaXml) {
 }
 
 /** La celda que ocupa una columna de la rejilla, o null si la fila no llega. */
-function enColumna(celdas, columna) {
+export function enColumna(celdas, columna) {
   return celdas.find((c) => columna >= c.columna && columna < c.columna + c.ancho) || null;
 }
 
@@ -124,7 +124,7 @@ function anchoDeFila(celdas) {
  * Hace falta el orden porque el nombre de la etapa no vive dentro de la
  * tabla sino en el párrafo que la precede.
  */
-function bloques(xml) {
+export function bloques(xml) {
   const encontrados = [];
   for (const m of xml.matchAll(RE_PARRAFO)) encontrados.push({ i: m.index, tipo: "p", xml: m[0] });
   for (const m of xml.matchAll(RE_TABLA)) encontrados.push({ i: m.index, tipo: "tbl", xml: m[0] });

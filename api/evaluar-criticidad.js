@@ -133,7 +133,12 @@ Cruza el tipo de impacto si el atributo falla con lo bien conocida que esté esa
 | Atributo cosmético con posible correlación funcional | 2 | 3 |
 | Atributo puramente estético, sin correlación funcional | 1 | 2 |
 
-No saber es, a efectos de riesgo, peor que saber: la incertidumbre alta sube la severidad un punto.`;
+No saber es, a efectos de riesgo, peor que saber: la incertidumbre alta sube la severidad un punto. Ante la duda, se sube la severidad como principio de precaución.
+
+Para ubicar cada atributo en la matriz:
+- Tipo de vínculo hacia una consecuencia grave: ¿es de tolerancia cero, directo con límite tolerable, indirecto, cosmético con correlación funcional, o puramente estético?
+- Distingue el vínculo DIRECTO del INDIRECTO: si es directo, la severidad es alta; si es indirecto, media o baja.
+- Considera la vía de administración, el margen terapéutico del principio activo y la población de pacientes objetivo: el mismo atributo no pesa igual en un inyectable que en una crema.`;
 
 function promptSeveridad({ producto, forma, atributos }) {
   const lista = atributos
@@ -218,19 +223,21 @@ Producto: ${producto}
 ${forma ? `Forma farmacéutica: ${forma}\n` : ""}
 Estás en el Paso 4 del Procedimiento de Evaluación de Criticidad y Riesgo. Los parámetros de abajo YA están declarados Críticos: eso no se discute aquí y tu respuesta no puede cambiarlo. Lo que se documenta ahora es Probabilidad y Detectabilidad, para dos cosas: priorizar entre los Críticos mediante el NPR, y diseñar la estrategia de control de cada uno.
 
-PROBABILIDAD (P) — qué tan probable es que el parámetro se salga de su rango:
-5 Muy alta — rango de control estrecho respecto a la variabilidad natural del proceso
-4 Alta — rango moderadamente estrecho; desviaciones registradas en procesos similares
-3 Media — control demostrado pero sin amplio margen; requiere monitoreo
-2 Baja — rango amplio respecto a la variabilidad esperada; control demostrado
-1 Muy baja — parámetro fácilmente controlado, automatizado, o con rango muy holgado
+OCURRENCIA / PROBABILIDAD (P) — según las desviaciones y no conformidades registradas asociadas al parámetro:
+5 Muy alta — ha ocurrido más de tres veces en el último año; rango de control estrecho respecto a la variabilidad natural del proceso/equipo, sin historial de control robusto
+4 Alta — ha ocurrido tres veces en el último año; rango moderadamente estrecho, desviaciones registradas en productos o procesos análogos
+3 Moderada — ha ocurrido dos veces en el último año; control demostrado pero sin amplio margen, requiere monitoreo activo
+2 Baja — ha ocurrido sólo una vez en el último año; rango amplio respecto a la variabilidad esperada, control demostrado en plataforma similar
+1 Muy baja — no ha ocurrido en el último año; parámetro fácilmente controlado, automatizado, o con rango muy amplio ya demostrado
 
-DETECTABILIDAD (D) — qué tan difícil es darse cuenta a tiempo:
-5 Muy baja — sin control en línea; se detecta sólo en análisis de producto terminado
-4 Baja — detección fuera de línea, tras el lote, con retraso significativo
-3 Media — muestreo en proceso a intervalos definidos
-2 Alta — monitoreo en línea frecuente con alarmas/alertas
-1 Muy alta — control continuo automatizado (PAT / control en tiempo real)
+DETECTABILIDAD (D) — en qué parte de la secuencia de validación se detecta:
+5 No puede ser detectado — durante el mantenimiento del estado validado; sin control en línea, se detecta sólo en análisis de producto terminado, si acaso
+4 Baja detectabilidad — durante la elaboración del reporte de validación; detección fuera de línea, tras el lote, con retraso significativo
+3 Moderadamente detectable — durante la ejecución de los lotes de validación; muestreo en proceso a intervalos definidos
+2 Detectable — durante la elaboración del protocolo de validación; monitoreo en línea frecuente con alarmas y/o alertas
+1 Muy detectable — durante las revisiones previas a la elaboración del protocolo; control continuo automatizado (PAT / control en tiempo real)
+
+IMPORTANTE: tú NO conoces el historial de desviaciones de esta planta, que es el primer criterio de la Ocurrencia. Califícala por el segundo —el ancho del rango frente a la variabilidad esperada— y dilo en el racional con estas palabras: "Ocurrencia propuesta por el rango; confirmar con el historial de desviaciones del último año." Quien valida la corregirá con el dato real.
 
 PARÁMETROS CRÍTICOS:
 ${lista}

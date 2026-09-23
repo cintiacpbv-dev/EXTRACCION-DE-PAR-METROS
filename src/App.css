@@ -4456,3 +4456,16 @@ body.esta-redimensionando {
   font-size: 13px;
   min-width: 260px;
 }
+
+/* El nivel de riesgo del NPR, con los colores que nombra el procedimiento. */
+.npr {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.npr--verde { background: #c6efce; color: #1e5b2b; }
+.npr--amarillo { background: #ffeb9c; color: #6b4e00; }
+.npr--rojo { background: #ffc7ce; color: #7a1020; }

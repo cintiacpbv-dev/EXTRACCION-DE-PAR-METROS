@@ -104,11 +104,34 @@ export function npr(s, p, d) {
   return s * p * d;
 }
 
-/** Los tramos con los que se lee ese número. */
+/**
+ * Los tramos con los que se lee ese número, tal como los fija el
+ * procedimiento (Secuencia de elaboración del AR, Tabla 7).
+ *
+ * Las corridas los llamaban Bajo / Medio / Alto con los mismos límites; el
+ * procedimiento los llama por su color y, sobre todo, les pone CONSECUENCIA:
+ * un NPR rojo no es "prioridad alta", es "no realizar la validación". Esa
+ * diferencia tiene que llegar al documento tal cual.
+ */
 export const TRAMOS_NPR = [
-  { hasta: 15, nivel: "Bajo", uso: "Monitoreo estándar" },
-  { hasta: 35, nivel: "Medio", uso: "Monitoreo reforzado / revisión periódica" },
-  { hasta: 125, nivel: "Alto", uso: "Prioridad de atención inmediata; revisar controles antes del PPQ" },
+  {
+    hasta: 15,
+    nivel: "Aceptable",
+    color: "VERDE",
+    uso: "Monitoreo estándar. Proceder con la validación. No se requiere controlar el riesgo.",
+  },
+  {
+    hasta: 35,
+    nivel: "Moderado",
+    color: "AMARILLO",
+    uso: "Monitoreo reforzado / revisión periódica. Proceder con la validación. Requiere verificaciones y controles específicos para garantizar que el proceso se mantiene bajo control.",
+  },
+  {
+    hasta: 125,
+    nivel: "Inaceptable",
+    color: "ROJO",
+    uso: "Prioridad de atención inmediata; revisar controles antes de la validación del proceso. No realizar la validación. Se debe controlar / mitigar el riesgo a corto plazo.",
+  },
 ];
 
 export function nivelDeNpr(valor) {
@@ -170,21 +193,41 @@ export const PREGUNTAS_SEVERIDAD = {
   5: "¿La variación podría comprometer directamente la seguridad del paciente o la eficacia del medicamento?",
 };
 
-/** Las escalas de Probabilidad y Detectabilidad del Paso 4. */
+/**
+ * Las escalas de Ocurrencia/Probabilidad y de Detectabilidad del Paso 4, tal
+ * como las fija el procedimiento (Tablas 5 y 6).
+ *
+ * Son DISTINTAS de las de las corridas, y la diferencia importa. Las corridas
+ * calificaban la probabilidad sólo por el ancho del rango y la detectabilidad
+ * sólo por el tipo de monitoreo. El procedimiento pone por delante otra cosa:
+ *
+ *   - La ocurrencia se mide primero por el HISTORIAL: cuántas desviaciones o
+ *     no conformidades asociadas hubo en el último año. El ancho del rango
+ *     queda como criterio de apoyo.
+ *   - La detectabilidad se mide por EN QUÉ PUNTO DE LA SECUENCIA DE
+ *     VALIDACIÓN se detecta —en la revisión previa al protocolo, en el
+ *     protocolo, en la ejecución de los lotes, en el reporte, o ya en el
+ *     estado validado—. El tipo de monitoreo queda como criterio de apoyo.
+ *
+ * Se guardan las dos mitades de cada nivel porque las dos están en el texto
+ * del procedimiento, y porque la primera —el historial— es la que la
+ * aplicación NO conoce: la IA sólo puede proponer por la segunda, y quien
+ * valida tiene que corregir con el historial real de desviaciones.
+ */
 export const ESCALA_PROBABILIDAD = [
-  { valor: 5, nivel: "Muy alta", descripcion: "Rango de control estrecho respecto a la variabilidad natural del proceso" },
-  { valor: 4, nivel: "Alta", descripcion: "Rango moderadamente estrecho; desviaciones registradas en procesos similares" },
-  { valor: 3, nivel: "Media", descripcion: "Control demostrado pero sin amplio margen; requiere monitoreo" },
-  { valor: 2, nivel: "Baja", descripcion: "Rango amplio respecto a la variabilidad esperada; control demostrado" },
-  { valor: 1, nivel: "Muy baja", descripcion: "Parámetro fácilmente controlado, automatizado, o con rango muy holgado" },
+  { valor: 5, nivel: "Muy alta", historial: "Ha ocurrido más de tres veces en el último año. Hay alta probabilidad de que ocurra nuevamente.", descripcion: "Rango de control estrecho respecto a la variabilidad natural del proceso/equipo; sin historial de control robusto." },
+  { valor: 4, nivel: "Alta", historial: "Ha ocurrido tres veces en el último año. Es probable que ocurra nuevamente.", descripcion: "Rango moderadamente estrecho; desviaciones registradas en productos y/o procesos análogos." },
+  { valor: 3, nivel: "Moderada", historial: "Ha ocurrido dos veces en el último año. Es probable que ocurra nuevamente.", descripcion: "Control demostrado pero sin amplio margen; requiere monitoreo activo." },
+  { valor: 2, nivel: "Baja", historial: "Ha ocurrido sólo una vez en el último año. Poco probable que ocurra nuevamente.", descripcion: "Rango amplio respecto a la variabilidad esperada; control demostrado en plataforma similar." },
+  { valor: 1, nivel: "Muy baja", historial: "No ha ocurrido en el último año. Poco probable que ocurra nuevamente.", descripcion: "Parámetro fácilmente controlado, automatizado, o con rango muy amplio ya demostrado." },
 ];
 
 export const ESCALA_DETECTABILIDAD = [
-  { valor: 5, nivel: "Muy baja", descripcion: "Sin control en línea; se detecta sólo en análisis de producto terminado" },
-  { valor: 4, nivel: "Baja", descripcion: "Detección fuera de línea, tras el lote, con retraso significativo" },
-  { valor: 3, nivel: "Media", descripcion: "Muestreo en proceso a intervalos definidos" },
-  { valor: 2, nivel: "Alta", descripcion: "Monitoreo en línea frecuente con alarmas/alertas" },
-  { valor: 1, nivel: "Muy alta", descripcion: "Control continuo automatizado (PAT / control en tiempo real)" },
+  { valor: 5, nivel: "No puede ser detectado", momento: "Durante el mantenimiento del estado validado.", descripcion: "Sin control en línea; se detecta sólo en análisis de producto terminado, si acaso." },
+  { valor: 4, nivel: "Baja detectabilidad", momento: "Durante la elaboración del reporte de validación.", descripcion: "Detección fuera de línea, tras el lote, con retraso significativo." },
+  { valor: 3, nivel: "Moderadamente detectable", momento: "Durante la ejecución de los lotes de validación.", descripcion: "Muestreo en proceso a intervalos definidos." },
+  { valor: 2, nivel: "Detectable", momento: "Durante la elaboración del protocolo de validación.", descripcion: "Monitoreo en línea frecuente con alarmas y/o alertas." },
+  { valor: 1, nivel: "Muy detectable", momento: "Durante las revisiones previas a la elaboración del protocolo de validación.", descripcion: "Control continuo automatizado (PAT / control en tiempo real)." },
 ];
 
 /**

@@ -19,6 +19,7 @@ import { separarLecturas, porRelevancia } from "../atributos/modelo.js";
 import { citasComoTexto, idDe, preguntaDe } from "../atributos/pregunta.js";
 import { evaluar, npr, requisitoEstadistico, muestraPorAtributo } from "./modelo.js";
 import { fusionar, mapaDeSeveridades, severidadValida } from "./severidad.js";
+import { atributosDelProtocolo, resolverAfecta } from "./protocolo.js";
 
 const LOTE_BIBLIOGRAFIA = 6;
 const LOTE_IA = 20;
@@ -161,6 +162,96 @@ export async function pasoScreening(parametros, { producto, forma, etapa, atribu
   });
 }
 
+/**
+ * Pasos 0 y 2 leídos del protocolo, cuando el protocolo trae su análisis de
+ * riesgo.
+ *
+ * Es el camino bueno, y el que siguen las corridas: el Paso 0 es la
+ * especificación del producto terminado más los atributos citados en el
+ * análisis, y el Paso 2 es ese mismo análisis — su texto es el origen de la
+ * sospecha y su columna «Afecta» dice con qué atributo. Nada de eso se le
+ * pregunta a la IA: ya está escrito y firmado en el protocolo.
+ *
+ * Lo único que el protocolo no contesta es la pregunta de desempeño de los
+ * parámetros que no llegan a Críticos, salvo cuando su «Afecta» nombra el
+ * tiempo de proceso o el rendimiento — que es justamente la respuesta SÍ.
+ */
+export function desdeProtocolo(protocolo) {
+  const catalogo = atributosDelProtocolo(protocolo);
+  const vistos = new Map();
+
+  const filas = protocolo.analisis.map((f) => {
+    const { calidad, desempeno } = resolverAfecta(
+      f.afecta.map((a) => a.atributo),
+      catalogo,
+      protocolo.especificaciones
+    );
+    // El mismo parámetro puede repetirse en la misma operación ("Tiempo"
+    // dos veces); el número lo mantiene distinto.
+    const base = idDe({ etapa: f.etapa, seccion: f.operacion, magnitud: f.parametro });
+    const n = (vistos.get(base) || 0) + 1;
+    vistos.set(base, n);
+
+    return {
+      id: n > 1 ? `${base}-${n}` : base,
+      etapa: f.etapa,
+      seccion: f.operacion,
+      magnitud: f.parametro,
+      ejemplo: f.parametro,
+      criterios: f.setpoint ? [f.setpoint] : [],
+      veces: 1,
+      sospecha: calidad.length > 0,
+      afecta: calidad,
+      racional: f.analisis,
+      referencias: "",
+      fuenteSospecha: "protocolo",
+      clasificacionAnterior: f.clasificacionAnterior,
+      acopladoCon: f.acopladoCon,
+      desempeno: desempeno.length > 0 ? true : null,
+      desempenoMotivo: desempeno.length > 0 ? `El análisis de riesgo lo vincula a: ${desempeno.join(", ")}.` : "",
+    };
+  });
+
+  return { atributos: catalogo, filas };
+}
+
+/**
+ * La pregunta de desempeño, para las filas que el protocolo dejó sin
+ * contestar.
+ *
+ * Se reusa la tarea de screening de la IA pero sólo se toma su respuesta de
+ * desempeño: la sospecha y los atributos ya los dijo el protocolo y NO se
+ * sobrescriben con lo que opine el modelo.
+ */
+async function contestarDesempeno(filas, { producto, forma, atributos, fetchImpl }) {
+  const pendientes = filas.filter((f) => f.desempeno === null);
+  if (pendientes.length === 0) return filas;
+
+  const respuestas = new Map();
+  for (const etapa of [...new Set(pendientes.map((f) => f.etapa))]) {
+    const suyas = pendientes.filter((f) => f.etapa === etapa);
+    for (let i = 0; i < suyas.length; i += LOTE_IA) {
+      const lote = suyas.slice(i, i + LOTE_IA);
+      const { filas: r = [] } = await pedir(fetchImpl, "/api/evaluar-criticidad", {
+        tarea: "screening",
+        producto,
+        forma,
+        etapa,
+        atributos: atributos.map((a) => ({ nombre: a.nombre, severidad: a.severidad })),
+        parametros: lote.map((p) => ({ id: p.id, magnitud: p.magnitud, seccion: p.seccion, criterios: p.criterios })),
+      });
+      for (const x of r) respuestas.set(String(x?.id || ""), x);
+    }
+  }
+
+  return filas.map((f) => {
+    if (f.desempeno !== null) return f;
+    const r = respuestas.get(f.id);
+    if (typeof r?.desempeno !== "boolean") return f;
+    return { ...f, desempeno: r.desempeno, desempenoMotivo: r.desempenoMotivo || "", desempenoPorIA: true };
+  });
+}
+
 /** Paso 4 — P y D de los que ya son Críticos. */
 export async function pasoFmea(criticos, { producto, forma, fetchImpl = fetch } = {}) {
   if (criticos.length === 0) return [];
@@ -199,8 +290,18 @@ export async function pasoFmea(criticos, { producto, forma, fetchImpl = fetch } 
   });
 }
 
-/** Paso 5 — el requisito de muestreo que sale de la severidad de cada atributo. */
-export function pasoEstadistico(severidades) {
+/**
+ * Paso 5 — el requisito de muestreo que sale de la severidad de cada atributo.
+ *
+ * Agrupado por nivel de severidad, que es como lo trae la Tabla 9 del
+ * procedimiento, y dentro de cada nivel separado por TIPO DE DATO (Tabla 8):
+ * no es lo mismo el requisito para la valoración —un número, que se trata con
+ * un intervalo de tolerancia— que para la ausencia de E. coli —un sí o un
+ * no, que se trata con confianza-confiabilidad y cero defectos—. El n de la
+ * tabla sólo vale para los segundos; decirlo para todos sería engañoso.
+ */
+export function pasoEstadistico(severidades, atributos = []) {
+  const tipoDe = new Map(atributos.map((a) => [a.nombre, a.tipoDeDato]));
   const porNivel = new Map();
   for (const s of severidades) {
     const req = requisitoEstadistico(s.severidad);
@@ -210,9 +311,16 @@ export function pasoEstadistico(severidades) {
         ...req,
         n: muestraPorAtributo(req.confianza, req.cobertura),
         atributos: [],
+        continuos: [],
+        deAtributo: [],
       });
     }
-    porNivel.get(req.etiqueta).atributos.push(s.atributo);
+    const g = porNivel.get(req.etiqueta);
+    g.atributos.push(s.atributo);
+    // Sin tipo conocido se trata como pasa/no pasa: es la lectura prudente,
+    // la que exige n cero defectos en vez de suponer que hay una medida.
+    if (tipoDe.get(s.atributo) === "Continuo") g.continuos.push(s.atributo);
+    else g.deAtributo.push(s.atributo);
   }
   return [...porNivel.values()];
 }
@@ -223,14 +331,22 @@ export function pasoEstadistico(severidades) {
  * Va etapa por etapa en el Paso 2 porque los atributos son de la etapa: la
  * hermeticidad es del blíster y se decide en envase, no en fabricación.
  */
-export async function correr(documentos, { producto, forma, atributosExtra = [], onAvance, fetchImpl = fetch } = {}) {
+export async function correr(documentos, { producto, forma, protocolo = null, atributosExtra = [], onAvance, fetchImpl = fetch } = {}) {
   const avisos = [];
   const aviso = (paso, err) => avisos.push(`Paso ${paso}: ${err.message}`);
+
+  // Con el análisis de riesgo del protocolo, los pasos 0 y 2 salen de él.
+  if (protocolo?.analisis?.length > 0) {
+    return correrDesdeProtocolo(protocolo, { producto, forma, onAvance, fetchImpl, avisos, aviso });
+  }
 
   // Paso 0
   onAvance?.({ paso: 0, texto: "Identificando atributos de calidad…" });
   const { parametros, atributos } = separarLecturas(documentos);
-  const todosLosAtributos = [...atributos, ...atributosExtra];
+  // Sin análisis de riesgo, la especificación del protocolo (si la hay) se
+  // suma a los atributos leídos del registro.
+  const deEspecificacion = protocolo?.especificaciones || [];
+  const todosLosAtributos = [...deEspecificacion, ...atributos, ...atributosExtra];
 
   if (todosLosAtributos.length === 0) {
     return { atributos: [], severidades: [], filas: [], fmea: [], estadistico: [], resumen: null,
@@ -287,7 +403,57 @@ export async function correr(documentos, { producto, forma, atributosExtra = [],
   }
 
   // Paso 5
-  const estadistico = pasoEstadistico(severidades);
+  const estadistico = pasoEstadistico(severidades, conSeveridad);
 
-  return { atributos: conSeveridad, severidades, discrepancias, filas, fmea, estadistico, resumen, avisos };
+  return { atributos: conSeveridad, severidades, discrepancias, filas, fmea, estadistico, resumen, avisos, fuente: "registros" };
+}
+
+/**
+ * La corrida cuando el protocolo trae su análisis de riesgo: los pasos 0 y 2
+ * vienen escritos, y la IA se usa sólo para la severidad (Paso 1), la
+ * pregunta de desempeño que el protocolo no contesta, y P y D de los Críticos.
+ */
+async function correrDesdeProtocolo(protocolo, { producto, forma, onAvance, fetchImpl, avisos, aviso }) {
+  onAvance?.({ paso: 0, texto: "Leyendo atributos y análisis de riesgo del protocolo…" });
+  const { atributos, filas: screening } = desdeProtocolo(protocolo);
+
+  onAvance?.({ paso: 1, texto: "Fijando la severidad de cada atributo…" });
+  let severidades = [];
+  let discrepancias = [];
+  try {
+    const r = await pasoSeveridad(atributos, { producto, forma, fetchImpl });
+    severidades = r.filas;
+    discrepancias = r.discrepancias;
+  } catch (err) {
+    aviso(1, err);
+  }
+  const mapa = mapaDeSeveridades(severidades);
+  const conSeveridad = atributos.map((a) => ({ ...a, severidad: mapa[a.nombre] ?? null }));
+
+  onAvance?.({ paso: 2, texto: "Contestando la pregunta de desempeño que el protocolo no responde…" });
+  let conDesempeno = screening;
+  try {
+    conDesempeno = await contestarDesempeno(screening, { producto, forma, atributos: conSeveridad, fetchImpl });
+  } catch (err) {
+    aviso(2, err);
+  }
+
+  onAvance?.({ paso: 3, texto: "Clasificando…" });
+  const { filas, paraFmea, resumen } = evaluar(conDesempeno, mapa);
+
+  let fmea = [];
+  if (paraFmea.length > 0) {
+    onAvance?.({ paso: 4, texto: `FMEA de ${paraFmea.length} parámetros críticos…` });
+    try {
+      fmea = await pasoFmea(paraFmea, { producto, forma, fetchImpl });
+    } catch (err) {
+      aviso(4, err);
+      fmea = paraFmea.map((p) => ({ ...p, probabilidad: null, detectabilidad: null, npr: null, racionalFmea: "" }));
+    }
+  }
+
+  return {
+    atributos: conSeveridad, severidades, discrepancias, filas, fmea,
+    estadistico: pasoEstadistico(severidades, conSeveridad), resumen, avisos, fuente: "protocolo",
+  };
 }

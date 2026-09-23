@@ -94,3 +94,62 @@ export const MOTIVOS_DE_REVISION = {
   sinRespaldo:
     "La sospecha de impacto la propuso la IA y no se encontró respaldo bibliográfico que la sustente.",
 };
+
+// --- Del procedimiento oficial (Secuencia de elaboración del AR) ------------
+
+/**
+ * Las definiciones con las que abre el procedimiento, literales.
+ *
+ * Van al principio del documento porque todo lo demás se lee con ellas: un
+ * «Clave» que no afecta a la calidad y un «No Clave» que sí puede hacerlo si
+ * se sale de su límite amplio no son lo que la palabra sugiere a quien no
+ * conoce el procedimiento.
+ */
+export const DEFINICIONES = [
+  ["Atributo", "Cualquier propiedad física, química o microbiológica de un material de entrada o salida."],
+  ["Atributo de calidad", "Una característica molecular o del producto, seleccionada por su capacidad para indicar la calidad de este. En conjunto, los atributos de calidad definen la identidad, pureza, potencia y estabilidad del producto, así como su seguridad frente a la contaminación microbiológica."],
+  ["Atributo crítico de calidad (ACC)", "Una propiedad o característica física, química, biológica o microbiológica que debe estar dentro de un límite, rango o distribución apropiados para asegurar la calidad deseada del producto."],
+  ["Parámetro de proceso", "Una variable de entrada o condición del proceso de manufactura que puede controlarse directamente en el proceso."],
+  ["Parámetro crítico de proceso (PCP)", "Parámetro de proceso cuya variabilidad tiene impacto sobre un atributo crítico de calidad (ACC), y que por lo tanto debe ser monitoreado o controlado para asegurar que el proceso produzca la calidad deseada."],
+  ["Parámetro clave de proceso", "Parámetro de proceso que debe controlarse cuidadosamente dentro de un rango estrecho y que es esencial para el desempeño del proceso. Un parámetro clave no afecta los atributos de calidad del producto: si se excede el rango aceptable, puede afectar el proceso (rendimiento, duración) pero no la calidad del producto."],
+  ["Parámetro no clave de proceso", "Parámetro de proceso que ha sido demostrado como fácil de controlar, o que tiene un límite aceptable amplio. Los parámetros no claves pueden tener impacto en calidad o en desempeño de proceso si se exceden los límites aceptables."],
+  ["Severidad, Probabilidad, Detectabilidad", "La Severidad se fija por el ACC en una escala de 1 a 5. La Probabilidad y la Detectabilidad pueden variar por parámetro."],
+];
+
+/** Los dos estados posibles del Paso 2, con las palabras del procedimiento. */
+export const ESTADOS = {
+  candidato: "Candidato a PCP",
+  sinSospecha: "Sin sospecha de impacto",
+};
+
+/**
+ * La pauta con la que se redacta cada análisis causa-efecto.
+ *
+ * El procedimiento la da con esta forma exacta, y los tres huecos son los
+ * tres ingredientes obligatorios del Paso 2: el parámetro, el atributo, y el
+ * origen de la sospecha.
+ */
+export const PAUTA_CAUSA_EFECTO =
+  "Cada análisis se redacta con la pauta: «El [Parámetro] puede afectar [Atributo de Calidad] porque [origen de la sospecha]». " +
+  "«Candidato a PCP»: sí hay sospecha de vínculo con algún atributo de calidad; pasa a evaluación de severidad. " +
+  "«Sin sospecha de impacto»: no hay vínculo plausible con ningún atributo de calidad; pasa a la pregunta de desempeño, sin FMEA.";
+
+/**
+ * Lo que el procedimiento no dice, y cómo se resuelve.
+ *
+ * El texto "en revisión 2" cubre dos caminos: el candidato a PCP con atributo
+ * de severidad 4-5 (Crítico) y el parámetro sin sospecha (pregunta de
+ * desempeño). No dice qué pasa con un CANDIDATO a PCP cuyo atributo tiene
+ * severidad 1 a 3. Las corridas lo resuelven mandándolo a la pregunta de
+ * desempeño, que es lo coherente con el TR60 —sólo severidad 4-5 produce
+ * Crítico— y es lo que hace esta aplicación. Se deja escrito en el documento
+ * para que quien lo firme sepa que es una regla aplicada, no un olvido.
+ */
+export const VIA_NO_ESCRITA =
+  "Criterio aplicado para el caso que el procedimiento no detalla: un «Candidato a PCP» cuyo atributo vinculado tiene " +
+  "Severidad 1 a 3 no es Crítico (sólo Severidad 4-5 lo es) y se resuelve con la pregunta de desempeño de proceso, igual " +
+  "que un parámetro sin sospecha.";
+
+export const REGLA_PARTIDA =
+  "El procedimiento propone estos parámetros como críticos de punto de partida, que deben verificarse en cada protocolo. " +
+  "Los que la evaluación no dejó como Críticos se listan aquí con el motivo, para que la diferencia quede justificada.";

@@ -3,9 +3,11 @@ import UploadZone from "./UploadZone.jsx";
 import { IconAlert, IconDownload, IconCheck, IconLayers } from "./Icons.jsx";
 import { processPdfFile } from "../lib/parsers/index.js";
 import { separarLecturas } from "../lib/atributos/modelo.js";
-import { atributosDelProtocolo } from "../lib/atributos/protocolo.js";
+import { atributosDelProtocolo as atributosDelProtocoloAntiguo } from "../lib/atributos/protocolo.js";
+import { atributosDelProtocolo, leerProtocoloParaCriticidad } from "../lib/criticidad/protocolo.js";
+import { formaDelProducto, partidaSinConfirmar } from "../lib/criticidad/puntoDePartida.js";
 import { correr, pasoEstadistico } from "../lib/criticidad/corrida.js";
-import { CRITICO, evaluar, npr } from "../lib/criticidad/modelo.js";
+import { CRITICO, evaluar, nivelDeNpr, npr } from "../lib/criticidad/modelo.js";
 import {
   anotarSeveridades,
   guardarSeveridadesLocal,
@@ -72,7 +74,12 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
   }, [subidos, documentos, familia]);
 
   const previo = useMemo(() => separarLecturas(enUso), [enUso]);
-  const producto = subidos[0]?.meta?.producto || familia || enUso[0]?.producto || "";
+  // Con el análisis de riesgo del protocolo, lo que se evalúa es el producto
+  // del protocolo, no el que esté elegido en el selector: la corrida sale
+  // entera de ese documento. Sin él, manda lo cargado.
+  const producto =
+    (protocolo?.analisis?.length && protocolo?.producto) ||
+    subidos[0]?.meta?.producto || familia || enUso[0]?.producto || protocolo?.producto || "";
   const lotes = [...new Set(enUso.map((d) => d.lote || d.meta?.lote).filter(Boolean))];
   const lote = lotes.length === 1 ? lotes[0] : "";
 
@@ -102,7 +109,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
     });
 
     const conSeveridad = corrida.atributos.map((a) => ({ ...a, severidad: mapa[a.nombre] ?? null }));
-    return { filas, fmea, resumen, atributos: conSeveridad, estadistico: pasoEstadistico(severidades) };
+    return { filas, fmea, resumen, atributos: conSeveridad, estadistico: pasoEstadistico(severidades, conSeveridad) };
   }, [corrida, severidades, desempeno]);
 
   async function cargar(files) {
@@ -113,7 +120,14 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       for (const [i, file] of files.entries()) {
         setTrabajando(`Leyendo ${i + 1} de ${files.length}…`);
         if (/\.docx$/i.test(file.name)) {
-          setProtocolo(await atributosDelProtocolo(file));
+          // Del protocolo interesan tres cosas: la especificación del producto
+          // terminado (Paso 0), su análisis de riesgo (Paso 2) y, si no trae
+          // análisis, los atributos de sus cuadros por etapa, como antes.
+          const [leido, antiguo] = await Promise.all([
+            leerProtocoloParaCriticidad(file),
+            atributosDelProtocoloAntiguo(file).catch(() => ({ atributos: [] })),
+          ]);
+          setProtocolo({ ...leido, atributosDeEtapas: antiguo.atributos || [] });
           continue;
         }
         const doc = await processPdfFile(file);
@@ -145,7 +159,8 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       const r = await correr(enUso, {
         producto,
         forma,
-        atributosExtra: protocolo?.atributos || [],
+        protocolo,
+        atributosExtra: protocolo?.analisis?.length ? [] : protocolo?.atributosDeEtapas || [],
         onAvance: ({ paso, texto }) => setTrabajando(`Paso ${paso} · ${texto}`),
       });
       // El screening se guarda aparte: es lo caro (bibliografía + IA) y es lo
@@ -201,10 +216,24 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
   }
 
   const atributos = useMemo(
-    () => [...previo.atributos, ...(protocolo?.atributos || [])],
+    () =>
+      protocolo?.analisis?.length
+        ? atributosDelProtocolo(protocolo)
+        : [...(protocolo?.especificaciones || []), ...previo.atributos, ...(protocolo?.atributosDeEtapas || [])],
     [previo.atributos, protocolo]
   );
   const nombresDeAtributos = useMemo(() => [...new Set(atributos.map((a) => a.nombre))], [atributos]);
+
+  // La clasificación que el protocolo traía, en el esquema anterior. Sólo se
+  // enseña cuando la hay: con registros solos no existe.
+  const conAnterior = !!resultado?.filas.some((f) => f.clasificacionAnterior);
+
+  // Los parámetros de punto de partida del procedimiento que no quedaron
+  // Críticos: es la verificación que el procedimiento pide hacer.
+  const sinConfirmar = useMemo(
+    () => (resultado ? partidaSinConfirmar(resultado.filas, CRITICO, formaDelProducto(forma, producto)) : []),
+    [resultado, forma, producto]
+  );
 
   const datosDelDocumento = resultado && {
     producto, forma, lote,
@@ -280,7 +309,13 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
 
         {protocolo && (
           <p className="muted">
-            <IconCheck size={14} /> Protocolo leído: {protocolo.atributos.length} atributo(s) con especificación.
+            <IconCheck size={14} /> Protocolo leído: {protocolo.especificaciones.length} atributo(s) de la especificación
+            del producto terminado
+            {protocolo.analisis.length > 0
+              ? ` y su análisis de riesgo: ${protocolo.analisis.length} parámetros en ${
+                  new Set(protocolo.analisis.map((f) => f.etapa)).size
+                } etapas. Los pasos 0 y 2 salen del protocolo; la IA sólo propone severidades, desempeño y el FMEA.`
+              : ". No trae análisis de riesgo: los parámetros salen de los registros."}
           </p>
         )}
         {error && (
@@ -290,11 +325,12 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
         )}
 
         <p className="muted">
-          <IconLayers size={14} /> {enUso.length} registro(s) · {previo.parametros.length} parámetros ·{" "}
+          <IconLayers size={14} /> {enUso.length} registro(s) ·{" "}
+          {protocolo?.analisis?.length ? `${protocolo.analisis.length} parámetros del protocolo` : `${previo.parametros.length} parámetros`} ·{" "}
           {nombresDeAtributos.length} atributos de calidad
         </p>
 
-        <button className="btn btn--primary" onClick={ejecutar} disabled={!!trabajando || enUso.length === 0}>
+        <button className="btn btn--primary" onClick={ejecutar} disabled={!!trabajando || (enUso.length === 0 && !protocolo?.analisis?.length)}>
           {trabajando || "Evaluar criticidad"}
         </button>
       </section>
@@ -392,6 +428,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                   <th>S</th>
                   <th>Vía de resolución</th>
                   <th>¿Afecta al desempeño?</th>
+                  {conAnterior && <th>Antes</th>}
                   <th>Clasificación</th>
                   <th>Fuente</th>
                 </tr>
@@ -429,6 +466,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                         </>
                       )}
                     </td>
+                    {conAnterior && <td className="muted">{f.clasificacionAnterior || "—"}</td>}
                     <td>{f.clasificacion || "Pendiente"}</td>
                     <td className="muted">{fuenteDe(f)}</td>
                   </tr>
@@ -436,6 +474,23 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
               </tbody>
             </table>
           </section>
+
+          {sinConfirmar.length > 0 && (
+            <section className="card">
+              <p className="protocolo-error">
+                <IconAlert size={14} /> {sinConfirmar.length} parámetro(s) que el procedimiento propone como críticos de
+                punto de partida no quedaron Críticos. No es un error por sí mismo, pero hay que poder justificarlo:
+              </p>
+              <ul className="muted">
+                {sinConfirmar.map((x, i) => (
+                  <li key={i}>
+                    <strong>{x.parametro}</strong> ({x.etapa}) salió {x.clasificacion}. {x.motivo} Punto de partida:
+                    «{x.partida}» — {x.fundamento}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {resultado.fmea.length > 0 && (
             <section className="card card--table">
@@ -448,7 +503,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
               <table className="protocolo-tabla">
                 <thead>
                   <tr>
-                    <th>Etapa</th><th>Parámetro</th><th>Atributo</th><th>S</th><th>P</th><th>D</th><th>NPR</th><th>Racional</th>
+                    <th>Etapa</th><th>Parámetro</th><th>Atributo</th><th>S</th><th>P</th><th>D</th><th>NPR</th><th>Nivel de riesgo</th><th>Racional</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -461,6 +516,15 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                       <td>{f.probabilidad ?? "—"}</td>
                       <td>{f.detectabilidad ?? "—"}</td>
                       <td>{f.npr ?? "—"}</td>
+                      <td>
+                        {nivelDeNpr(f.npr) ? (
+                          <span className={`npr npr--${nivelDeNpr(f.npr).color.toLowerCase()}`}>
+                            {nivelDeNpr(f.npr).color} · {nivelDeNpr(f.npr).nivel}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                       <td className="muted">{f.racionalFmea || "—"}</td>
                     </tr>
                   ))}
