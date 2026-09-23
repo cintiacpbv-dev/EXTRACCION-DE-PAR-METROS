@@ -7,12 +7,12 @@ import { atributosDelProtocolo } from "../lib/atributos/protocolo.js";
 import { correr, pasoEstadistico } from "../lib/criticidad/corrida.js";
 import { CRITICO, evaluar, npr } from "../lib/criticidad/modelo.js";
 import {
+  anotarSeveridades,
   guardarSeveridadesLocal,
   guardarSeveridadesRemotas,
   iniciarSeveridades,
   mapaDeSeveridades,
   severidadesEnUso,
-  usarSeveridades,
 } from "../lib/criticidad/severidad.js";
 import {
   TODOS_LOS_PASOS,
@@ -59,8 +59,11 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
   const [error, setError] = useState(null);
   const [guardado, setGuardado] = useState("");
 
+  // El catálogo de severidades es de toda la planta; `severidades` es sólo la
+  // parte que esta corrida usa y enseña. Mezclarlos borraba las severidades
+  // de los demás productos al evaluar uno nuevo.
   useEffect(() => {
-    iniciarSeveridades().then((lista) => setSeveridades(lista));
+    iniciarSeveridades();
   }, []);
 
   const enUso = useMemo(() => {
@@ -148,11 +151,11 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       // El screening se guarda aparte: es lo caro (bibliografía + IA) y es lo
       // que permite reclasificar al vuelo cuando se ajusta una severidad.
       setCorrida({ screening: r.filas, fmea: r.fmea, atributos: r.atributos, avisos: r.avisos, discrepancias: r.discrepancias });
-      const lista = severidadesEnUso();
-      const fusionadas = r.severidades.length > 0 ? r.severidades : lista;
-      setSeveridades(fusionadas);
-      usarSeveridades(fusionadas);
-      guardarSeveridadesLocal(fusionadas);
+      // Se anotan en el catálogo, no se sustituye: lo de los demás productos
+      // sigue ahí. Y lo que se guarda en el navegador es el catálogo entero.
+      const catalogo = anotarSeveridades(r.severidades);
+      guardarSeveridadesLocal(catalogo);
+      setSeveridades(r.severidades.length > 0 ? r.severidades : catalogo);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -181,8 +184,9 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       const siguientes = previas.map((s) =>
         s.atributo === atributo ? { ...s, severidad: n, origen: "revisada" } : s
       );
-      usarSeveridades(siguientes);
-      guardarSeveridadesLocal(siguientes);
+      // El cambio entra en el catálogo, y es el catálogo entero lo que se
+      // respalda: guardar sólo lo que se ve en pantalla borraría el resto.
+      guardarSeveridadesLocal(anotarSeveridades(siguientes));
       return siguientes;
     });
     setGuardado("");
@@ -190,7 +194,9 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
 
   async function guardarSeveridades() {
     setGuardado("Guardando…");
-    const res = await guardarSeveridadesRemotas(severidades);
+    // Se sube el catálogo entero, no sólo lo de esta corrida: puede haber
+    // severidades de otro producto ajustadas sin conexión que nunca llegaron.
+    const res = await guardarSeveridadesRemotas(severidadesEnUso());
     setGuardado(res.ok ? (res.skipped ? "Guardado en este navegador." : "Guardado para todos los equipos.") : `No se pudo guardar: ${res.error}`);
   }
 

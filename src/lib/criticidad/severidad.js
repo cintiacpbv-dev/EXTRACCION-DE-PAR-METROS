@@ -59,6 +59,31 @@ export function severidadesEnUso() {
   return [...severidades.values()];
 }
 
+/**
+ * Anota severidades EN el catálogo, sin reemplazarlo.
+ *
+ * La diferencia con `usarSeveridades` no es un matiz: esta tabla es el
+ * catálogo de toda la planta, no el estado de una corrida. Reemplazarlo con
+ * lo de la evaluación en curso borraba las severidades de los demás
+ * productos — evaluar una crema después de una tableta dejaba a la tableta
+ * sin ninguna. Devuelve el catálogo entero, que es lo que hay que guardar.
+ */
+export function anotarSeveridades(lista) {
+  for (const s of lista || []) {
+    const clave = claveDeAtributo(s?.atributo);
+    const valor = severidadValida(s?.severidad);
+    if (!clave || valor === null) continue;
+    severidades.set(clave, {
+      atributo: String(s.atributo).trim(),
+      severidad: valor,
+      justificacion: s.justificacion || "",
+      decision: s.decision || "",
+      origen: s.origen || "ia",
+    });
+  }
+  return severidadesEnUso();
+}
+
 /** El mapa {nombre → severidad} que consume el modelo de decisión. */
 export function mapaDeSeveridades(extra = []) {
   const mapa = {};
@@ -185,18 +210,67 @@ export async function borrarSeveridadRemota(atributo) {
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
+// Marca de que lo guardado sólo en este navegador ya se subió.
+const CLAVE_SUBIDO = "deteccion-parametros:severidades:subido:v1";
+
 /**
- * Pone en uso lo guardado, al abrir la sección.
+ * Pone en uso el catálogo guardado, al abrir la sección.
  *
  * Manda lo de Supabase, que es lo que ven todos los equipos; lo local es el
- * respaldo para cuando no hay conexión o la tabla aún no existe. Igual que
- * con el vocabulario aprendido, y por el mismo motivo: una severidad fijada
- * en una computadora tiene que valer en la de al lado.
+ * respaldo para cuando no hay conexión o la tabla aún no existe.
+ *
+ * Con la misma salvedad que el vocabulario aprendido, y por haber tropezado
+ * dos veces en la misma piedra: lo ajustado antes de que la tabla existiera
+ * vive SÓLO en este navegador. Mientras no existía, la consulta fallaba y se
+ * usaba el respaldo local; en cuanto se creó, la consulta empezó a devolver
+ * una lista vacía, y dar por buena esa lista vacía habría borrado las
+ * severidades ajustadas —de la memoria y del respaldo— sin decir nada. Así
+ * que la primera vez se sube lo que hubiera aquí, y desde entonces manda lo
+ * remoto, que es lo que hace que borrar una severidad en otra computadora se
+ * note en ésta.
  */
-export async function iniciarSeveridades({ cargar = cargarSeveridadesRemotas } = {}) {
+export async function iniciarSeveridades({
+  cargar = cargarSeveridadesRemotas,
+  guardar = guardarSeveridadesRemotas,
+} = {}) {
   const remoto = await cargar();
-  const lista = remoto ?? cargarSeveridadesLocal();
+
+  // Sin Supabase, o con la tabla aún sin crear: este navegador es todo lo que hay.
+  if (!remoto) {
+    usarSeveridades(cargarSeveridadesLocal());
+    return severidadesEnUso();
+  }
+
+  let yaSubido = true;
+  try {
+    yaSubido = localStorage.getItem(CLAVE_SUBIDO) === "si";
+  } catch {
+    /* sin localStorage no hay nada local que rescatar */
+  }
+
+  let lista = remoto;
+
+  if (!yaSubido) {
+    const enLaNube = new Set(remoto.map((s) => claveDeAtributo(s.atributo)));
+    const soloAqui = cargarSeveridadesLocal().filter((s) => !enLaNube.has(claveDeAtributo(s.atributo)));
+
+    // Se usan igual, se hayan podido subir o no: lo que no se puede es
+    // perderlas por no haber llegado a Supabase.
+    lista = [...remoto, ...soloAqui];
+
+    // La marca sólo se pone si la subida salió bien; si no, se reintenta al
+    // volver a abrir. Subir dos veces lo mismo no duplica filas.
+    const subida = soloAqui.length === 0 ? { ok: true } : await guardar(soloAqui);
+    if (subida.ok) {
+      try {
+        localStorage.setItem(CLAVE_SUBIDO, "si");
+      } catch {
+        /* sin localStorage se reintentará cada vez, que tampoco hace daño */
+      }
+    }
+  }
+
   usarSeveridades(lista);
-  if (remoto) guardarSeveridadesLocal(remoto);
+  guardarSeveridadesLocal(severidadesEnUso());
   return severidadesEnUso();
 }
