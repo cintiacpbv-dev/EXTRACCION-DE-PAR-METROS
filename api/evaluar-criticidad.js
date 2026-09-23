@@ -95,8 +95,14 @@ const ESQUEMA_SCREENING = {
         type: "string",
         description: "De dónde sale la sospecha: el mecanismo físico o químico, en una frase.",
       },
+      desempeno: {
+        type: "boolean",
+        description:
+          "La pregunta de desempeño de proceso: ¿este parámetro afecta al rendimiento, al tiempo de operación o a la consistencia del proceso? Se responde SIEMPRE, haya sospecha o no.",
+      },
+      desempenoMotivo: { type: "string", description: "Por qué sí o por qué no, en una frase corta." },
     },
-    required: ["id", "sospecha", "afecta", "origen"],
+    required: ["id", "sospecha", "afecta", "origen", "desempeno", "desempenoMotivo"],
   },
 };
 
@@ -188,6 +194,8 @@ Para cada parámetro, usando su id exactamente como se te dio:
 - "sospecha": true sólo si hay un mecanismo físico o químico plausible por el que ese parámetro mueva un atributo de la lista. "No hay riesgo; se requiere para continuar con el proceso" es una respuesta legítima y frecuente — muchos parámetros son operativos y no tocan ningún atributo.
 - "afecta": los nombres de la lista, copiados tal cual. Vacío si no hay sospecha.
 - "origen": el mecanismo, en una frase. Por ejemplo: "la temperatura de la masa gobierna su viscosidad, y con ella el espesor de la pared de la cápsula". No escribas "es importante" ni "podría afectar la calidad".
+
+Además, y SIEMPRE —tenga sospecha o no—, responde la pregunta de desempeño de proceso en "desempeno": ¿este parámetro afecta al rendimiento del lote, al tiempo de operación o a la consistencia del proceso? Es una pregunta distinta de la anterior: no habla de la calidad del producto sino de si el proceso sale adelante. Un enfriamiento que sólo sirve para poder continuar afecta al TIEMPO y por tanto al desempeño; un parámetro meramente informativo no afecta a nada. Esta respuesta es la que decide entre "Clave" y "No Clave" para los parámetros que no llegan a Críticos, y «No Clave» es un resultado correcto y frecuente.
 
 Dos parámetros que compartan el mismo mecanismo —el tiempo y la velocidad de una misma agitación— deben recibir el mismo "afecta" y el mismo "origen": la separación en filas no crea dos causalidades distintas.
 

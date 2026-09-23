@@ -13,7 +13,7 @@ import Formato06Panel from "./components/Formato06Panel.jsx";
 import Formato8Panel from "./components/Formato8Panel.jsx";
 import Formato10Panel from "./components/Formato10Panel.jsx";
 import VocabularioPanel from "./components/VocabularioPanel.jsx";
-import ClasificacionView from "./components/ClasificacionView.jsx";
+import CriticidadView from "./components/CriticidadView.jsx";
 import RiesgoView from "./components/RiesgoView.jsx";
 import EstadisticaView from "./components/EstadisticaViewLazy.jsx";
 import BarraProgreso from "./components/BarraProgreso.jsx";
@@ -973,14 +973,14 @@ export default function App() {
             >
               <IconChartBar size={15} /> <span>Análisis Estadístico</span>
             </button>
-            {/* La clasificación sí aprovecha lo ya analizado —de ahí saca los
-                parámetros y los atributos— pero no lo exige: también se le
-                pueden subir registros aquí mismo. */}
+            {/* La evaluación de criticidad aprovecha lo ya analizado —de ahí
+                saca los parámetros y los atributos— pero no lo exige: también
+                se le pueden subir registros y el protocolo aquí mismo. */}
             <button
               className={`topnav__link ${view === "clasificacion" ? "is-active" : ""}`}
               onClick={openClasificacion}
             >
-              <IconLayers size={15} /> <span>Clasificación de Parámetros</span>
+              <IconLayers size={15} /> <span>Criticidad y Riesgo</span>
             </button>
           </nav>
         </div>
@@ -1044,7 +1044,7 @@ export default function App() {
             <EstadisticaView />
           </Suspense>
         ) : view === "clasificacion" ? (
-          <ClasificacionView documentos={docs} productos={productos} />
+          <CriticidadView documentos={docs} productos={productos} />
         ) : view === "library" ? (
           <ProductLibrary
             productos={resumenProductos}

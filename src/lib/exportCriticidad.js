@@ -154,6 +154,20 @@ function cuadro(cabeceras, filas, proporciones, { vacio } = {}) {
   });
 }
 
+/**
+ * La respuesta a la pregunta de desempeño de proceso, para el cuadro.
+ *
+ * Es la que decide entre Clave y No Clave, así que tiene que constar junto a
+ * la clasificación: un «No Clave» sin decir que se contestó que NO parece un
+ * hueco, y es al revés — es el resultado correcto y esperado.
+ */
+export function respuestaDeDesempeno(fila) {
+  if (fila.clasificacion === CRITICO) return "No aplica (Crítico por severidad)";
+  const respuesta = fila.desempeno === true ? "Sí" : fila.desempeno === false ? "No" : "Sin responder";
+  const marca = fila.desempenoRevisado ? " (revisada)" : "";
+  return fila.desempenoMotivo ? `${respuesta}${marca} — ${fila.desempenoMotivo}` : `${respuesta}${marca}`;
+}
+
 /** Lo que se escribe en la columna «Estado» del Paso 2. */
 export function estadoDe(fila) {
   return fila.sospecha ? "CPP candidato" : "Sin sospecha de impacto en atributo";
@@ -286,19 +300,20 @@ function bloquePaso3(filas) {
     salida.push(parrafo(`Etapa: ${etapa}`, { bold: true, espacio: true }));
     salida.push(
       cuadro(
-        ["Parámetro", "Atributo vinculado", "Severidad", "Vía de resolución", "Clasificación"],
+        ["Parámetro", "Atributo vinculado", "Severidad", "Vía de resolución", "¿Afecta al desempeño?", "Clasificación"],
         suyas.map((f) => [
           f.magnitud,
           f.afecta?.join(" / ") || "—",
           { texto: f.severidad === null || f.severidad === undefined ? "N/A" : String(f.severidad), align: AlignmentType.CENTER },
           f.via,
+          respuestaDeDesempeno(f),
           {
             texto: f.clasificacion || "Pendiente",
             align: AlignmentType.CENTER,
             fill: f.clasificacion === CRITICO ? AMARILLO_CRITICO : undefined,
           },
         ]),
-        [3, 3, 1.2, 3.5, 2]
+        [2.6, 2.6, 1.1, 3, 2.7, 2]
       )
     );
   }
@@ -563,13 +578,14 @@ export function construirLibroCriticidad({ producto = "", lote = "", atributos =
     (r, d) => { if (d[1] >= 4) amarillo(r.getCell(2)); });
 
   hoja("Pasos 2-3 - Clasificacion",
-    ["Etapa", "Operación", "Parámetro", "Criterio del registro", "Atributo vinculado", "Severidad", "Origen de la sospecha", "Estado", "Vía de resolución", "Clasificación", "Fuente"],
-    [16, 26, 28, 24, 26, 11, 60, 26, 34, 16, 32],
+    ["Etapa", "Operación", "Parámetro", "Criterio del registro", "Atributo vinculado", "Severidad", "Origen de la sospecha", "Estado", "Vía de resolución", "¿Afecta al desempeño?", "Clasificación", "Fuente"],
+    [16, 26, 28, 24, 26, 11, 60, 26, 34, 40, 16, 32],
     filas.map((f) => [
       f.etapa, f.seccion, f.magnitud, f.criterios?.join(" ; ") || "", f.afecta?.join(" / ") || "",
-      f.severidad ?? "", f.racional || "", estadoDe(f), f.via, f.clasificacion || "Pendiente", fuenteDe(f),
+      f.severidad ?? "", f.racional || "", estadoDe(f), f.via, respuestaDeDesempeno(f),
+      f.clasificacion || "Pendiente", fuenteDe(f),
     ]),
-    (r, d) => { if (d[9] === CRITICO) amarillo(r.getCell(10)); });
+    (r, d) => { if (d[10] === CRITICO) amarillo(r.getCell(11)); });
 
   hoja("Paso 4 - FMEA", ["Etapa", "Parámetro", "Atributo vinculado", "S", "P", "D", "NPR", "Nivel", "Racional / evidencia"],
     [16, 28, 26, 6, 6, 6, 8, 12, 70],

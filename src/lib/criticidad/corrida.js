@@ -16,7 +16,7 @@
 // salgan mal. La IA se usa donde hace falta juicio y nada más.
 
 import { separarLecturas, porRelevancia } from "../atributos/modelo.js";
-import { citasComoTexto, idDe, preguntaDe } from "../atributos/clasificar.js";
+import { citasComoTexto, idDe, preguntaDe } from "../atributos/pregunta.js";
 import { evaluar, npr, requisitoEstadistico, muestraPorAtributo } from "./modelo.js";
 import { fusionar, mapaDeSeveridades, severidadValida } from "./severidad.js";
 
@@ -147,6 +147,12 @@ export async function pasoScreening(parametros, { producto, forma, etapa, atribu
       id,
       sospecha: cruda?.sospecha === true && afecta.length > 0,
       afecta,
+      // La pregunta de desempeño de proceso, que es la que decide entre Clave
+      // y No Clave para todo lo que no llega a Crítico. Si la IA no la
+      // contesta se queda en null y la fila sale "pendiente": suponer un NO
+      // convertiría en "No Clave" a parámetros que nadie miró.
+      desempeno: typeof cruda?.desempeno === "boolean" ? cruda.desempeno : null,
+      desempenoMotivo: cruda?.desempenoMotivo || "",
       atributosFueraDeLista: fuera,
       racional: respaldo?.texto || cruda?.origen || "",
       referencias: respaldo?.referencias || "",
