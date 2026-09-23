@@ -34,6 +34,8 @@ import {
   IconChevronDown,
   IconMessageSquare,
   IconChartBar,
+  IconSun,
+  IconMoon,
 } from "./components/Icons.jsx";
 import ArchivosOmitidos from "./components/ArchivosOmitidos.jsx";
 import ConsultaPdf from "./components/ConsultaPdf.jsx";
@@ -56,6 +58,7 @@ import {
   readmitirDocumento,
 } from "./lib/storage.js";
 import { supabaseEnabled } from "./lib/supabaseClient.js";
+import { useTema } from "./lib/tema.js";
 import { documentoEsMuestraMedica } from "./lib/muestraMedica.js";
 import {
   cargarImagenesLocales,
@@ -138,6 +141,8 @@ function etiquetaDe(file, etiquetas) {
 }
 
 export default function App() {
+  const temaClaro = useTema((s) => s.claro);
+  const alternarTema = useTema((s) => s.alternar);
   const [documents, setDocuments] = useState([]);
   const [view, setView] = useState("library"); // "library" | "product" | "consulta"
   // Pregunta con la que se abre el chat de Consulta PDF al validar contra la
@@ -985,10 +990,24 @@ export default function App() {
           </nav>
         </div>
 
-        <span className={`badge badge--topbar ${supabaseEnabled ? "badge--cloud" : "badge--local"}`}>
-          {supabaseEnabled ? <IconCloud size={15} /> : <IconDrive size={15} />}
-          {supabaseEnabled ? "Supabase conectado" : "Guardado local"}
-        </span>
+        <div className="topbar__end">
+          {/* El fondo claro vale para todas las secciones: es el mismo del
+              Análisis Estadístico, y el botón de allá cambia esto mismo. */}
+          <button
+            type="button"
+            className="tema-toggle"
+            onClick={alternarTema}
+            aria-pressed={temaClaro}
+            title={temaClaro ? "Fondo claro — cambiar a oscuro" : "Fondo oscuro — cambiar a claro"}
+            aria-label="Fondo claro"
+          >
+            {temaClaro ? <IconSun size={16} /> : <IconMoon size={16} />}
+          </button>
+          <span className={`badge badge--topbar ${supabaseEnabled ? "badge--cloud" : "badge--local"}`}>
+            {supabaseEnabled ? <IconCloud size={15} /> : <IconDrive size={15} />}
+            {supabaseEnabled ? "Supabase conectado" : "Guardado local"}
+          </span>
+        </div>
       </header>
 
       {/* En celular la insignia de arriba se oculta (el logo, los tres
@@ -1003,6 +1022,17 @@ export default function App() {
       >
         {supabaseEnabled ? <IconCloud size={16} /> : <IconDrive size={16} />}
       </span>
+      {/* Lo mismo con el cambio de fondo: en la barra ya no cabe. */}
+      <button
+        type="button"
+        className="tema-toggle tema-toggle--flotante"
+        onClick={alternarTema}
+        aria-pressed={temaClaro}
+        title={temaClaro ? "Fondo claro — cambiar a oscuro" : "Fondo oscuro — cambiar a claro"}
+        aria-label="Fondo claro"
+      >
+        {temaClaro ? <IconSun size={16} /> : <IconMoon size={16} />}
+      </button>
 
       {/* Sin relleno cuando lo de dentro es Consulta PDF: ese hueco es
           exactamente lo que delataba que había una página metida dentro de

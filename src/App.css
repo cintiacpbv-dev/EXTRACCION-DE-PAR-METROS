@@ -175,6 +175,45 @@
   color: var(--text-soft);
 }
 
+/* El cambio de fondo, junto a la insignia: sólo el ícono (sol o luna), en
+   un círculo del alto de la insignia. Con texto, los enlaces de sección se
+   partían en dos renglones en una portátil. Tampoco puede flotar aparte en
+   el celular, como la insignia: dentro de la barra —que tiene
+   backdrop-filter— "position: fixed" se ancla a la barra y no a la pantalla.
+   Por eso en el celular hay un segundo botón, fuera de la barra, que flota
+   encima de la insignia (".tema-toggle--flotante", ver el media query de
+   abajo): en la barra ya no cabe nada más. */
+.topbar__end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.tema-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tema-toggle:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.tema-toggle--flotante {
+  display: none;
+}
+
 /* Sólo existe para el celular (ver el media query de abajo): en escritorio
    la insignia de siempre, dentro de la barra superior, ya se ve entera. */
 .badge--flotante {
@@ -193,6 +232,21 @@
 @media (max-width: 760px) {
   .badge--topbar {
     display: none;
+  }
+
+  .topbar__end .tema-toggle {
+    display: none;
+  }
+
+  .tema-toggle--flotante {
+    display: inline-flex;
+    position: fixed;
+    right: 14px;
+    bottom: 58px;
+    z-index: 25;
+    width: 36px;
+    height: 36px;
+    box-shadow: var(--shadow-lg);
   }
 
   .badge--flotante {

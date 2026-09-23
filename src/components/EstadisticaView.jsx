@@ -5,6 +5,7 @@ import AnalysisAssistant from "./AnalysisAssistant.jsx";
 import OutputViewer from "./OutputViewer.jsx";
 import DashboardEstado from "./DashboardEstado.jsx";
 import { useWorkbookStore } from "../lib/estadistica/store.js";
+import { useTema } from "../lib/tema.js";
 import { exportarInformeWord, exportarInformeEstructurado } from "../lib/estadistica/exportar.js";
 import { IconLayers, IconGrid, IconFlask, IconDownload } from "./Icons.jsx";
 
@@ -134,8 +135,10 @@ function Lateral({ nombre, icono, plegado, manejadores, children }) {
  * en grande.
  */
 export default function EstadisticaView() {
-  const temaClaro = useWorkbookStore((s) => s.temaClaro);
-  const alternarTema = useWorkbookStore((s) => s.alternarTema);
+  // El mismo fondo claro que el de la barra superior: una sola preferencia
+  // para toda la aplicación.
+  const temaClaro = useTema((s) => s.claro);
+  const alternarTema = useTema((s) => s.alternar);
   const paneles = useWorkbookStore((s) => s.paneles);
   const alternarPanel = useWorkbookStore((s) => s.alternarPanel);
   const resultados = useWorkbookStore((s) => s.resultados);

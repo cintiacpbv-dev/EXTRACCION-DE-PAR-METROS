@@ -357,15 +357,7 @@ export const useWorkbookStore = create((set) => ({
   // Navegador de Minitab, que abre en grande lo último que se generó, y de
   // ahí en adelante lo que se elija de la lista.
   seleccionActual: null,
-  // Sólo para esta sección: el resto de la app se comprometió con un único
-  // tema oscuro, pero la hoja de trabajo y las tablas de resultados se
-  // leen igual de bien —o mejor, para quien está acostumbrada a Minitab—
-  // en claro, así que aquí sí vale la pena dejarlo a elección.
-  temaClaro: false,
-
-  alternarTema() {
-    set((s) => ({ temaClaro: !s.temaClaro }));
-  },
+  // El fondo claro ya no vive aquí: es de toda la aplicación (lib/tema.js).
 
   /** Abre o cierra un panel lateral ("navegador", "asistente" u "hoja"). */
   alternarPanel(cual) {
