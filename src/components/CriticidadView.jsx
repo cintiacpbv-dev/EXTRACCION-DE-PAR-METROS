@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import UploadZone from "./UploadZone.jsx";
-import { IconAlert, IconDownload, IconCheck, IconLayers } from "./Icons.jsx";
+import { IconAlert, IconDownload, IconCheck, IconLayers, IconTrash } from "./Icons.jsx";
+import { relativeDate } from "../lib/formatDate.js";
 import { processPdfFile } from "../lib/parsers/index.js";
 import { separarLecturas } from "../lib/atributos/modelo.js";
 import { atributosDelProtocolo as atributosDelProtocoloAntiguo } from "../lib/atributos/protocolo.js";
@@ -8,6 +9,7 @@ import { atributosDelProtocolo, leerProtocoloParaCriticidad } from "../lib/criti
 import { formaDelProducto, partidaSinConfirmar } from "../lib/criticidad/puntoDePartida.js";
 import { correr, pasoEstadistico } from "../lib/criticidad/corrida.js";
 import { aplicarAjustesDeVinculo } from "../lib/criticidad/corroborar.js";
+import { abrirEvaluacion, borrarEvaluacion, evaluacionDesde, guardarEvaluacion, listarHistorial } from "../lib/criticidad/historial.js";
 import { CRITICO, evaluar, nivelDeNpr, npr } from "../lib/criticidad/modelo.js";
 import {
   anotarSeveridades,
@@ -70,6 +72,19 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
   const [trabajando, setTrabajando] = useState("");
   const [error, setError] = useState(null);
   const [guardado, setGuardado] = useState("");
+
+  // El historial. `meta` es de qué va la evaluación que está en pantalla
+  // —producto, forma, lote, de dónde salió—, fijado al evaluarla o al
+  // reabrirla: si después se cambia el selector de producto, el Word de esta
+  // evaluación tiene que seguir diciendo el producto que se evaluó.
+  const [historial, setHistorial] = useState([]);
+  const [historialAbierto, setHistorialAbierto] = useState(false);
+  const [evaluacionId, setEvaluacionId] = useState(null);
+  const [creado, setCreado] = useState(null);
+  const [guardadoEn, setGuardadoEn] = useState(null);
+  const [meta, setMeta] = useState(null);
+  const [reabierta, setReabierta] = useState(false);
+  const [avisoHistorial, setAvisoHistorial] = useState("");
 
   // El catálogo de severidades es de toda la planta; `severidades` es sólo la
   // parte que esta corrida usa y enseña. Mezclarlos borraba las severidades
@@ -164,6 +179,13 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
   async function ejecutar() {
     setError(null);
     setGuardado("");
+    // Cada corrida es una evaluación nueva en el historial: la anterior se
+    // queda guardada tal como estaba.
+    clearTimeout(temporizadorRef.current);
+    setEvaluacionId(null);
+    setCreado(null);
+    setGuardadoEn(null);
+    setReabierta(false);
     setTrabajando("Evaluando…");
     try {
       const r = await correr(enUso, {
@@ -180,8 +202,11 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
         screening: r.filas, fmea: r.fmea, atributos: r.atributos, avisos: r.avisos, discrepancias: r.discrepancias,
         corroboracionSeveridad: r.corroboracionSeveridad || {}, corroborada: r.corroborada,
       });
-      // Las sugerencias aceptadas eran de la corrida anterior.
+      // Las sugerencias aceptadas y el desempeño corregido eran de la corrida
+      // anterior, que sigue en el historial con los suyos.
       setVinculos({});
+      setDesempeno({});
+      setMeta({ producto, forma, lote, fuente: r.fuente, protocoloNombre: r.fuente === "protocolo" ? protocolo?.nombre || "" : "" });
       // Se anotan en el catálogo, no se sustituye: lo de los demás productos
       // sigue ahí. Y lo que se guarda en el navegador es el catálogo entero.
       const catalogo = anotarSeveridades(r.severidades);
@@ -244,7 +269,9 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       );
       // El cambio entra en el catálogo, y es el catálogo entero lo que se
       // respalda: guardar sólo lo que se ve en pantalla borraría el resto.
-      guardarSeveridadesLocal(anotarSeveridades(siguientes));
+      // Sólo la fila que cambió: si esta evaluación se reabrió del historial,
+      // las demás son las de entonces y no deben pisar el catálogo de hoy.
+      guardarSeveridadesLocal(anotarSeveridades(siguientes.filter((s) => s.atributo === atributo)));
       return siguientes;
     });
     setGuardado("");
@@ -297,8 +324,125 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
     [resultado, soloRevisar]
   );
 
+  // --- el historial ---------------------------------------------------------
+
+  const refrescarHistorial = useCallback(async () => {
+    setHistorial(await listarHistorial());
+  }, []);
+
+  useEffect(() => {
+    refrescarHistorial();
+  }, [refrescarHistorial]);
+
+  // Lo que hay en pantalla, para que el guardado automático no tenga que
+  // depender de cada cambio y reprogramarse solo.
+  const estadoRef = useRef({});
+  estadoRef.current = { corrida, severidades, desempeno, vinculos, resultado, meta, evaluacionId, creado };
+
+  /**
+   * Guarda la evaluación tal como está: la corrida y lo ajustado a mano
+   * encima. La primera vez crea el registro; después lo actualiza.
+   *
+   * Es automático, como en el Análisis de Riesgo: lo que no se puede perder
+   * son los ajustes a mano, y un botón que hay que acordarse de pulsar los
+   * perdería igual.
+   */
+  const guardarAhora = useCallback(async () => {
+    const e = estadoRef.current;
+    if (!e.corrida || !e.resultado || !e.meta) return;
+    const evaluacion = evaluacionDesde({
+      id: e.evaluacionId,
+      creado: e.creado,
+      ...e.meta,
+      corrida: e.corrida,
+      severidades: e.severidades,
+      desempeno: e.desempeno,
+      vinculos: e.vinculos,
+      resumen: e.resultado.resumen,
+    });
+    if (!e.evaluacionId) {
+      setEvaluacionId(evaluacion.id);
+      setCreado(evaluacion.creado);
+    }
+    const res = await guardarEvaluacion(evaluacion);
+    setGuardadoEn(evaluacion.actualizado);
+    setAvisoHistorial(
+      res.ok ? "" : `La evaluación se guardó en este navegador, pero no en la nube: ${res.error}. ¿Falta ejecutar supabase_migration_v19.sql?`
+    );
+    refrescarHistorial();
+  }, [refrescarHistorial]);
+
+  // Se guarda sola tras cada evaluación y cada ajuste, con una pausa para no
+  // escribir en cada clic. Al reabrir una del historial no se guarda: abrirla
+  // no es cambiarla, y guardarla la subiría al principio de la lista.
+  const temporizadorRef = useRef(null);
+  const saltarGuardadoRef = useRef(false);
+  useEffect(() => {
+    if (!corrida || !meta) return;
+    if (saltarGuardadoRef.current) {
+      saltarGuardadoRef.current = false;
+      return;
+    }
+    clearTimeout(temporizadorRef.current);
+    temporizadorRef.current = setTimeout(guardarAhora, 1500);
+    return () => clearTimeout(temporizadorRef.current);
+  }, [corrida, severidades, desempeno, vinculos, meta, guardarAhora]);
+
+  async function abrirDelHistorial(id) {
+    const evaluacion = await abrirEvaluacion(id);
+    const d = evaluacion?.datos;
+    if (!d?.corrida) {
+      setAvisoHistorial("No se pudo abrir esa evaluación: puede que se haya borrado desde otra computadora.");
+      refrescarHistorial();
+      return;
+    }
+    clearTimeout(temporizadorRef.current);
+    saltarGuardadoRef.current = true;
+    setError(null);
+    setGuardado("");
+    setAvisoHistorial("");
+    setCorrida(d.corrida);
+    setSeveridades(d.severidades || []);
+    setDesempeno(d.desempeno || {});
+    setVinculos(d.vinculos || {});
+    setMeta({ producto: d.producto, forma: d.forma, lote: d.lote, fuente: d.fuente, protocoloNombre: d.protocoloNombre });
+    setForma(d.forma || "");
+    setEvaluacionId(evaluacion.id);
+    setCreado(evaluacion.creado);
+    setGuardadoEn(evaluacion.actualizado);
+    setReabierta(true);
+    setSoloRevisar(false);
+    setHistorialAbierto(false);
+  }
+
+  async function eliminarDelHistorial(id, nombre) {
+    if (!window.confirm(`¿Eliminar la evaluación "${nombre}"? Se borra de este navegador y de la nube, y no se puede deshacer.`)) return;
+    const res = await borrarEvaluacion(id);
+    setAvisoHistorial(res.ok ? "" : `No se pudo borrar de la nube: ${res.error}. Se quitó de este navegador.`);
+    // Si era la que estaba en pantalla, se limpia: seguir enseñando una
+    // evaluación que ya no existe invita a seguir ajustándola para nada.
+    if (id === evaluacionId) nuevaEvaluacion();
+    refrescarHistorial();
+  }
+
+  function nuevaEvaluacion() {
+    clearTimeout(temporizadorRef.current);
+    setCorrida(null);
+    setSeveridades([]);
+    setDesempeno({});
+    setVinculos({});
+    setMeta(null);
+    setEvaluacionId(null);
+    setCreado(null);
+    setGuardadoEn(null);
+    setReabierta(false);
+    setGuardado("");
+  }
+
   const datosDelDocumento = resultado && {
-    producto, forma, lote,
+    producto: meta?.producto ?? producto,
+    forma: meta?.forma ?? forma,
+    lote: meta?.lote ?? lote,
     etapas: [...new Set(resultado.filas.map((f) => f.etapa))].map((etapa) => ({
       etapa,
       parametros: resultado.filas.filter((f) => f.etapa === etapa).length,
@@ -315,6 +459,79 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
 
   return (
     <div className="clasificacion">
+      <section className="riesgo-historial">
+        <div className="riesgo-historial__barra">
+          <button className="btn btn--ghost" onClick={() => setHistorialAbierto((v) => !v)} aria-expanded={historialAbierto}>
+            <IconLayers size={14} />
+            Historial ({historial.length})
+          </button>
+          {corrida && (
+            <>
+              <button className="btn btn--ghost" onClick={nuevaEvaluacion} disabled={!!trabajando}>
+                Nueva evaluación
+              </button>
+              <span className="muted riesgo-historial__estado">
+                {guardadoEn ? (
+                  <>
+                    <IconCheck size={13} /> Guardada {relativeDate(guardadoEn)}
+                  </>
+                ) : (
+                  "Sin guardar todavía"
+                )}
+              </span>
+            </>
+          )}
+        </div>
+        {avisoHistorial && (
+          <p className="protocolo-error">
+            <IconAlert size={14} /> {avisoHistorial}
+          </p>
+        )}
+
+        {historialAbierto && (
+          <div className="riesgo-historial__lista">
+            {historial.length === 0 ? (
+              <p className="muted">
+                Todavía no hay evaluaciones guardadas. En cuanto evalúes una, aparecerá aquí sola, con lo que ajustes encima.
+              </p>
+            ) : (
+              <ul>
+                {historial.map((a) => (
+                  <li key={a.id} className={a.id === evaluacionId ? "is-abierto" : ""}>
+                    <button className="riesgo-historial__abrir" onClick={() => abrirDelHistorial(a.id)} title="Abrir esta evaluación">
+                      <strong>{a.nombre || a.producto || "Sin producto"}</strong>
+                      <span className="muted">
+                        {resumenCorto(a.resumen)} · {relativeDate(a.actualizado)}
+                        {a.id === evaluacionId ? " · abierta ahora" : ""}
+                      </span>
+                    </button>
+                    <button
+                      className="btn btn--ghost btn--icon"
+                      onClick={() => eliminarDelHistorial(a.id, a.nombre || a.producto)}
+                      title="Eliminar esta evaluación"
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </section>
+
+      {reabierta && meta && (
+        <section className="card">
+          <p className="muted">
+            <IconCheck size={14} /> Evaluación del historial: <strong>{meta.producto || "sin producto"}</strong>
+            {meta.forma ? ` (${meta.forma})` : ""}, evaluada {relativeDate(creado)} desde{" "}
+            {meta.fuente === "protocolo" ? `el protocolo${meta.protocoloNombre ? ` ${meta.protocoloNombre}` : ""}` : "los registros"}.
+            Se ve tal como quedó, con sus severidades y sus ajustes; lo que cambies se guarda en ella. Para evaluar de nuevo,
+            pulsa «Evaluar criticidad»: será una evaluación nueva y ésta queda como está.
+          </p>
+        </section>
+      )}
+
       <section className="card">
         <h2 className="seccion-titulo">Evaluación de Criticidad y Riesgo</h2>
         <p className="muted">
@@ -734,4 +951,10 @@ function CorroboracionDeParametro({ f, aceptada, onAceptar, onDeshacer }) {
       {c.referencias && <div className="corrob__cita">{c.referencias}</div>}
     </div>
   );
+}
+
+/** "112 parámetros · 35 Críticos · 11 Clave · 29 No Clave", para la lista. */
+function resumenCorto(r) {
+  if (!r || !r.total) return "sin resumen";
+  return `${r.total} parámetros · ${r.criticos} Críticos · ${r.claves} Clave · ${r.noClaves} No Clave`;
 }
