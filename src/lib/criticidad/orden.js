@@ -26,8 +26,8 @@ export function pasosDe(fila) {
 
 /**
  * Las filas en el orden del proceso. Las etapas quedan en el orden en que
- * aparecen; dentro de cada una, las que tienen paso se ordenan por él, y las
- * que no lo tienen conservan su lugar relativo al final.
+ * aparecen; dentro de cada una, por el paso del RMD, y las que no tienen paso
+ * se quedan junto a la fila que las precedía.
  */
 export function ordenDeProceso(filas = []) {
   const etapas = [];
@@ -39,19 +39,25 @@ export function ordenDeProceso(filas = []) {
     }
     porEtapa.get(f.etapa).push({ f, i });
   });
-  return etapas.flatMap((e) =>
-    porEtapa
-      .get(e)
+  // Una fila sin paso (del protocolo: "Consideraciones generales", un tiempo
+  // de espera) se queda donde estaba: toma el paso de la fila anterior para
+  // ordenarse, así no se va al final ni se adelanta. Con eso las filas
+  // «No incluido» del RMD caen entre las del protocolo, en su sitio.
+  return etapas.flatMap((e) => {
+    let previo = null;
+    const conClave = porEtapa.get(e).map((x) => {
+      const propio = pasosDe(x.f)[0] || null;
+      if (propio) previo = propio;
+      return { ...x, clave: propio || previo };
+    });
+    return conClave
       .sort((a, b) => {
-        const pa = pasosDe(a.f)[0];
-        const pb = pasosDe(b.f)[0];
-        if (pa && pb) return compararPasos(pa, pb) || a.i - b.i;
-        if (pa) return -1;
-        if (pb) return 1;
-        return a.i - b.i;
+        if (a.clave && b.clave) return compararPasos(a.clave, b.clave) || a.i - b.i;
+        if (!a.clave && !b.clave) return a.i - b.i;
+        return a.clave ? 1 : -1;
       })
-      .map((x) => x.f)
-  );
+      .map((x) => x.f);
+  });
 }
 
 /** id → N°, en el orden del proceso. */

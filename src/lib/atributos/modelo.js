@@ -122,6 +122,38 @@ function criteriosDe(lecturas) {
  * sección, cuántas veces se anotó y con qué criterios. Esa procedencia es lo
  * que permite que el cuadro final diga por qué dice lo que dice.
  */
+const SIGLA_DE_ETAPA = [
+  [/ACONDICION/i, "RM Acond."],
+  [/ENVAS|BLIST/i, "RM Env."],
+  [/.*/, "RM Fab."],
+];
+
+/** "RM Fab. 4.4.4, 4.4.5" — el documento y los pasos donde se lee. */
+export function referenciaDeRm(etapa, pasos) {
+  const codigos = [...new Set((pasos || []).filter(Boolean))];
+  if (codigos.length === 0) return "";
+  const sigla = SIGLA_DE_ETAPA.find(([re]) => re.test(etapa || ""))[1];
+  const lista = codigos.length > 4 ? `${codigos.slice(0, 4).join(", ")}…` : codigos.join(", ");
+  return `${sigla} ${lista}`;
+}
+
+/**
+ * Los valores registrados, como los escribe el prompt: "35.8 °C", o varios
+ * separados por punto y coma. Las casillas marcadas (✓) no son un valor: son
+ * una verificación hecha.
+ */
+export function valoresRegistrados(lecturas) {
+  const valores = [];
+  for (const l of lecturas || []) {
+    const v = String(l.value ?? "").trim();
+    if (!v || /^[üü✓√]$/i.test(v)) continue;
+    const conUnidad = l.unit && !v.toLowerCase().includes(String(l.unit).toLowerCase()) ? `${v} ${l.unit}` : v;
+    if (!valores.includes(conUnidad)) valores.push(conUnidad);
+    if (valores.length >= 3) break;
+  }
+  return valores.join("; ");
+}
+
 export function separarLecturas(documentos = []) {
   const parametros = new Map();
   const atributos = new Map();
@@ -169,6 +201,10 @@ export function separarLecturas(documentos = []) {
       // Los pasos del registro donde se lee ("4.4.16"): es lo que permite
       // volver al RMD y marcar en qué operación va el V°B°.
       pasos: [...new Set(x.lecturas.map((l) => l.paso).filter(Boolean))],
+      // Lo que pide el prompt de Validaciones para cada parámetro: de qué
+      // paso del RM sale y qué se registró ("RM Fab. 4.4.49", "35.8 °C").
+      referenciaRm: referenciaDeRm(x.etapa, x.lecturas.map((l) => l.paso)),
+      valorRegistrado: valoresRegistrados(x.lecturas),
       ejemplo: x.lecturas[0]?.label || "",
     }));
 

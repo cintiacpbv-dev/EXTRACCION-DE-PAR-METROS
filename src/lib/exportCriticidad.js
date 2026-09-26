@@ -41,6 +41,7 @@ import {
 import { ESTADOS, FORMATO, MOTIVOS_DE_REVISION, NOTA_DE_PROCEDENCIA } from "./criticidad/textos.js";
 import { formaDelProducto, verificacionDeReferencia } from "./criticidad/puntoDePartida.js";
 import { citaDeEvaluacion, numerar, ordenDeProceso } from "./criticidad/orden.js";
+import { cambiosDeClasificacion, datosAConfirmar, observacionesDelProtocolo } from "./criticidad/observaciones.js";
 
 const FUENTE = "Arial";
 const TAM = 14;
@@ -118,7 +119,13 @@ function cuadro(cabeceras, filas, proporciones, { vacio } = {}) {
           children: [celda(f.grupo, { colSpan: cabeceras.length, width: ANCHO_UTIL, fill: f.fill, bold: f.bold })],
         })
       : new TableRow({
-          children: f.map((c, i) => celda(c?.texto ?? c, { width: anchos[i], fill: c?.fill, align: c?.align })),
+          // Un arreglo es texto en varias líneas, no una celda con formato
+          // (y ojo: los arreglos tienen un método .fill).
+          children: f.map((c, i) =>
+            Array.isArray(c)
+              ? celda(c, { width: anchos[i] })
+              : celda(c?.texto ?? c, { width: anchos[i], fill: c?.fill, align: c?.align })
+          ),
         })
   );
 
@@ -543,7 +550,7 @@ function codigoDeOrigen(f) {
 }
 
 function paso2(filas, numeros) {
-  const cabeceras = ["N°", "Parámetro de proceso", "Rango de operación", "¿Sospecha?", "Atributo vinculado", "Origen", "Análisis de riesgo", "Estado"];
+  const cabeceras = ["N°", "Parámetro de proceso (paso del RM)", "Rango de operación (valor registrado)", "¿Sospecha?", "Atributo vinculado", "Origen", "Análisis de riesgo", "Estado"];
   const proporciones = [0.5, 2.2, 1.8, 0.8, 1.9, 0.7, 4.3, 1.3];
   const cuerpo = [];
   for (const e of gruposDeProceso(filas, numeros)) {
@@ -554,8 +561,8 @@ function paso2(filas, numeros) {
         const corrob = corroboracionDe(f);
         cuerpo.push([
           { texto: String(f.n ?? ""), align: AlignmentType.CENTER },
-          f.magnitud,
-          f.criterios?.join(" ; ") || "—",
+          f.referenciaRm ? [f.magnitud, f.referenciaRm] : f.magnitud,
+          `${f.criterios?.join(" ; ") || "Por confirmar"}${f.valorRegistrado ? ` (reg. ${f.valorRegistrado})` : ""}`,
           { texto: f.sospecha ? "Sí" : "No", align: AlignmentType.CENTER },
           f.afecta?.join("; ") || "No aplica",
           { texto: codigoDeOrigen(f), align: AlignmentType.CENTER },
@@ -813,32 +820,59 @@ const EVIDENCIA = {
   sinRespaldo: "Referencia bibliográfica o datos históricos del parámetro frente al atributo vinculado.",
 };
 
-function seccionE(filas, fmeaFilas, numeros) {
+function seccionE({ filas, numeros, atributos = [], fmea = [], observacionesRm = [] }) {
   // Con su N° del Paso 2: dos operaciones pueden tener un parámetro con el
   // mismo nombre ("Velocidad de agitación"), y sin el número no se sabe cuál.
-  const aRevisar = paraRevisarConDataHistorica(ordenDeProceso(filas)).map((r) => [
-    `${r.parametro} (${numeros.get(r.id) ?? "—"}; ${r.etapa})`,
-    r.motivo,
-    r.motivo === MOTIVOS_DE_REVISION.sinCriterio ? EVIDENCIA.sinCriterio : EVIDENCIA.sinRespaldo,
-  ]);
-  if (fmeaFilas.length) {
-    aRevisar.unshift([
-      "Ocurrencia de todos los PCP",
-      "Asignada de forma provisional por el ancho del rango, sin historial de desviaciones.",
-      "Historial de desviaciones y no conformidades del producto y de la línea del último año.",
-    ]);
-  }
+  const aRevisar = [
+    ...datosAConfirmar({ filas, atributos, fmea, observacionesRm }).map((d) => [d.dato, d.porQue, d.evidencia]),
+    ...paraRevisarConDataHistorica(ordenDeProceso(filas)).map((r) => [
+      `${r.parametro} (${numeros.get(r.id) ?? "—"}; ${r.etapa})`,
+      r.motivo,
+      r.motivo === MOTIVOS_DE_REVISION.sinCriterio ? EVIDENCIA.sinCriterio : EVIDENCIA.sinRespaldo,
+    ]),
+  ];
+  const cambios = cambiosDeClasificacion(ordenDeProceso(filas), numeros);
+  const alProtocolo = observacionesDelProtocolo(filas, { atributos, numeros });
+  const conProtocolo = filas.some((f) => f.clasificacionAnterior);
+  const n = (t) => ({ texto: String(t ?? ""), align: AlignmentType.CENTER });
+
   return [
     banda("E", "REEVALUACIÓN DEL ANÁLISIS DE RIESGO", "Evita que la evaluación quede congelada: el análisis se actualiza cada vez que aparecen desviaciones u observaciones en la secuencia de validación"),
     separacion(),
     cuadro(["Disparador de reevaluación", "Responsable", "Acción", "Fecha / registro"], FORMATO.disparadores.map((d) => [...d, ""]), [4, 2.2, 4, 1.8]),
-    subtituloDeSeccion("Parámetros a revisar con datos históricos"),
+    subtituloDeSeccion("Parámetros y datos a confirmar"),
     cuadro(
-      ["Parámetro", "¿Por qué es sensible? (clasificación conservadora por falta de datos)", "¿Qué evidencia confirmaría o cambiaría su clasificación?"],
+      ["Parámetro / dato", "¿Por qué es sensible? (clasificación conservadora por falta de datos)", "¿Qué evidencia confirmaría o cambiaría su clasificación?"],
       aRevisar,
       [3.4, 4.3, 4.3],
       { vacio: "Ninguno: todos los PCP tienen criterio impreso y respaldo." }
     ),
+    subtituloDeSeccion("Observaciones encontradas en los registros de manufactura de referencia"),
+    cuadro(
+      ["N°", "Referencia", "Observación", "Acción sugerida"],
+      observacionesRm.map((o, i) => [n(i + 1), o.referencia, o.observacion, o.accion]),
+      [0.5, 2, 6.5, 3],
+      { vacio: "Sin observaciones en los registros cargados." }
+    ),
+    ...(conProtocolo
+      ? [
+          subtituloDeSeccion("Revisión del protocolo — cambios de clasificación (anterior → nueva)"),
+          parrafo("La clasificación anterior del protocolo (Crítico / Potencial / Clave) no es un error: es lo que se migra a la nueva secuencia.", { size: 13, italic: true }),
+          cuadro(
+            ["N°", "Parámetro", "Etapa", "Anterior", "Nueva", "Motivo"],
+            cambios.map((c) => [n(c.n), c.parametro, c.etapa, n(c.anterior), n(c.nueva), c.motivo]),
+            [0.5, 3, 2.2, 1.2, 1.2, 3.9],
+            { vacio: "Ningún parámetro cambia de clasificación." }
+          ),
+          subtituloDeSeccion("Revisión del protocolo — otras observaciones"),
+          cuadro(
+            ["Prioridad", "Sección", "Dice", "Observación", "Propuesta"],
+            alProtocolo.map((o) => [n(o.prioridad), o.seccion, o.dice, o.observacion, o.propuesta]),
+            [1, 3, 2.3, 3.2, 2.5],
+            { vacio: "Sin observaciones." }
+          ),
+        ]
+      : []),
   ];
 }
 
@@ -922,6 +956,7 @@ export function construirCriticidad({
   filas = [],
   fmea = [],
   documento = {},
+  observacionesRm = [],
   pasos = TODOS_LOS_PASOS,
   opciones = {},
 }) {
@@ -952,7 +987,7 @@ export function construirCriticidad({
   if (incluye(3)) bloques.push(paso3(filas, numeros, { forma: formaDelProducto(forma, producto) }));
   if (incluye(4)) bloques.push(paso4(fmeaFilas));
   if (incluye(5)) bloques.push(paso5(severidades, atributos));
-  if (incluye(6)) bloques.push(seccionE(filas, fmeaFilas, numeros));
+  if (incluye(6)) bloques.push(seccionE({ filas, numeros, atributos, fmea, observacionesRm }));
   bloques.push(seccionF({ severidades, filas, fmeaFilas, documento }), seccionG(documento), anexo());
 
   for (const b of bloques) hijos.push(...b, separacion());
@@ -1030,7 +1065,7 @@ export async function exportarCriticidadWord(datos) {
  */
 export function construirLibroCriticidad({
   producto = "", forma = "", lote = "", atributos = [], severidades = [], corroboracionSeveridad = null, filas = [], fmea = [],
-  etapas = [], documento = {},
+  etapas = [], documento = {}, observacionesRm = [],
 }) {
   const wb = new ExcelJS.Workbook();
   const AZUL = "FFC6D9F1";
@@ -1082,11 +1117,11 @@ export function construirLibroCriticidad({
     (r, v) => { if (v[5] >= 4) amarillo(r.getCell(6)); });
 
   hoja("Paso 2 - Causa-efecto",
-    ["N°", "Etapa", "Operación", "Parámetro", "Rango de operación", "¿Sospecha?", "Atributo vinculado", "Origen", "Análisis de riesgo", "Estado", "Fuente", "Corroboración (Consulta PDF + IA)", "Paso(s) del RMD"],
-    [6, 16, 26, 28, 24, 10, 26, 8, 60, 22, 34, 60, 14],
-    enOrden.map((f) => [numeros.get(f.id), f.etapa, f.seccion, f.magnitud, f.criterios?.join(" ; ") || "", f.sospecha ? "Sí" : "No",
-      f.afecta?.join("; ") || "No aplica", codigoDeOrigen(f), f.racional || "", estadoDe(f), fuenteDe(f), corroboracionDe(f),
-      (f.pasos || []).join(", ")]));
+    ["N°", "Etapa", "Operación", "Parámetro", "Rango de operación", "Valor registrado", "Paso del RM", "¿Sospecha?", "Atributo vinculado", "Origen", "Análisis de riesgo", "Estado", "Fuente", "Corroboración (Consulta PDF + IA)"],
+    [6, 16, 26, 28, 24, 18, 16, 10, 26, 8, 60, 22, 34, 60],
+    enOrden.map((f) => [numeros.get(f.id), f.etapa, f.seccion, f.magnitud, f.criterios?.join(" ; ") || "Por confirmar", f.valorRegistrado || "",
+      f.referenciaRm || (f.pasos || []).join(", "), f.sospecha ? "Sí" : "No",
+      f.afecta?.join("; ") || "No aplica", codigoDeOrigen(f), f.racional || "", estadoDe(f), fuenteDe(f), corroboracionDe(f)]));
 
   hoja("Paso 3 - Clasificación",
     ["N°", "Etapa", "Parámetro", "Estado (Paso 2)", "Atributo vinculado", "Severidad", "¿Impacto en desempeño?", "Clasificación anterior", "CLASIFICACIÓN FINAL", "Justificación"],
@@ -1109,6 +1144,19 @@ export function construirLibroCriticidad({
   hoja("Paso 5 - Muestreo", ["N°", "Atributo de calidad", "Severidad", "Tipo de dato", "Confianza", "Cobertura", "Enfoque estadístico", "n / factor k", "Observaciones"],
     [6, 36, 10, 12, 11, 11, 40, 30, 40],
     vinculoPorAtributo(severidades, atributos).map((v, i) => [i + 1, v.atributo, v.severidad, v.tipoDeDato, v.confianza, v.cobertura, v.enfoque, v.n, v.observaciones]));
+
+  hoja("E - Observaciones RM", ["N°", "Referencia", "Observación", "Acción sugerida"], [6, 22, 80, 50],
+    observacionesRm.map((o, i) => [i + 1, o.referencia, o.observacion, o.accion]));
+
+  if (filas.some((f) => f.clasificacionAnterior)) {
+    hoja("E - Cambios de clasificación", ["N°", "Parámetro", "Etapa", "Anterior", "Nueva", "Motivo"], [6, 34, 24, 14, 12, 60],
+      cambiosDeClasificacion(enOrden, numeros).map((c) => [c.n, c.parametro, c.etapa, c.anterior, c.nueva, c.motivo]));
+    hoja("E - Revisión del protocolo", ["Prioridad", "Sección", "Dice", "Observación", "Propuesta"], [10, 40, 30, 60, 50],
+      observacionesDelProtocolo(filas, { atributos, numeros }).map((o) => [o.prioridad, o.seccion, o.dice, o.observacion, o.propuesta]));
+  }
+
+  hoja("E - Datos a confirmar", ["Dato", "Por qué", "Evidencia necesaria"], [40, 60, 60],
+    datosAConfirmar({ filas, atributos, fmea, observacionesRm }).map((d) => [d.dato, d.porQue, d.evidencia]));
 
   return wb;
 }

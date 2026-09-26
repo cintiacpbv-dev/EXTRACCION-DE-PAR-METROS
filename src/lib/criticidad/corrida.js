@@ -23,6 +23,8 @@ import { evaluar, npr, requisitoEstadistico, muestraPorAtributo } from "./modelo
 import { aplicarSeveridadesDePlanta, fusionar, mapaDeSeveridades, severidadValida } from "./severidad.js";
 import { atributosDelProtocolo, resolverAfecta } from "./protocolo.js";
 import { consultarBibliografia, evidenciasDeAtributos, revisarCausaEfecto, revisarSeveridades } from "./corroborar.js";
+import { alinearConRmd } from "./alineacion.js";
+import { observacionesDelRmd } from "./observaciones.js";
 
 const LOTE_IA = 20;
 
@@ -152,6 +154,8 @@ export async function pasoScreening(parametros, { producto, forma, etapa, atribu
         magnitud: p.magnitud,
         seccion: p.seccion,
         criterios: p.criterios,
+        referenciaRm: p.referenciaRm,
+        valorRegistrado: p.valorRegistrado,
         evidencia: respaldos.get(idDe(p)) || null,
       })),
     });
@@ -333,6 +337,7 @@ export async function pasoFmea(criticos, { producto, forma, fetchImpl = fetch } 
       controles: f?.controles || "",
       accion: f?.accion || "",
       responsable: f?.responsable || "",
+      oCriterio: f?.oCriterio === "historial" ? "historial" : "provisional",
     };
   });
 }
@@ -387,7 +392,7 @@ export async function correr(
 
   // Con el análisis de riesgo del protocolo, los pasos 0 y 2 salen de él.
   if (protocolo?.analisis?.length > 0) {
-    return correrDesdeProtocolo(protocolo, { producto, forma, corroborar, onAvance, fetchImpl, avisos, aviso });
+    return correrDesdeProtocolo(protocolo, { documentos, producto, forma, corroborar, onAvance, fetchImpl, avisos, aviso });
   }
 
   // Paso 0
@@ -456,7 +461,7 @@ export async function correr(
 
   return {
     atributos: conSeveridad, severidades, discrepancias, corroboracionSeveridad, filas, fmea, estadistico, resumen, avisos,
-    fuente: "registros", corroborada: corroborar,
+    fuente: "registros", corroborada: corroborar, observacionesRm: observacionesDelRmd(documentos),
   };
 }
 
@@ -480,9 +485,19 @@ async function severidadesDeLaCorrida(atributos, { producto, forma, corroborar, 
  * vienen escritos, y la IA se usa sólo para la severidad (Paso 1), la
  * pregunta de desempeño que el protocolo no contesta, y P y D de los Críticos.
  */
-async function correrDesdeProtocolo(protocolo, { producto, forma, corroborar, onAvance, fetchImpl, avisos, aviso }) {
+async function correrDesdeProtocolo(protocolo, { documentos = [], producto, forma, corroborar, onAvance, fetchImpl, avisos, aviso }) {
   onAvance?.({ paso: 0, texto: "Leyendo atributos y análisis de riesgo del protocolo…" });
-  const { atributos, filas: screening } = desdeProtocolo(protocolo);
+  const { atributos, filas: delProtocolo } = desdeProtocolo(protocolo);
+
+  // Con los RMD cargados, cada fila del protocolo toma su paso y su valor
+  // registrado, y lo que el RMD controla y el protocolo no, entra como
+  // «No incluido» (prompt de Validaciones).
+  let screening = delProtocolo;
+  let noIncluidas = [];
+  if (documentos.length > 0) {
+    onAvance?.({ paso: 0, texto: "Casando el protocolo con el registro de manufactura…" });
+    ({ filas: screening, noIncluidas } = alinearConRmd(delProtocolo, documentos));
+  }
 
   onAvance?.({ paso: 1, texto: "Fijando la severidad de cada atributo…" });
   const { severidades, discrepancias, corroboracionSeveridad } = await severidadesDeLaCorrida(atributos, {
@@ -490,6 +505,25 @@ async function correrDesdeProtocolo(protocolo, { producto, forma, corroborar, on
   });
   const mapa = mapaDeSeveridades(severidades);
   const conSeveridad = atributos.map((a) => ({ ...a, severidad: mapa[a.nombre] ?? null }));
+
+  // Lo que el protocolo no evalúa pasa por el screening como cualquier
+  // parámetro de un registro: sospecha, atributo y desempeño.
+  if (noIncluidas.length > 0) {
+    for (const etapa of [...new Set(noIncluidas.map((f) => f.etapa))]) {
+      const suyas = noIncluidas.filter((f) => f.etapa === etapa);
+      onAvance?.({ paso: 2, texto: `${etapa} · ${suyas.length} parámetro(s) del RMD que el protocolo no incluye…` });
+      try {
+        const evaluadas = await pasoScreening(suyas, {
+          producto, forma, etapa, atributos: conSeveridad, corroborar, fetchImpl,
+          onAvance: (texto) => onAvance?.({ paso: 2, texto }),
+        });
+        screening.push(...evaluadas);
+      } catch (err) {
+        aviso(2, err);
+        screening.push(...suyas.map((f) => ({ ...f, sospecha: false, afecta: [], racional: "", fuenteSospecha: "sin resolver", desempeno: null })));
+      }
+    }
+  }
 
   onAvance?.({ paso: 2, texto: "Contestando la pregunta de desempeño que el protocolo no responde…" });
   let conDesempeno = screening;
@@ -505,10 +539,15 @@ async function correrDesdeProtocolo(protocolo, { producto, forma, corroborar, on
   if (corroborar) {
     onAvance?.({ paso: 2, texto: "Corroborando el análisis de riesgo con Consulta PDF y la IA…" });
     try {
-      conDesempeno = await revisarCausaEfecto(conDesempeno, {
+      // Sólo lo que viene escrito en el protocolo: lo «No incluido» ya lo
+      // evaluó la IA con la bibliografía en el screening.
+      const delProt = conDesempeno.filter((f) => f.fuenteSospecha === "protocolo");
+      const revisadas = await revisarCausaEfecto(delProt, {
         producto, forma, atributos: conSeveridad, fetchImpl,
         onAvance: (texto) => onAvance?.({ paso: 2, texto }),
       });
+      const porId = new Map(revisadas.map((f) => [f.id, f]));
+      conDesempeno = conDesempeno.map((f) => porId.get(f.id) || f);
     } catch (err) {
       aviso(2, err);
     }
@@ -531,6 +570,6 @@ async function correrDesdeProtocolo(protocolo, { producto, forma, corroborar, on
   return {
     atributos: conSeveridad, severidades, discrepancias, corroboracionSeveridad, filas, fmea,
     estadistico: pasoEstadistico(severidades, conSeveridad), resumen, avisos, fuente: "protocolo",
-    corroborada: corroborar,
+    corroborada: corroborar, observacionesRm: observacionesDelRmd(documentos),
   };
 }

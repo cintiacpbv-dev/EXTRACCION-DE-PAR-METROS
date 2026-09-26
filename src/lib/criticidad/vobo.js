@@ -231,10 +231,14 @@ const ES_ENVASE = /ENVAS|ACONDICION|BLIST/;
  */
 export function filasDelRmd(filas, etapa) {
   const e = normalizar(etapa);
+  const esEnvase = ES_ENVASE.test(e);
+  // El RMD de fabricación lleva todo lo que no es envase, aunque el protocolo
+  // tenga además una etapa que se llame "Fabricación" (DOLORAL: encapsulado,
+  // secado e inspección van en el mismo registro).
+  if (!esEnvase) return filas.filter((f) => !ES_ENVASE.test(normalizar(f.etapa)));
   const exactas = filas.filter((f) => normalizar(f.etapa) === e);
   if (exactas.length > 0) return exactas;
-  const esEnvase = ES_ENVASE.test(e);
-  return filas.filter((f) => ES_ENVASE.test(normalizar(f.etapa)) === esEnvase);
+  return filas.filter((f) => ES_ENVASE.test(normalizar(f.etapa)));
 }
 
 // --- 3. El PDF ---------------------------------------------------------------

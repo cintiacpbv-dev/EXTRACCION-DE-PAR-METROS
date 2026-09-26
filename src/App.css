@@ -4685,3 +4685,42 @@ body.esta-redimensionando {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Observaciones y revisión del protocolo (Criticidad) ---------- */
+.revision-lista {
+  margin: 8px 0 12px;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.clasificacion details summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.prioridad {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.prioridad--alta {
+  background: var(--rojo-soft);
+  color: var(--rojo);
+}
+
+.prioridad--media {
+  background: var(--ambar-soft);
+  color: var(--ambar);
+}
+
+.prioridad--baja {
+  background: var(--surface-soft);
+  color: var(--text-muted);
+}

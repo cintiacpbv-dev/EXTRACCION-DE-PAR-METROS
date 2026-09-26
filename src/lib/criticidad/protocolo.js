@@ -158,6 +158,10 @@ function capitalizar(t) {
 
 // --- 2. El análisis de riesgo que ya existe --------------------------------
 
+// Lo que nombra una magnitud en la columna de parámetros.
+const ES_MAGNITUD =
+  /temperatura|tiempo|velocidad|presi[oó]n|humedad|peso|cantidad|n[°º] de|espesor|dosificaci|pist[oó]n|formato|material|identidad|orden de|contenido|distribuci|datos del|lotizado|armado|sellado|n[úu]mero|vac[ií]o/i;
+
 const RE_TITULO_ETAPA = /^Etapa(?:\s*:\s*|\s+de\s+)(.+?)\s*:?\s*$/i;
 
 /** Dónde está cada columna en la cabecera del cuadro de análisis de riesgo. */
@@ -175,6 +179,7 @@ function columnasDeRiesgo(cabecera) {
   // parezca: el protocolo tiene decenas de tablas con "Parámetros" en la
   // cabecera.
   if ([columnas.parametro, columnas.analisis, columnas.afecta].some((c) => c === undefined)) return null;
+  columnas.anchoParametro = cabecera.find((c) => c.columna === columnas.parametro)?.ancho || 1;
   return columnas;
 }
 
@@ -245,8 +250,30 @@ export function analisisDeRiesgoDe(xml) {
         if (celda?.continuacion) return { texto: previo[clave] || "", heredado: true };
         return { texto: celda?.texto || "", heredado: false };
       };
+      // "Parámetros" puede ocupar varias columnas de la rejilla. Casi siempre
+      // es una sola celda; cuando se parte, hay dos maneras en el mismo
+      // protocolo: un grupo combinado en vertical y a su lado el parámetro
+      // ("Por encima" | "Presión de vacío"; "Condiciones ambientales del área
+      // de secado" | "Humedad Relativa"), o el parámetro seguido de sus
+      // precisiones ("Velocidad de la lotizadora" | "Caja x 100" | "HAPA N° 1").
+      // El parámetro es la primera celda que nombra una magnitud; lo de antes
+      // es el grupo, lo de después no se lee (como hasta ahora).
+      const leerParametro = () => {
+        const desde = columnas.parametro;
+        const hasta = desde + columnas.anchoParametro;
+        const partes = celdas.filter((c) => c.columna >= desde && c.columna < hasta);
+        if (partes.length <= 1) return { ...leer("parametro"), grupo: "" };
+        const textos = partes.map((c, n) =>
+          c.continuacion ? { texto: previo[`parte${n}`] || "", heredado: true } : { texto: c.texto, heredado: false }
+        );
+        textos.forEach((t, n) => (previo[`parte${n}`] = t.texto));
+        let n = textos.findIndex((t) => ES_MAGNITUD.test(t.texto));
+        if (n < 0) n = 0;
+        const grupo = textos.slice(0, n).map((t) => t.texto).filter(Boolean).join(" — ");
+        return { ...textos[n], grupo };
+      };
       const v = {
-        parametro: leer("parametro"),
+        parametro: leerParametro(),
         setpoint: leer("setpoint"),
         clasificacion: leer("clasificacion"),
         analisis: leer("analisis"),
@@ -254,6 +281,7 @@ export function analisisDeRiesgoDe(xml) {
         rango: leer("rango"),
       };
       for (const [clave, { texto }] of Object.entries(v)) previo[clave] = texto;
+      previo.grupo = v.parametro.grupo;
       // «No afecta ningún atributo» es la respuesta NO del screening, no el
       // nombre de un atributo. Leído como nombre, entraba en el Paso 0 como un
       // atributo más, la IA le ponía severidad, y con 4 o 5 el parámetro
@@ -282,7 +310,7 @@ export function analisisDeRiesgoDe(xml) {
 
       actual = {
         etapa,
-        operacion,
+        operacion: v.parametro.grupo ? `${operacion} — ${v.parametro.grupo}` : operacion,
         parametro: v.parametro.texto,
         setpoint: v.setpoint.texto,
         clasificacionAnterior: v.clasificacion.texto,

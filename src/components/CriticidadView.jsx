@@ -9,6 +9,8 @@ import { atributosDelProtocolo as atributosDelProtocoloAntiguo } from "../lib/at
 import { atributosDelProtocolo, leerProtocoloParaCriticidad } from "../lib/criticidad/protocolo.js";
 import { formaDelProducto, partidaSinConfirmar } from "../lib/criticidad/puntoDePartida.js";
 import { FORMATO } from "../lib/criticidad/textos.js";
+import { cambiosDeClasificacion, datosAConfirmar, observacionesDelProtocolo } from "../lib/criticidad/observaciones.js";
+import { numerar, ordenDeProceso } from "../lib/criticidad/orden.js";
 import { correr, pasoEstadistico } from "../lib/criticidad/corrida.js";
 import { aplicarAjustesDeVinculo } from "../lib/criticidad/corroborar.js";
 import { abrirEvaluacion, borrarEvaluacion, evaluacionDesde, guardarEvaluacion, listarHistorial } from "../lib/criticidad/historial.js";
@@ -262,6 +264,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       setCorrida({
         screening: r.filas, fmea: r.fmea, atributos: r.atributos, avisos: r.avisos, discrepancias: r.discrepancias,
         corroboracionSeveridad: r.corroboracionSeveridad || {}, corroborada: r.corroborada,
+        observacionesRm: r.observacionesRm || [],
       });
       // Las sugerencias aceptadas y el desempeño corregido eran de la corrida
       // anterior, que sigue en el historial con los suyos.
@@ -517,6 +520,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
     atributos: resultado.atributos,
     severidades,
     corroboracionSeveridad: corrida?.corroborada ? corrida.corroboracionSeveridad : null,
+    observacionesRm: corrida?.observacionesRm || [],
     filas: resultado.filas,
     fmea: resultado.fmea,
     estadistico: resultado.estadistico,
@@ -826,8 +830,15 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                 {filasVisibles.map((f) => (
                   <tr key={f.id} className={f.clasificacion === CRITICO ? "es-critico" : undefined}>
                     <td className="muted">{f.etapa}</td>
-                    <td><strong>{f.magnitud}</strong><div className="muted">{f.seccion}</div></td>
-                    <td>{f.criterios?.join(" ; ") || "—"}</td>
+                    <td>
+                      <strong>{f.magnitud}</strong>
+                      <div className="muted">{f.seccion}</div>
+                      {f.referenciaRm && <div className="muted">{f.referenciaRm}</div>}
+                    </td>
+                    <td>
+                      {f.criterios?.join(" ; ") || "Por confirmar"}
+                      {f.valorRegistrado && <div className="muted">reg. {f.valorRegistrado}</div>}
+                    </td>
                     <td>
                       {f.afecta?.join(" / ") || "—"}
                       {f.atributosFueraDeLista?.length > 0 && (
@@ -961,6 +972,13 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
               </table>
             </section>
           )}
+
+          <RevisionDelRmdYProtocolo
+            filas={resultado.filas}
+            atributos={resultado.atributos}
+            fmea={resultado.fmea}
+            observacionesRm={corrida.observacionesRm || []}
+          />
 
           <RmdVoBo resultado={resultado} producto={meta?.producto ?? producto} subidos={subidos} />
         </>
@@ -1102,5 +1120,77 @@ function DatosDelDocumento({ documento, onChange }) {
         <textarea rows={2} {...campo("comentarios")} />
       </label>
     </details>
+  );
+}
+
+/**
+ * Lo que el prompt de Validaciones pide además de clasificar: observaciones
+ * de coherencia del RMD, la revisión del protocolo (cambios de clasificación
+ * y otras observaciones con prioridad) y los datos que faltan. Todo sale en
+ * la sección E del Word y en sus hojas del Excel.
+ */
+function RevisionDelRmdYProtocolo({ filas, atributos, fmea, observacionesRm }) {
+  const numeros = numerar(filas);
+  const cambios = cambiosDeClasificacion(ordenDeProceso(filas), numeros);
+  const alProtocolo = filas.some((f) => f.clasificacionAnterior) ? observacionesDelProtocolo(filas, { atributos, numeros }) : [];
+  const faltan = datosAConfirmar({ filas, atributos, fmea, observacionesRm });
+  const noIncluidos = filas.filter((f) => f.noIncluido).length;
+  if (!observacionesRm.length && !cambios.length && !alProtocolo.length && !faltan.length) return null;
+
+  return (
+    <section className="card">
+      <h3 className="seccion-titulo">E · Observaciones, revisión del protocolo y datos a confirmar</h3>
+      {noIncluidos > 0 && (
+        <p className="muted">
+          {noIncluidos} parámetro(s) del RMD no están en el análisis de riesgo del protocolo: entraron a la evaluación como
+          «No incluido» (columna «Antes»).
+        </p>
+      )}
+      {observacionesRm.length > 0 && (
+        <details open>
+          <summary>Observaciones a los registros de manufactura ({observacionesRm.length})</summary>
+          <ul className="revision-lista">
+            {observacionesRm.map((o, i) => (
+              <li key={i}><strong>{o.referencia}</strong> — {o.observacion} <span className="muted">{o.accion}</span></li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {cambios.length > 0 && (
+        <details>
+          <summary>Cambios de clasificación respecto del protocolo ({cambios.length})</summary>
+          <ul className="revision-lista">
+            {cambios.map((c, i) => (
+              <li key={i}>
+                <strong>{c.n}. {c.parametro}</strong> ({c.etapa}): {c.anterior} → <strong>{c.nueva}</strong>. <span className="muted">{c.motivo}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {alProtocolo.length > 0 && (
+        <details>
+          <summary>Otras observaciones al protocolo ({alProtocolo.length})</summary>
+          <ul className="revision-lista">
+            {alProtocolo.map((o, i) => (
+              <li key={i}>
+                <span className={`prioridad prioridad--${o.prioridad.toLowerCase()}`}>{o.prioridad}</span> <strong>{o.seccion}</strong>
+                {o.dice && o.dice !== "—" ? ` — dice «${o.dice}»` : ""}. {o.observacion} <span className="muted">{o.propuesta}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {faltan.length > 0 && (
+        <details>
+          <summary>Datos a confirmar ({faltan.length})</summary>
+          <ul className="revision-lista">
+            {faltan.map((d, i) => (
+              <li key={i}><strong>{d.dato}</strong>: {d.porQue} <span className="muted">{d.evidencia}</span></li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
   );
 }

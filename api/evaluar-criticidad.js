@@ -146,8 +146,9 @@ const ESQUEMA_FMEA = {
       controles: { type: "string", description: "Los controles actuales que se ven en el registro (balanza calibrada, V°B°, control de peso cada hora…)." },
       accion: { type: "string", description: "Acción o estrategia de control según el nivel de riesgo; «Monitoreo estándar» si es verde." },
       responsable: { type: "string", description: "Área responsable: Producción, Control de Calidad, Validaciones, Acondicionado…" },
+      oCriterio: { type: "string", enum: ["historial", "provisional"], description: "Si la Ocurrencia salió del historial de desviaciones o es provisional." },
     },
-    required: ["id", "probabilidad", "detectabilidad", "racional", "modoFalla", "controles", "accion", "responsable"],
+    required: ["id", "probabilidad", "detectabilidad", "racional", "modoFalla", "controles", "accion", "responsable", "oCriterio"],
   },
 };
 
@@ -198,6 +199,16 @@ function evidenciaComoTexto(evidencia) {
   return texto ? `\n    Evidencia de la bibliografía (Consulta PDF): ${texto}${fuentes}` : "";
 }
 
+// Las reglas generales del prompt de Validaciones (Prompt_Evaluacion_
+// Criticidad_Riesgo): valen para todas las tareas.
+const REGLAS_GENERALES = `REGLAS OBLIGATORIAS:
+1. No inventes datos: todo rango, valor, equipo o especificación sale de lo que se te da. Si algo no está, di "Por confirmar".
+2. NMT = no más de (máximo); NLT = no menos de (mínimo). Para tiempos mínimos escribe "≥ 10 min" o "No menos de 10 min", nunca "NMT".
+3. Si un insumo se ajusta por potencia (IFA, compensador, antioxidante, conservantes), la diferencia entre la cantidad ordenada y la recibida NO es una desviación.
+4. La clasificación antigua del protocolo (Crítico / Potencialmente crítico / Clave) no es un error: es lo que se está migrando.
+5. Un valor en el límite del rango no es una desviación; uno fuera del rango sí se señala.
+6. Parámetros acoplados (misma operación y mismo racional, p. ej. tiempo y velocidad de una agitación) heredan el mismo atributo y la misma severidad.`;
+
 const USO_DE_LA_EVIDENCIA = `Algunos elementos traen "Evidencia de la bibliografía": es lo que encontró Consulta PDF en los documentos de la planta (farmacopeas, guías, monografías, informes), con sus fuentes. Cuando la haya, apóyate en ella antes que en tu conocimiento general, y cita la fuente entre paréntesis en tu texto. Si la evidencia contradice lo que pensabas, manda la evidencia. Si un elemento no trae evidencia, razona con tu conocimiento y no inventes citas.`;
 
 const MATRIZ = `Matriz de apoyo — Severidad × Incertidumbre (adaptada de PDA TR60, Fig. 6.1-2).
@@ -237,6 +248,10 @@ Preguntas guía, para que dos evaluadores den lo mismo:
 4 — ¿Podría afectar significativamente un atributo de calidad, aunque existan controles aguas abajo?
 5 — ¿Podría comprometer directamente la seguridad del paciente o la eficacia del medicamento?
 
+${REGLAS_GENERALES}
+
+Prueba práctica para el tipo de vínculo: escribe la relación causal en una oración y cuenta los "que a su vez". Cero = directo; uno o más = indirecto. Ante duda o falta de datos (p. ej. sin datos de estabilidad), sube la severidad (principio de precaución). "No estar en la especificación de rutina" no significa "No ACC".
+
 ${USO_DE_LA_EVIDENCIA}
 
 ATRIBUTOS A CALIFICAR:
@@ -255,7 +270,7 @@ function promptScreening({ producto, forma, etapa, parametros, atributos }) {
       (p) =>
         `- id ${p.id} · [${p.seccion || "GENERAL"}] ${p.magnitud}${
           p.criterios?.length ? ` — criterio en el registro: ${p.criterios.join(" ; ")}` : " — sin criterio impreso"
-        }${evidenciaComoTexto(p.evidencia)}`
+        }${p.referenciaRm ? ` — ${p.referenciaRm}` : ""}${p.valorRegistrado ? ` (reg. ${p.valorRegistrado})` : ""}${evidenciaComoTexto(p.evidencia)}`
     )
     .join("\n");
 
@@ -273,6 +288,8 @@ Importante: aquí NO se evalúa la gravedad, ni la probabilidad, ni la detectabi
 ATRIBUTOS DE CALIDAD de este producto:
 ${listaAtributos || "(no se reconoció ninguno)"}
 
+${REGLAS_GENERALES}
+
 ${USO_DE_LA_EVIDENCIA}
 
 PARÁMETROS DE PROCESO de esta etapa:
@@ -281,7 +298,7 @@ ${listaParametros}
 Para cada parámetro, usando su id exactamente como se te dio:
 - "sospecha": true sólo si hay un mecanismo físico o químico plausible por el que ese parámetro mueva un atributo de la lista. "No hay riesgo; se requiere para continuar con el proceso" es una respuesta legítima y frecuente — muchos parámetros son operativos y no tocan ningún atributo.
 - "afecta": los nombres de la lista, copiados tal cual. Vacío si no hay sospecha.
-- "origen": el mecanismo, en una frase. Por ejemplo: "la temperatura de la masa gobierna su viscosidad, y con ella el espesor de la pared de la cápsula". No escribas "es importante" ni "podría afectar la calidad".
+- "origen": el mecanismo, en una frase, con la redacción "El [parámetro] puede afectar [atributo] porque [origen]". Si no hay sospecha: "Sin vínculo plausible: [razón]". Por ejemplo: "la temperatura de la masa gobierna su viscosidad, y con ella el espesor de la pared de la cápsula". No escribas "es importante" ni "podría afectar la calidad".
 
 Además, y SIEMPRE —tenga sospecha o no—, responde la pregunta de desempeño de proceso en "desempeno": ¿este parámetro afecta al rendimiento del lote, al tiempo de operación o a la consistencia del proceso? Es una pregunta distinta de la anterior: no habla de la calidad del producto sino de si el proceso sale adelante. Un enfriamiento que sólo sirve para poder continuar afecta al TIEMPO y por tanto al desempeño; un parámetro meramente informativo no afecta a nada. Esta respuesta es la que decide entre "Clave" y "No Clave" para los parámetros que no llegan a Críticos, y «No Clave» es un resultado correcto y frecuente.
 
@@ -317,10 +334,12 @@ DETECTABILIDAD (D) — en qué parte de la secuencia de validación se detecta:
 5 No puede ser detectado — durante el mantenimiento del estado validado; sin control en línea, se detecta sólo en análisis de producto terminado, si acaso
 4 Baja detectabilidad — durante la elaboración del reporte de validación; detección fuera de línea, tras el lote, con retraso significativo
 3 Moderadamente detectable — durante la ejecución de los lotes de validación; muestreo en proceso a intervalos definidos
-2 Detectable — durante la elaboración del protocolo de validación; monitoreo en línea frecuente con alarmas y/o alertas
+2 Detectable — durante la elaboración del protocolo de validación; verificación inmediata en línea (doble verificación, V°B° presencial del supervisor, alarmas)
 1 Muy detectable — durante las revisiones previas a la elaboración del protocolo; control continuo automatizado (PAT / control en tiempo real)
 
-IMPORTANTE: tú NO conoces el historial de desviaciones de esta planta, que es el primer criterio de la Ocurrencia. Califícala por el segundo —el ancho del rango frente a la variabilidad esperada— y dilo en el racional con estas palabras: "Ocurrencia propuesta por el rango; confirmar con el historial de desviaciones del último año." Quien valida la corregirá con el dato real.
+${REGLAS_GENERALES}
+
+IMPORTANTE: tú NO conoces el historial de desviaciones de esta planta, que es el primer criterio de la Ocurrencia. Califícala por el segundo —el ancho del rango frente a la variabilidad esperada— y dilo en el racional con estas palabras: "Ocurrencia propuesta por el rango; confirmar con el historial de desviaciones del último año." Quien valida la corregirá con el dato real. No asumas O = 1 para todos: 1 sólo para controles automáticos o rangos muy amplios demostrados; 2 para operaciones con rango definido, registro y verificación; más alto si el rango es estrecho frente a la variabilidad. Marca "oCriterio" como "provisional" (sin historial).
 
 PARÁMETROS CRÍTICOS:
 ${lista}
@@ -379,6 +398,8 @@ ${forma ? `Forma farmacéutica: ${forma}\n` : ""}Etapa del proceso: ${etapa}
 Eres el SEGUNDO evaluador del Paso 2 (análisis causa-efecto). El protocolo ya trae, por cada parámetro de proceso, a qué atributos de calidad lo vincula su análisis de riesgo. Tu trabajo es revisar ese vínculo: ¿falta algún atributo de la lista que el parámetro mueva por un mecanismo físico o químico plausible?, ¿sobra alguno que no tenga mecanismo que lo sostenga?
 
 No evalúes gravedad ni probabilidad: la clasificación se decide después con una regla a partir de la severidad del atributo. Aquí sólo importa si el vínculo existe.
+
+${REGLAS_GENERALES}
 
 ${USO_DE_LA_EVIDENCIA}
 

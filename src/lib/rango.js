@@ -22,7 +22,9 @@ function aNumero(texto) {
 // saltárselas al leer los números, no para comprobarlas: comparar unidades
 // exigiría normalizar minutos con horas y grados con grados, y el registro ya
 // escribe cada casilla en la unidad de su criterio.
-const UNIDAD = "(?:\\s*(?:°|º|o)?\\s*[CF]\\b|\\s*%|\\s*(?:MIN|MINUTOS?|HORAS?|H|SEG|SEGUNDOS?|KG|G|L|ML|RPM|GPM|KP|MM|CM|BAR|PSI|MPA)\\b)?";
+// "°bx" (grados Brix de la gelatina) y "kgf" (presión de rodillos) también:
+// sin ellos, "61.5°bx - 63.5°bx" no se leía y un Brix bajo pasaba sin marca.
+const UNIDAD = "(?:\\s*(?:°|º|o)?\\s*(?:[CF]|BX)\\b|\\s*%|\\s*(?:MIN|MINUTOS?|HORAS?|H|SEG|SEGUNDOS?|KG|KGF|G|L|ML|RPM|GPM|KP|MM|CM|BAR|PSI|MPA)\\b)?";
 const CIFRA = "(-?\\d+(?:[.,]\\d+)?)";
 
 const PATRONES = [
