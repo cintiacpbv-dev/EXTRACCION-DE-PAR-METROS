@@ -35,8 +35,17 @@ function tamanoDe(doc) {
  * que se haría a mano mirando otro lote de la misma familia.
  */
 export function tamanoPorLote(documents) {
+  return tamanosDeLotes(documents).porLote;
+}
+
+/**
+ * Lo mismo, diciendo además qué lotes quedaron con el tamaño que declara su
+ * propio documento, sin fabricación con la que compararlo (`sinEscala`).
+ */
+function tamanosDeLotes(documents) {
   const porLote = new Map();
   const correspondencia = new Map();
+  const sinEscala = new Set();
 
   for (const doc of documents) {
     const tamano = tamanoDe(doc);
@@ -59,13 +68,14 @@ export function tamanoPorLote(documents) {
     const tamano = tamanoDe(doc);
     if (!tamano) continue;
     const equivalente = correspondencia.get(`${doc.stage}::${tamano}`);
-    // Sin equivalencia conocida se usa lo que el propio documento declara: es
-    // menos preciso, pero separa igual dos escalas distintas, que es de lo
-    // que se trata.
+    // Sin equivalencia conocida se usa lo que el propio documento declara,
+    // pero se marca: "4446 BLI" es cuántos blísteres salieron, no a qué
+    // escala se fabricó, y no puede contar como una escala más (ver abajo).
     porLote.set(doc.lote, equivalente || tamano);
+    if (!equivalente) sinEscala.add(doc.lote);
   }
 
-  return porLote;
+  return { porLote, sinEscala };
 }
 
 /**
@@ -76,7 +86,7 @@ export function tamanoPorLote(documents) {
  * nombre por nada.
  */
 export function tamanosPorFamilia(documents, familiaDe) {
-  const porLote = tamanoPorLote(documents);
+  const { porLote, sinEscala } = tamanosDeLotes(documents);
   const familias = new Map();
 
   // Una familia armada sólo con Acondicionado —sin ningún registro de
@@ -95,6 +105,13 @@ export function tamanosPorFamilia(documents, familiaDe) {
     const familia = familiaDe(doc);
     if (!familias.has(familia)) familias.set(familia, new Set());
     if (!familiasConFabricacion.has(familia)) continue;
+    // Las escalas las ponen los lotes con fabricación (o su equivalencia
+    // conocida). Un envase de otro lote, sin su fabricación cargada, sólo
+    // declara cuántas unidades salieron: contarlo como otra escala partía en
+    // dos un producto que se fabrica siempre igual —PROSTASIL, con la
+    // fabricación del lote 2093106 y el envase del 2083576, salía como dos
+    // análisis y a cada uno le faltaba una etapa—.
+    if (sinEscala.has(doc.lote)) continue;
     const tamano = porLote.get(doc.lote);
     if (tamano) familias.get(familia).add(tamano);
   }
