@@ -166,6 +166,9 @@ export function separarLecturas(documentos = []) {
       ...x,
       veces: x.lecturas.length,
       criterios: criteriosDe(x.lecturas),
+      // Los pasos del registro donde se lee ("4.4.16"): es lo que permite
+      // volver al RMD y marcar en qué operación va el V°B°.
+      pasos: [...new Set(x.lecturas.map((l) => l.paso).filter(Boolean))],
       ejemplo: x.lecturas[0]?.label || "",
     }));
 

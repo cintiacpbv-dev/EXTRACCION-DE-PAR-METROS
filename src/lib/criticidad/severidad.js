@@ -79,6 +79,9 @@ export function anotarSeveridades(lista) {
       justificacion: s.justificacion || "",
       decision: s.decision || "",
       origen: s.origen || "ia",
+      tipoVinculo: s.tipoVinculo || "",
+      incertidumbre: s.incertidumbre || "",
+      otrosFactores: s.otrosFactores || "",
     });
   }
   return severidadesEnUso();
@@ -179,6 +182,10 @@ export function fusionar(propuestas = []) {
       justificacion: p.justificacion || guardada?.justificacion || "",
       decision: p.decision || guardada?.decision || "",
       origen: guardada?.origen === "revisada" ? "revisada" : "ia",
+      // Las columnas del registro de severidad del formato (Paso 1b).
+      tipoVinculo: p.tipoVinculo || guardada?.tipoVinculo || "",
+      incertidumbre: p.incertidumbre || guardada?.incertidumbre || "",
+      otrosFactores: p.otrosFactores || guardada?.otrosFactores || "",
     });
   }
 

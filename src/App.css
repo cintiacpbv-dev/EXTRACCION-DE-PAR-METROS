@@ -4603,3 +4603,85 @@ body.esta-redimensionando {
   font-style: italic;
   color: var(--sky-text);
 }
+
+/* ---------- RMD con V°B° (Criticidad) ---------- */
+.vobo-lista {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.vobo-lista li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-tint);
+}
+
+.vobo-resumen {
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+/* ---------- Datos del documento (Criticidad) ---------- */
+.criticidad-documento {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-tint);
+}
+
+.criticidad-documento summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.criticidad-documento__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 14px;
+  margin: 12px 0;
+}
+
+.criticidad-documento__personas {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.criticidad-documento__personas > div {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 2fr 2fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.criticidad-documento input,
+.criticidad-documento select,
+.criticidad-documento textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.criticidad-documento__comentarios {
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .criticidad-documento__personas > div {
+    grid-template-columns: 1fr;
+  }
+}

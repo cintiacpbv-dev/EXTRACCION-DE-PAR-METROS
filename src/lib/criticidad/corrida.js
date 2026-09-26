@@ -193,6 +193,7 @@ export async function pasoScreening(parametros, { producto, forma, etapa, atribu
       // convertiría en "No Clave" a parámetros que nadie miró.
       desempeno: typeof cruda?.desempeno === "boolean" ? cruda.desempeno : null,
       desempenoMotivo: cruda?.desempenoMotivo || "",
+      codigoOrigen: ["CP", "L", "E", "M"].includes(cruda?.codigoOrigen) ? cruda.codigoOrigen : "",
       atributosFueraDeLista: fuera,
       // El mecanismo que escribió la IA ya viene razonado con la evidencia y
       // con su cita; la respuesta entera de la bibliografía sólo queda cuando
@@ -328,6 +329,10 @@ export async function pasoFmea(criticos, { producto, forma, fetchImpl = fetch } 
       detectabilidad,
       npr: npr(p.severidad, probabilidad, detectabilidad),
       racionalFmea: f?.racional || "",
+      modoFalla: f?.modoFalla || "",
+      controles: f?.controles || "",
+      accion: f?.accion || "",
+      responsable: f?.responsable || "",
     };
   });
 }

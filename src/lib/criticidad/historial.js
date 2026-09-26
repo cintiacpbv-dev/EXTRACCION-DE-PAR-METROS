@@ -47,7 +47,7 @@ export function nombreDe({ producto, fuente, protocoloNombre }) {
  * planta puede cambiar después, y el historial tiene que enseñar lo que se
  * decidió entonces.
  */
-export function evaluacionDesde({ id, creado, producto, forma, lote, fuente, protocoloNombre, corrida, severidades, desempeno, vinculos, resumen }) {
+export function evaluacionDesde({ id, creado, producto, forma, lote, fuente, protocoloNombre, meta, corrida, severidades, desempeno, vinculos, resumen }) {
   return {
     id: id || nuevoId(),
     producto: producto || "",
@@ -64,6 +64,9 @@ export function evaluacionDesde({ id, creado, producto, forma, lote, fuente, pro
       severidades: severidades || [],
       desempeno: desempeno || {},
       vinculos: vinculos || {},
+      // Lo demás del documento: etapas con sus equipos, documentos fuente y
+      // los datos que se llenaron a mano (secciones A, B, C, F y G).
+      meta: meta || {},
     },
     creado: creado || ahora(),
     actualizado: ahora(),

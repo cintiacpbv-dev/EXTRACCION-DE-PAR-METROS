@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import UploadZone from "./UploadZone.jsx";
+import RmdVoBo from "./RmdVoBo.jsx";
 import { IconAlert, IconDownload, IconCheck, IconLayers, IconTrash } from "./Icons.jsx";
 import { relativeDate } from "../lib/formatDate.js";
 import { processPdfFile } from "../lib/parsers/index.js";
@@ -7,6 +8,7 @@ import { separarLecturas } from "../lib/atributos/modelo.js";
 import { atributosDelProtocolo as atributosDelProtocoloAntiguo } from "../lib/atributos/protocolo.js";
 import { atributosDelProtocolo, leerProtocoloParaCriticidad } from "../lib/criticidad/protocolo.js";
 import { formaDelProducto, partidaSinConfirmar } from "../lib/criticidad/puntoDePartida.js";
+import { FORMATO } from "../lib/criticidad/textos.js";
 import { correr, pasoEstadistico } from "../lib/criticidad/corrida.js";
 import { aplicarAjustesDeVinculo } from "../lib/criticidad/corroborar.js";
 import { abrirEvaluacion, borrarEvaluacion, evaluacionDesde, guardarEvaluacion, listarHistorial } from "../lib/criticidad/historial.js";
@@ -21,20 +23,70 @@ import {
 } from "../lib/criticidad/severidad.js";
 import {
   TODOS_LOS_PASOS,
+  etiquetaDeClasificacion,
   exportarCriticidadExcel,
   exportarCriticidadWord,
   fuenteDe,
 } from "../lib/exportCriticidad.js";
 
+// La secuencia del formato de Validaciones, en su orden.
 const NOMBRES_DE_PASO = [
-  "Atributos de calidad",
-  "Severidad por atributo",
-  "Causa-efecto",
-  "Clasificación",
-  "FMEA de los Críticos",
-  "Vínculo estadístico",
-  "Plan de reevaluación",
+  ["1a", "Atributos de calidad"],
+  ["1b", "Severidad por atributo"],
+  ["2", "Causa–efecto"],
+  ["3", "Clasificación final"],
+  ["4", "FMEA (solo PCP)"],
+  ["5", "Vínculo estadístico"],
+  ["E", "Reevaluación"],
 ];
+
+const EQUIPO_POR_DEFECTO = FORMATO.areasDelEquipo.map((area) => ({ area, nombre: "", cargo: "" }));
+const APROBACIONES_POR_DEFECTO = FORMATO.aprobaciones.map((rol) => ({ rol, nombre: "", cargo: "" }));
+
+/** Los datos del documento que no salen de los registros: se llenan aquí. */
+function documentoVacio() {
+  return {
+    codigoProducto: "",
+    concentracion: "",
+    planta: "",
+    numeroDocumento: "",
+    protocoloAsociado: "",
+    tamanoLote: "",
+    tipoValidacion: "",
+    situacionGap: 0,
+    referenciaDiseno: "",
+    comentarios: "",
+    equipo: EQUIPO_POR_DEFECTO,
+    aprobaciones: APROBACIONES_POR_DEFECTO,
+  };
+}
+
+/**
+ * Lo que la sección D y los "documentos fuente" de la sección A necesitan de
+ * los registros: por etapa, sus operaciones y sus equipos; y qué RMD se usó.
+ */
+function contextoDeLosRegistros(docs, filas) {
+  const equiposPorEtapa = new Map();
+  for (const d of docs) {
+    const etapa = d.stage || d.meta?.stage;
+    const equipos = (d.params || [])
+      .filter((p) => /EQUIPO|INSTRUMENTO/i.test(p.section || "") && !/VERIFICADO|FECHA|HORA/i.test(p.label || ""))
+      .map((p) => String(p.label).replace(/\s+—\s+Lectura \d+$/, "").trim());
+    equiposPorEtapa.set(etapa, [...new Set([...(equiposPorEtapa.get(etapa) || []), ...equipos])]);
+  }
+  const etapas = [...new Set(filas.map((f) => f.etapa))].map((etapa) => ({
+    etapa,
+    operaciones: [...new Set(filas.filter((f) => f.etapa === etapa).map((f) => f.seccion).filter(Boolean))].slice(0, 12),
+    equipos: equiposPorEtapa.get(etapa) || [],
+  }));
+  const fuentes = docs
+    .map((d) => {
+      const m = d.meta || {};
+      return `RM ${d.stage || m.stage || ""} ${m.receta || ""}${m.orden ? ` — Orden ${m.orden}` : ""}${m.lote ? `, lote ${m.lote}` : ""}`.trim();
+    })
+    .filter(Boolean);
+  return { etapas, documentosFuente: [...new Set(fuentes)].join(" · ") };
+}
 
 /**
  * Evaluación de Criticidad y Riesgo: los 7 pasos del procedimiento.
@@ -85,6 +137,9 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
   const [meta, setMeta] = useState(null);
   const [reabierta, setReabierta] = useState(false);
   const [avisoHistorial, setAvisoHistorial] = useState("");
+  // Los datos del documento que no están en los registros (secciones A, B,
+  // C, F y G del formato). Se guardan con la evaluación.
+  const [documento, setDocumento] = useState(documentoVacio);
 
   // El catálogo de severidades es de toda la planta; `severidades` es sólo la
   // parte que esta corrida usa y enseña. Mezclarlos borraba las severidades
@@ -129,6 +184,10 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
         probabilidad: previo?.probabilidad ?? null,
         detectabilidad: previo?.detectabilidad ?? null,
         racionalFmea: previo?.racionalFmea || "",
+        modoFalla: previo?.modoFalla || "",
+        controles: previo?.controles || "",
+        accion: previo?.accion || "",
+        responsable: previo?.responsable || "",
         npr: npr(f.severidad, previo?.probabilidad, previo?.detectabilidad),
       };
     });
@@ -160,7 +219,9 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
           setError(`"${file.name}" es una Orden de Producción: no trae parámetros que evaluar.`);
           continue;
         }
-        nuevos.push({ ...doc, producto: doc.meta.producto, lote: doc.meta.lote, familia: doc.meta.producto, fileName: file.name });
+        // El PDF se guarda con el documento: es sobre él que se colorea el RMD
+        // con los V°B°.
+        nuevos.push({ ...doc, producto: doc.meta.producto, lote: doc.meta.lote, familia: doc.meta.producto, fileName: file.name, archivo: file });
       }
       if (nuevos.length > 0) {
         setSubidos((previos) => {
@@ -206,7 +267,10 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       // anterior, que sigue en el historial con los suyos.
       setVinculos({});
       setDesempeno({});
-      setMeta({ producto, forma, lote, fuente: r.fuente, protocoloNombre: r.fuente === "protocolo" ? protocolo?.nombre || "" : "" });
+      setMeta({
+        producto, forma, lote, fuente: r.fuente, protocoloNombre: r.fuente === "protocolo" ? protocolo?.nombre || "" : "",
+        ...contextoDeLosRegistros(enUso, r.filas),
+      });
       // Se anotan en el catálogo, no se sustituye: lo de los demás productos
       // sigue ahí. Y lo que se guarda en el navegador es el catálogo entero.
       const catalogo = anotarSeveridades(r.severidades);
@@ -337,7 +401,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
   // Lo que hay en pantalla, para que el guardado automático no tenga que
   // depender de cada cambio y reprogramarse solo.
   const estadoRef = useRef({});
-  estadoRef.current = { corrida, severidades, desempeno, vinculos, resultado, meta, evaluacionId, creado };
+  estadoRef.current = { corrida, severidades, desempeno, vinculos, resultado, meta, evaluacionId, creado, documento };
 
   /**
    * Guarda la evaluación tal como está: la corrida y lo ajustado a mano
@@ -354,6 +418,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       id: e.evaluacionId,
       creado: e.creado,
       ...e.meta,
+      meta: { ...e.meta, documento: e.documento },
       corrida: e.corrida,
       severidades: e.severidades,
       desempeno: e.desempeno,
@@ -386,7 +451,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
     clearTimeout(temporizadorRef.current);
     temporizadorRef.current = setTimeout(guardarAhora, 1500);
     return () => clearTimeout(temporizadorRef.current);
-  }, [corrida, severidades, desempeno, vinculos, meta, guardarAhora]);
+  }, [corrida, severidades, desempeno, vinculos, meta, documento, guardarAhora]);
 
   async function abrirDelHistorial(id) {
     const evaluacion = await abrirEvaluacion(id);
@@ -405,7 +470,8 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
     setSeveridades(d.severidades || []);
     setDesempeno(d.desempeno || {});
     setVinculos(d.vinculos || {});
-    setMeta({ producto: d.producto, forma: d.forma, lote: d.lote, fuente: d.fuente, protocoloNombre: d.protocoloNombre });
+    setMeta({ producto: d.producto, forma: d.forma, lote: d.lote, fuente: d.fuente, protocoloNombre: d.protocoloNombre, ...(d.meta || {}) });
+    setDocumento({ ...documentoVacio(), ...(d.meta?.documento || {}) });
     setForma(d.forma || "");
     setEvaluacionId(evaluacion.id);
     setCreado(evaluacion.creado);
@@ -443,11 +509,11 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
     producto: meta?.producto ?? producto,
     forma: meta?.forma ?? forma,
     lote: meta?.lote ?? lote,
-    etapas: [...new Set(resultado.filas.map((f) => f.etapa))].map((etapa) => ({
-      etapa,
-      parametros: resultado.filas.filter((f) => f.etapa === etapa).length,
-      atributos: resultado.atributos.filter((a) => a.etapa === etapa).map((a) => a.nombre),
-    })),
+    etapas: meta?.etapas || contextoDeLosRegistros(enUso, resultado.filas).etapas,
+    documento: {
+      ...documento,
+      documentosFuente: meta?.documentosFuente || contextoDeLosRegistros(enUso, resultado.filas).documentosFuente,
+    },
     atributos: resultado.atributos,
     severidades,
     corroboracionSeveridad: corrida?.corroborada ? corrida.corroboracionSeveridad : null,
@@ -535,14 +601,14 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       <section className="card">
         <h2 className="seccion-titulo">Evaluación de Criticidad y Riesgo</h2>
         <p className="muted">
-          Los siete pasos del procedimiento (ICH Q9(R1), PDA TR60): atributos de calidad, severidad de cada uno,
-          causa-efecto por parámetro, clasificación Crítico / Clave / No Clave, FMEA sólo de los Críticos, vínculo
+          La secuencia del formato de Validaciones (ICH Q9(R1), PDA TR60): atributos de calidad y severidad de cada uno,
+          causa–efecto por parámetro, clasificación final PCP / Clave / No clave, FMEA sólo de los PCP, vínculo
           estadístico con el muestreo del PPQ y plan de reevaluación.
         </p>
         <ol className="criticidad-pasos">
-          {NOMBRES_DE_PASO.map((n, i) => (
-            <li key={i}>
-              <span className="criticidad-pasos__n">{i}</span> {n}
+          {NOMBRES_DE_PASO.map(([n, nombre]) => (
+            <li key={n}>
+              <span className="criticidad-pasos__n">{n}</span> {nombre}
             </li>
           ))}
         </ol>
@@ -612,6 +678,8 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
           {nombresDeAtributos.length} atributos de calidad
         </p>
 
+        <DatosDelDocumento documento={documento} onChange={setDocumento} />
+
         <label className="criticidad-corroborar">
           <input type="checkbox" checked={corroborar} onChange={(e) => setCorroborar(e.target.checked)} disabled={!!trabajando} />
           <span>
@@ -641,7 +709,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
       {resultado && (
         <>
           <section className="card">
-            <h3 className="seccion-titulo">Paso 1 · Severidad por atributo</h3>
+            <h3 className="seccion-titulo">Paso 1b · Severidad por atributo</h3>
             <p className="muted">
               Es lo que decide toda la clasificación: sólo severidad 4 o 5 puede producir un parámetro Crítico.
               Ajústala y el cuadro de abajo se recalcula al instante — no se vuelve a preguntar a nadie, porque la
@@ -705,13 +773,13 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
             <div className="toolbar">
               <span className="muted">
                 {resultado.resumen.total} parámetros ·{" "}
-                <strong>{resultado.resumen.criticos} Críticos</strong> · {resultado.resumen.claves} Clave ·{" "}
-                {resultado.resumen.noClaves} No Clave
+                <strong>{resultado.resumen.criticos} PCP</strong> · {resultado.resumen.claves} Clave ·{" "}
+                {resultado.resumen.noClaves} No clave
                 {resultado.resumen.pendientes > 0 && ` · ${resultado.resumen.pendientes} pendientes`}
               </span>
               <span className="toolbar__spacer" />
               <button className="btn" onClick={() => exportarCriticidadWord({ ...datosDelDocumento, pasos: [0, 1, 2, 3] })}>
-                <IconDownload size={15} /> Word (0-3)
+                <IconDownload size={15} /> Word (hasta el Paso 3)
               </button>
               <button className="btn" onClick={() => exportarCriticidadWord({ ...datosDelDocumento, pasos: TODOS_LOS_PASOS })}>
                 <IconDownload size={15} /> Word completo
@@ -750,7 +818,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                   <th>Vía de resolución</th>
                   <th>¿Afecta al desempeño?</th>
                   {conAnterior && <th>Antes</th>}
-                  <th>Clasificación</th>
+                  <th>Clasificación final</th>
                   <th>Fuente</th>
                 </tr>
               </thead>
@@ -788,7 +856,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                       )}
                     </td>
                     {conAnterior && <td className="muted">{f.clasificacionAnterior || "—"}</td>}
-                    <td>{f.clasificacion || "Pendiente"}</td>
+                    <td>{etiquetaDeClasificacion(f.clasificacion)}</td>
                     <td className="muted">
                       {fuenteDe(f)}
                       <CorroboracionDeParametro
@@ -825,14 +893,14 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
             <section className="card card--table">
               <div className="toolbar">
                 <span className="muted">
-                  Paso 4 · FMEA de los {resultado.fmea.length} parámetros Críticos. El NPR prioriza entre ellos; no
+                  Paso 4 · FMEA de los {resultado.fmea.length} PCP. El NPR prioriza entre ellos; no
                   cambia la clasificación.
                 </span>
               </div>
               <table className="protocolo-tabla">
                 <thead>
                   <tr>
-                    <th>Etapa</th><th>Parámetro</th><th>Atributo</th><th>S</th><th>P</th><th>D</th><th>NPR</th><th>Nivel de riesgo</th><th>Racional</th>
+                    <th>Etapa</th><th>PCP</th><th>ACC vinculado</th><th>Modo de falla / efecto</th><th>S</th><th>O</th><th>D</th><th>NPR</th><th>Nivel de riesgo</th><th>Controles · acción · responsable</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -841,6 +909,7 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                       <td className="muted">{f.etapa}</td>
                       <td><strong>{f.magnitud}</strong></td>
                       <td>{f.afecta?.join(" / ") || "—"}</td>
+                      <td className="muted">{f.modoFalla || "—"}</td>
                       <td>{f.severidad ?? "—"}</td>
                       <td>{f.probabilidad ?? "—"}</td>
                       <td>{f.detectabilidad ?? "—"}</td>
@@ -854,7 +923,11 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
                           "—"
                         )}
                       </td>
-                      <td className="muted">{f.racionalFmea || "—"}</td>
+                      <td className="muted">
+                        {f.controles || f.racionalFmea || "—"}
+                        {f.accion && <div><strong>Acción:</strong> {f.accion}</div>}
+                        {f.responsable && <div><strong>Responsable:</strong> {f.responsable}</div>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -888,6 +961,8 @@ export default function CriticidadView({ documentos = [], productos = [] }) {
               </table>
             </section>
           )}
+
+          <RmdVoBo resultado={resultado} producto={meta?.producto ?? producto} subidos={subidos} />
         </>
       )}
     </div>
@@ -953,8 +1028,79 @@ function CorroboracionDeParametro({ f, aceptada, onAceptar, onDeshacer }) {
   );
 }
 
-/** "112 parámetros · 35 Críticos · 11 Clave · 29 No Clave", para la lista. */
+/** "112 parámetros · 35 PCP · 11 Clave · 29 No clave", para la lista. */
 function resumenCorto(r) {
   if (!r || !r.total) return "sin resumen";
-  return `${r.total} parámetros · ${r.criticos} Críticos · ${r.claves} Clave · ${r.noClaves} No Clave`;
+  return `${r.total} parámetros · ${r.criticos} PCP · ${r.claves} Clave · ${r.noClaves} No clave`;
+}
+
+/**
+ * Lo que el formato pide y los registros no dicen: código, planta, protocolo,
+ * tipo de validación, la situación del gap, el equipo, los comentarios de la
+ * conclusión y quién firma. Plegado, para no estorbar a quien sólo evalúa.
+ */
+function DatosDelDocumento({ documento, onChange }) {
+  const campo = (clave) => ({
+    value: documento[clave] ?? "",
+    onChange: (e) => onChange({ ...documento, [clave]: e.target.value }),
+  });
+  const fila = (lista, i, clave, valor) =>
+    lista.map((x, k) => (k === i ? { ...x, [clave]: valor } : x));
+
+  return (
+    <details className="criticidad-documento">
+      <summary>Datos del documento — secciones A, B, C, F y G del formato (opcional)</summary>
+      <div className="criticidad-documento__grid">
+        <label className="f8-campo"><span>Código de producto</span><input {...campo("codigoProducto")} /></label>
+        <label className="f8-campo"><span>Concentración / presentación</span><input {...campo("concentracion")} /></label>
+        <label className="f8-campo"><span>Planta / Sección</span><input {...campo("planta")} /></label>
+        <label className="f8-campo"><span>N° de documento de riesgo</span><input {...campo("numeroDocumento")} /></label>
+        <label className="f8-campo"><span>Protocolo de validación asociado</span><input {...campo("protocoloAsociado")} /></label>
+        <label className="f8-campo"><span>Tamaño de lote</span><input {...campo("tamanoLote")} /></label>
+        <label className="f8-campo">
+          <span>Tipo de validación</span>
+          <select {...campo("tipoValidacion")}>
+            <option value="">Sin marcar</option>
+            {FORMATO.tiposDeValidacion.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <label className="f8-campo">
+          <span>B · Situación del producto</span>
+          <select value={documento.situacionGap ?? 0} onChange={(e) => onChange({ ...documento, situacionGap: Number(e.target.value) })}>
+            {FORMATO.situacionesGap.map((t, i) => <option key={i} value={i}>{t}</option>)}
+          </select>
+        </label>
+        {documento.situacionGap === 2 && (
+          <label className="f8-campo"><span>Referencia de los datos de diseño</span><input {...campo("referenciaDiseno")} /></label>
+        )}
+      </div>
+
+      <p className="muted">C · Equipo multidisciplinario</p>
+      <div className="criticidad-documento__personas">
+        {documento.equipo.map((p, i) => (
+          <div key={i}>
+            <span className="muted">{p.area}</span>
+            <input placeholder="Nombre" value={p.nombre} onChange={(e) => onChange({ ...documento, equipo: fila(documento.equipo, i, "nombre", e.target.value) })} />
+            <input placeholder="Cargo" value={p.cargo} onChange={(e) => onChange({ ...documento, equipo: fila(documento.equipo, i, "cargo", e.target.value) })} />
+          </div>
+        ))}
+      </div>
+
+      <p className="muted">G · Aprobaciones</p>
+      <div className="criticidad-documento__personas">
+        {documento.aprobaciones.map((p, i) => (
+          <div key={i}>
+            <span className="muted">{p.rol}</span>
+            <input placeholder="Nombre" value={p.nombre} onChange={(e) => onChange({ ...documento, aprobaciones: fila(documento.aprobaciones, i, "nombre", e.target.value) })} />
+            <input placeholder="Cargo / área" value={p.cargo} onChange={(e) => onChange({ ...documento, aprobaciones: fila(documento.aprobaciones, i, "cargo", e.target.value) })} />
+          </div>
+        ))}
+      </div>
+
+      <label className="f8-campo criticidad-documento__comentarios">
+        <span>F · Comentarios de la conclusión</span>
+        <textarea rows={2} {...campo("comentarios")} />
+      </label>
+    </details>
+  );
 }

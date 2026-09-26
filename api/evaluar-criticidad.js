@@ -80,8 +80,18 @@ const ESQUEMA_SEVERIDAD = {
         enum: ["CQA", "Atributo de Calidad (no crítico)", "No CQA"],
       },
       justificacion: { type: "string", description: "Una o dos frases: por qué esa severidad, nombrando la consecuencia." },
+      tipoVinculo: {
+        type: "string",
+        enum: ["A", "B", "C", "D", "E"],
+        description: "La fila de la matriz: A tolerancia cero · B directo con límite · C indirecto · D cosmético con correlación · E estético.",
+      },
+      incertidumbre: { type: "string", enum: ["Baja", "Alta"] },
+      otrosFactores: {
+        type: "string",
+        description: "Vía de administración, margen terapéutico, población o dosis que pesaron en la decisión, en pocas palabras; «—» si ninguno.",
+      },
     },
-    required: ["atributo", "severidad", "decision", "justificacion"],
+    required: ["atributo", "severidad", "decision", "justificacion", "tipoVinculo", "incertidumbre", "otrosFactores"],
   },
 };
 
@@ -110,8 +120,13 @@ const ESQUEMA_SCREENING = {
           "La pregunta de desempeño de proceso: ¿este parámetro afecta al rendimiento, al tiempo de operación o a la consistencia del proceso? Se responde SIEMPRE, haya sospecha o no.",
       },
       desempenoMotivo: { type: "string", description: "Por qué sí o por qué no, en una frase corta." },
+      codigoOrigen: {
+        type: "string",
+        enum: ["CP", "L", "E", "M"],
+        description: "De dónde sale la sospecha: CP conocimiento previo · L literatura (la evidencia de la bibliografía) · E experiencia · M mecanismo físico/químico.",
+      },
     },
-    required: ["id", "sospecha", "afecta", "origen", "desempeno", "desempenoMotivo"],
+    required: ["id", "sospecha", "afecta", "origen", "desempeno", "desempenoMotivo", "codigoOrigen"],
   },
 };
 
@@ -127,8 +142,12 @@ const ESQUEMA_FMEA = {
         type: "string",
         description: "Por qué esa Probabilidad y esa Detectabilidad, nombrando el control que existe.",
       },
+      modoFalla: { type: "string", description: "Modo de falla y su efecto: «Peso fuera de lo requerido → valoración fuera de especificación»." },
+      controles: { type: "string", description: "Los controles actuales que se ven en el registro (balanza calibrada, V°B°, control de peso cada hora…)." },
+      accion: { type: "string", description: "Acción o estrategia de control según el nivel de riesgo; «Monitoreo estándar» si es verde." },
+      responsable: { type: "string", description: "Área responsable: Producción, Control de Calidad, Validaciones, Acondicionado…" },
     },
-    required: ["id", "probabilidad", "detectabilidad", "racional"],
+    required: ["id", "probabilidad", "detectabilidad", "racional", "modoFalla", "controles", "accion", "responsable"],
   },
 };
 
@@ -223,6 +242,8 @@ ${USO_DE_LA_EVIDENCIA}
 ATRIBUTOS A CALIFICAR:
 ${lista}
 
+Para cada uno devuelve también la fila de la matriz que usaste ("tipoVinculo", A a E), la incertidumbre (Baja o Alta) y los otros factores que pesaron (vía, margen terapéutico, población; «—» si ninguno), que son columnas del registro de severidad.
+
 Para cada uno devuelve su severidad (1-5), su decisión (CQA cuando la variación puede afectar seguridad, eficacia o calidad; "Atributo de Calidad (no crítico)" cuando es un atributo real pero sin ese alcance; "No CQA" cuando es puramente estético o de conveniencia) y una justificación que nombre la CONSECUENCIA concreta, no la importancia genérica.
 
 Ten presente el umbral que viene después: sólo severidad 4 o 5 puede producir un Parámetro Crítico de Proceso. Sé conservador y coherente: un atributo de farmacopea con tolerancia casi nula (esterilidad, endotoxinas, uniformidad de dosis) es 5; uno cosmético sin correlación funcional es 1 o 2. Responde en español.`;
@@ -308,7 +329,7 @@ Criterio de calificación: la Probabilidad no se asume alta sólo porque la conf
 
 Si el criterio impreso en el registro es amplio ("no menos de 10 minutos", "informativo"), eso es señal de Probabilidad baja: hay margen. Si es estrecho ("70 °C ± 2 °C"), de Probabilidad media o alta.
 
-En el racional, nombra el control que existe. Responde en español.`;
+En el racional, nombra el control que existe. Devuelve además, para el registro FMEA del formato: el modo de falla con su efecto («Peso fuera de lo requerido → valoración fuera de especificación»), los controles actuales, la acción o estrategia de control según el nivel de riesgo (NPR 1–15 verde: monitoreo estándar; 16–35 amarillo: controles específicos; 36–125 rojo: mitigar antes de validar) y el área responsable. Responde en español.`;
 }
 
 function promptRevisarSeveridad({ producto, forma, atributos }) {

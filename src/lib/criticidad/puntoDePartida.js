@@ -97,17 +97,62 @@ export function formaDelProducto(...textos) {
  * en la operación y la etapa: "Ajuste de dosificación" sólo es de partida en
  * el tabletado o el encapsulado, no en cualquier sitio donde se dosifique.
  */
-export function puntoDePartidaDe(parametro, forma = null) {
+function coincide(e, parametro) {
   const nombre = `${parametro?.magnitud || ""} ${parametro?.ejemplo || ""}`;
   const contexto = `${parametro?.seccion || ""} ${parametro?.etapa || ""}`;
+  if (!e.re.test(nombre) && !e.re.test(`${nombre} ${contexto}`)) return false;
+  if (e.etapa && !e.etapa.test(`${nombre} ${contexto}`)) return false;
+  return true;
+}
+
+export function puntoDePartidaDe(parametro, forma = null) {
   for (const e of LISTA) {
     // Lo general vale para todos; lo de una forma, sólo para esa forma.
     if (forma && e.forma !== "General" && e.forma !== forma) continue;
-    if (!e.re.test(nombre) && !e.re.test(`${nombre} ${contexto}`)) continue;
-    if (e.etapa && !e.etapa.test(`${nombre} ${contexto}`)) continue;
-    return { parametro: e.parametro, fundamento: e.fundamento, forma: e.forma };
+    if (coincide(e, parametro)) return { parametro: e.parametro, fundamento: e.fundamento, forma: e.forma };
   }
   return null;
+}
+
+/**
+ * La lista de PCP de referencia del formato (3.2), contestada para este
+ * producto: por cada entrada que corresponde a su forma farmacéutica, qué
+ * parámetros de la evaluación la cubren (con su N°) y cómo quedaron. Las
+ * entradas de otras formas se resumen en una fila «N/A».
+ */
+export function verificacionDeReferencia(filas, { forma = null, numeros = new Map(), CRITICO } = {}) {
+  const salida = [];
+  for (const e of LISTA) {
+    if (forma && e.forma !== "General" && e.forma !== forma) continue;
+    const suyas = filas.filter((f) => coincide(e, f));
+    const n = suyas.map((f) => numeros.get(f.id)).filter(Boolean).sort((a, b) => a - b);
+    const noCriticas = suyas.filter((f) => f.clasificacion !== CRITICO);
+    salida.push({
+      forma: e.forma,
+      parametro: e.parametro,
+      fundamento: e.fundamento,
+      aplica: suyas.length > 0 ? "Sí" : "No",
+      numeros: n,
+      nota:
+        suyas.length === 0
+          ? "No se encontró en el registro evaluado."
+          : noCriticas.length
+            ? `${noCriticas.length} no quedaron PCP (${noCriticas.map((f) => `${f.magnitud}: ${f.clasificacion || "pendiente"}`).join("; ")}): justificar.`
+            : "",
+    });
+  }
+  if (forma) {
+    const otras = [...new Set(LISTA.map((e) => e.forma).filter((x) => x !== "General" && x !== forma))];
+    salida.push({
+      forma: "Otras",
+      parametro: `Demás parámetros de la lista (${otras.join(", ").toLowerCase()})`,
+      fundamento: `No corresponden a la forma farmacéutica (${forma.toLowerCase()}).`,
+      aplica: "N/A",
+      numeros: [],
+      nota: "",
+    });
+  }
+  return salida;
 }
 
 /**
